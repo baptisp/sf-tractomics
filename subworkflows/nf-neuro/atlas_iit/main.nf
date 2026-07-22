@@ -1,5 +1,3 @@
-import groovy.json.JsonOutput
-
 include { IMAGE_MATH as THR_BUNDLE_MASK } from '../../../modules/nf-neuro/image/math/main'
 include { IMAGE_MATH as SMOOTH_MASK } from '../../../modules/nf-neuro/image/math/main'
 include { IMAGE_MATH as THR_SMOOTHED_MASK } from '../../../modules/nf-neuro/image/math/main'
@@ -87,7 +85,7 @@ def convert_lut_txt_to_json(File lutFile, File jsonFile) {
             }
         }
     }
-    jsonFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(lutMap))
+    jsonFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(lutMap))
 }
 
 def fetch_and_convert_iit_gm_lut(lutUrl, dest) {

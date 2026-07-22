@@ -83,6 +83,10 @@ input:
           type: boolean
           description: If 'true', compute voxel count and volume (mm3) for each WM bundle mask and GM region using mrstats.
           default: false
+        run_roi_metrics:
+          type: boolean
+          description: If 'false', skip STATS_METRICSINROI and STATS_GM_ROIMETRICS (diffusion metric extraction). Useful when only volumes are needed. Defaults to true.
+          default: true
         atlas_iit_gm_atlas:
           type: string
           description: Path to the IIT GM Desikan atlas. If provided, used instead of downloading from NITRC.

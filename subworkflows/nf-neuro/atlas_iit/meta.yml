@@ -48,6 +48,18 @@ input:
           type: string
           description: Path to a directory containing IIT bundle masks. If provided, these inputs will be used instead of downloading and processing the bundle masks.
           default: null
+        run_gm_roimetrics:
+          type: boolean
+          description: If enabled, download and process the IIT GM Desikan parcellation atlas for grey matter ROI metrics extraction.
+          default: false
+        atlas_iit_gm_atlas:
+          type: string
+          description: Path to the IIT GM Desikan atlas (IIT_GM_Desikan_atlas.nii.gz). If provided, used instead of downloading from NITRC.
+          default: null
+        atlas_iit_gm_lut:
+          type: string
+          description: Path to the IIT GM Desikan LUT. Accepts a pre-converted JSON file or the raw tab-separated TXT file from NITRC (LUT_GM_Desikan_0to1.txt); the TXT is converted to JSON automatically without internet access. If provided, used instead of downloading from NITRC.
+          default: null
 output:
   - bundle_masks:
       type: file

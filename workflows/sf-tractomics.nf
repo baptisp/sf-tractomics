@@ -245,6 +245,10 @@ workflow SF_TRACTOMICS {
         return [meta, metrics]
     }
 
+    if ( params.run_gm_roimetrics && !params.run_atlas_roimetrics ) {
+        error "run_gm_roimetrics requires run_atlas_roimetrics = true (GM uses the same atlas registration as WM)."
+    }
+
     if ( params.run_atlas_roimetrics ) {
         ATLAS_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
@@ -253,7 +257,10 @@ workflow SF_TRACTOMICS {
                 use_atlas_iit: params.use_atlas_iit,
                 use_binary_masks: params.use_binary_masks,
                 atlas_iit_b0: params.atlas_iit_b0,
-                atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir
+                atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir,
+                run_gm_roimetrics: params.run_gm_roimetrics,
+                atlas_iit_gm_atlas: params.atlas_iit_gm_atlas,
+                atlas_iit_gm_lut: params.atlas_iit_gm_lut
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)
@@ -266,6 +273,15 @@ workflow SF_TRACTOMICS {
 
         ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/")
         ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
+
+        if ( params.run_gm_roimetrics ) {
+            ch_collection_gm_mean = collectStatsFiles(
+                ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
+                "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
+                "${params.outdir}/metrics/"
+            )
+            ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
+        }
 
 
         if ( params.harmonization_reference ) {

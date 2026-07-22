@@ -75,6 +75,18 @@ input:
           type: boolean
           description: If 'true', the IIT bundle masks will be thresholded to create binary masks before extracting the metrics.
           default: false
+        run_gm_roimetrics:
+          type: boolean
+          description: If 'true', also extract metrics per IIT GM Desikan parcellation region, reusing the WM atlas B0 registration.
+          default: false
+        atlas_iit_gm_atlas:
+          type: string
+          description: Path to the IIT GM Desikan atlas. If provided, used instead of downloading from NITRC.
+          default: null
+        atlas_iit_gm_lut:
+          type: string
+          description: Path to the IIT GM Desikan LUT. Accepts a pre-converted JSON file or the raw tab-separated TXT file from NITRC (LUT_GM_Desikan_0to1.txt); the TXT is converted to JSON automatically without internet access. If provided, used instead of downloading from NITRC.
+          default: null
       mandatory: true
 output:
   - json:

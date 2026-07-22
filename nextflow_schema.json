@@ -1091,6 +1091,12 @@
                     "help_text": "Reuses the WM atlas B0 registration to warp the IIT GM Desikan atlas to subject space, then extracts FA/MD/RD/AD/AFD per GM region.",
                     "default": false
                 },
+                "run_roi_metrics": {
+                    "type": "boolean",
+                    "description": "Extract FA/MD/RD/AD/AFD per WM bundle and GM region. Set to false to skip diffusion metrics and only compute volumes. Requires run_atlas_roimetrics = true.",
+                    "help_text": "When false, STATS_METRICSINROI and STATS_GM_ROIMETRICS are skipped. Only atlas registration and volume computation (if run_roi_volumes = true) run. Useful when only volumes are needed.",
+                    "default": true
+                },
                 "run_roi_volumes": {
                     "type": "boolean",
                     "description": "Compute voxel count and volume (mm3) for each WM bundle and GM region using mrstats. Requires run_atlas_roimetrics = true.",

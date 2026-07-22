@@ -262,6 +262,7 @@ workflow SF_TRACTOMICS {
                 use_binary_masks: params.use_binary_masks,
                 atlas_iit_b0: params.atlas_iit_b0,
                 atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir,
+                run_roi_metrics: params.run_roi_metrics,
                 run_gm_roimetrics: params.run_gm_roimetrics,
                 atlas_iit_gm_atlas: params.atlas_iit_gm_atlas,
                 atlas_iit_gm_lut: params.atlas_iit_gm_lut,
@@ -269,23 +270,25 @@ workflow SF_TRACTOMICS {
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)
+        ch_collection_mean_input = channel.empty()
 
-        // Collect all ROI stats into a single file
-        // by appending each row of the TSV/CSV files,
-        // while keeping the header from the first
-        // file only and skipping it in the rest.
-        ch_collection_mean_input = ATLAS_ROIMETRICS.out.stats_tab_mean
+        if ( params.run_roi_metrics ) {
+            // Collect all ROI stats into a single file
+            // by appending each row of the TSV/CSV files,
+            // while keeping the header from the first
+            // file only and skipping it in the rest.
+            ch_collection_mean_input = ATLAS_ROIMETRICS.out.stats_tab_mean
+            ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/")
+            ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
 
-        ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/")
-        ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
-
-        if ( params.run_gm_roimetrics ) {
-            ch_collection_gm_mean = collectStatsFiles(
-                ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
-                "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
-                "${params.outdir}/metrics/"
-            )
-            ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
+            if ( params.run_gm_roimetrics ) {
+                ch_collection_gm_mean = collectStatsFiles(
+                    ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
+                    "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/"
+                )
+                ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
+            }
         }
 
         if ( params.run_roi_volumes ) {

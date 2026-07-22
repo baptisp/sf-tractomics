@@ -249,6 +249,10 @@ workflow SF_TRACTOMICS {
         error "run_gm_roimetrics requires run_atlas_roimetrics = true (GM uses the same atlas registration as WM)."
     }
 
+    if ( params.run_roi_volumes && !params.run_atlas_roimetrics ) {
+        error "run_roi_volumes requires run_atlas_roimetrics = true."
+    }
+
     if ( params.run_atlas_roimetrics ) {
         ATLAS_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
@@ -260,7 +264,8 @@ workflow SF_TRACTOMICS {
                 atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir,
                 run_gm_roimetrics: params.run_gm_roimetrics,
                 atlas_iit_gm_atlas: params.atlas_iit_gm_atlas,
-                atlas_iit_gm_lut: params.atlas_iit_gm_lut
+                atlas_iit_gm_lut: params.atlas_iit_gm_lut,
+                run_roi_volumes: params.run_roi_volumes
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)
@@ -281,6 +286,32 @@ workflow SF_TRACTOMICS {
                 "${params.outdir}/metrics/"
             )
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
+        }
+
+        if ( params.run_roi_volumes ) {
+            // Collect WM bundle volumes into a single global CSV
+            ATLAS_ROIMETRICS.out.wm_volumes
+                .map { _meta, csv -> csv }
+                .collectFile(
+                    storeDir: "${params.outdir}/metrics/",
+                    name: "space-native_atlas-iit_desc-roi_volumes.csv",
+                    skip: 1,
+                    keepHeader: true,
+                    sort: true
+                )
+
+            // Collect GM region volumes into a single global CSV
+            if ( params.run_gm_roimetrics ) {
+                ATLAS_ROIMETRICS.out.gm_volumes
+                    .map { _meta, csv -> csv }
+                    .collectFile(
+                        storeDir: "${params.outdir}/metrics/",
+                        name: "space-native_atlas-iit-gm_desc-roi_volumes.csv",
+                        skip: 1,
+                        keepHeader: true,
+                        sort: true
+                    )
+            }
         }
 
 

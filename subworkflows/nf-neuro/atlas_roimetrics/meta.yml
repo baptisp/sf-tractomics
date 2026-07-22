@@ -79,6 +79,10 @@ input:
           type: boolean
           description: If 'true', also extract metrics per IIT GM Desikan parcellation region, reusing the WM atlas B0 registration.
           default: false
+        run_roi_volumes:
+          type: boolean
+          description: If 'true', compute voxel count and volume (mm3) for each WM bundle mask and GM region using mrstats.
+          default: false
         atlas_iit_gm_atlas:
           type: string
           description: Path to the IIT GM Desikan atlas. If provided, used instead of downloading from NITRC.

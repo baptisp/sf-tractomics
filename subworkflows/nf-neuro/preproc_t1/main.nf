@@ -109,14 +109,14 @@ workflow PREPROC_T1 {
             // NF26: errorStrategy='ignore' on a failed process emits [meta, null] on output
             // channels instead of closing them. Filter null outputs and fall back to the
             // pre-BET image so T1_REGISTRATION is not passed a null path.
-            image_bet = BETCROP_ANTSBET.out.t1.filter { _meta, t1 -> t1 != null }
-            mask_bet  = BETCROP_ANTSBET.out.mask.filter { _meta, m -> m != null }
+            image_bet = BETCROP_ANTSBET.out.t1.filter { bet_meta, t1 -> t1 != null }
+            mask_bet  = BETCROP_ANTSBET.out.mask.filter { bet_meta, m -> m != null }
 
-            def ch_bet_succeeded = image_bet.map { meta, _ -> [meta, true] }
+            def ch_bet_succeeded = image_bet.map { meta, t1 -> [meta, true] }
             def ch_fallback_image = ch_image_before_bet
                 .join(ch_bet_succeeded, remainder: true)
-                .filter { _meta, _img, succeeded -> succeeded == null }
-                .map { meta, img, _ -> [meta, img] }
+                .filter { meta, img, succeeded -> succeeded == null }
+                .map { meta, img, succeeded -> [meta, img] }
 
             ch_image = image_bet.mix(ch_fallback_image)
             ch_mask  = mask_bet

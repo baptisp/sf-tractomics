@@ -100,14 +100,26 @@ workflow PREPROC_T1 {
                 .join(ch_initial_affine, remainder: true)
                 .map{ meta, image, template, probability_map, mask, init_affine -> [meta, image, template, probability_map, mask, init_affine ?: []] }
 
+            def ch_image_before_bet = ch_image
+
             BETCROP_ANTSBET ( ch_bet )
             ch_versions = ch_versions.mix(BETCROP_ANTSBET.out.versions.first())
 
             // ** Setting BET output ** //
-            image_bet = BETCROP_ANTSBET.out.t1
-            ch_image = BETCROP_ANTSBET.out.t1
-            mask_bet = BETCROP_ANTSBET.out.mask
-            ch_mask = BETCROP_ANTSBET.out.mask
+            // NF26: errorStrategy='ignore' on a failed process emits [meta, null] on output
+            // channels instead of closing them. Filter null outputs and fall back to the
+            // pre-BET image so T1_REGISTRATION is not passed a null path.
+            image_bet = BETCROP_ANTSBET.out.t1.filter { _meta, t1 -> t1 != null }
+            mask_bet  = BETCROP_ANTSBET.out.mask.filter { _meta, m -> m != null }
+
+            def ch_bet_succeeded = image_bet.map { meta, _ -> [meta, true] }
+            def ch_fallback_image = ch_image_before_bet
+                .join(ch_bet_succeeded, remainder: true)
+                .filter { _meta, _img, succeeded -> succeeded == null }
+                .map { meta, img, _ -> [meta, img] }
+
+            ch_image = image_bet.mix(ch_fallback_image)
+            ch_mask  = mask_bet
         }
 
         if ( options.preproc_t1_run_crop ) {

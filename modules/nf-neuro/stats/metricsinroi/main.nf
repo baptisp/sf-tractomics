@@ -33,9 +33,6 @@ process STATS_METRICSINROI {
     assert output_format in ['csv', 'tsv'] : "output_format must be either 'csv' or 'tsv'"
 
     def sep = output_format == 'tsv' ? '\t' : ','
-    def subject_id_col = meta.id ?: ""
-    def session_id_col = meta.session ?: ""
-    def run_id_col     = meta.run ?: ""
     """
     export OMP_NUM_THREADS=${task.ext.single_thread ? 1 : task.cpus}
 
@@ -49,17 +46,6 @@ process STATS_METRICSINROI {
         scil_volume_stats_in_labels $rois $rois_lut \
             --metrics $metrics \
             --sort_keys > ${prefix}_${suffix}.json
-
-        # scil_volume_stats_in_labels outputs metric-centric JSON {metric:{region:{mean,std}}}.
-        # Transpose to region-centric {region:{metric:{mean,std}}} so the rest of the
-        # pipeline (key/value cleaning, header generation) works identically to WM mode.
-        jq -r '
-            [to_entries[] | .key as \$metric | .value | to_entries[] | {k: .key, mk: \$metric, v: .value}] |
-            group_by(.k) |
-            map({key: .[0].k, value: (map({key: .mk, value: .v}) | from_entries)}) |
-            from_entries
-        ' ${prefix}_${suffix}.json > ${prefix}_${suffix}_tmp.json
-        mv ${prefix}_${suffix}_tmp.json ${prefix}_${suffix}.json
     else
         scil_volume_stats_in_ROI $rois \
             --metrics $metrics \
@@ -77,24 +63,6 @@ process STATS_METRICSINROI {
         ' ${prefix}_${suffix}.json > ${prefix}_${suffix}_tmp.json
         mv ${prefix}_${suffix}_tmp.json ${prefix}_${suffix}.json
     done
-
-    # Normalize outer keys: strip leading '_' (artifact of double-__ file naming convention
-    # after prefix removal) and convert 'desc-xxx__metric' to 'metric_xxx'.
-    jq -r '
-        with_entries(
-            .key |= (
-                if test("^desc-[a-zA-Z0-9]+__") then
-                    capture("^desc-(?<d>[a-zA-Z0-9]+)__(?<rest>.+)$") |
-                    .rest + "_" + .d
-                elif startswith("_") then
-                    ltrimstr("_")
-                else
-                    .
-                end
-            )
-        )
-    ' ${prefix}_${suffix}.json > ${prefix}_${suffix}_tmp.json
-    mv ${prefix}_${suffix}_tmp.json ${prefix}_${suffix}.json
 
     # Extract 'desc' substring from keys and store it temporarily in values
     # This allows us to remove the substring from the key now and append it later
@@ -154,9 +122,9 @@ process STATS_METRICSINROI {
     metrics=\$(FIRST_ROI="\$first_roi" jq -r ".\\"\$first_roi\\" | keys[]" ${prefix}_${suffix}.json)
 
     # Create the CSV/TSV headers
-    # (subject_id, session, run, roi, meta_columns..., metric1, metric2, ..., metricN)
-    header_mean="sid${sep}session${sep}run${sep}roi"
-    header_std="sid${sep}session${sep}run${sep}roi"
+    # (sample, roi, metric1, metric2, ..., metricN)
+    header_mean="sample${sep}roi"
+    header_std="sample${sep}roi"
 
     # Create the meta columns
     for meta_col in ${meta_columns.join(' ')}; do
@@ -174,9 +142,9 @@ process STATS_METRICSINROI {
 
     for roi in \$rois;
     do
-        # Initialize lines with subject_id, session, run, and roi
-        line_mean="${subject_id_col}${sep}${session_id_col}${sep}${run_id_col}${sep}\${roi}"
-        line_std="${subject_id_col}${sep}${session_id_col}${sep}${run_id_col}${sep}\${roi}"
+        # Initialize lines with sample and roi
+        line_mean="${prefix}${sep}\${roi}"
+        line_std="${prefix}${sep}\${roi}"
 
         # Add meta columns values if specified
         for meta_val in ${meta_columns_values.join(' ')}; do

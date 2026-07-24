@@ -254,6 +254,10 @@ workflow SF_TRACTOMICS {
         error "run_roi_volumes requires run_atlas_roimetrics = true."
     }
 
+    ch_collection_mean_input = channel.empty()
+    ch_collection_gm_mean = channel.empty()
+    ch_csf_stats_merged = channel.empty()
+
     if ( params.run_atlas_roimetrics ) {
         ATLAS_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
@@ -271,7 +275,6 @@ workflow SF_TRACTOMICS {
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)
-        ch_collection_mean_input = channel.empty()
 
         if ( params.run_roi_metrics ) {
             if ( params.run_roi_volumes ) {
@@ -382,7 +385,7 @@ workflow SF_TRACTOMICS {
 
         if ( params.run_csf_roimetrics ) {
             if ( params.run_csf_volumes ) {
-                collectStatsFilesWithVolumes(
+                ch_csf_stats_merged = collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
                     ATLAS_CSF_ROIMETRICS.out.volumes,
                     "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
@@ -390,7 +393,7 @@ workflow SF_TRACTOMICS {
                     "CSF_region"
                 )
             } else {
-                collectStatsFiles(
+                ch_csf_stats_merged = collectStatsFiles(
                     ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
                     "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
@@ -437,6 +440,24 @@ workflow SF_TRACTOMICS {
                     skip: 1, keepHeader: true, sort: true
                 )
         }
+    }
+
+    if ( params.run_merge_all_stats ) {
+        def ch_for_merge = channel.empty()
+        if ( params.run_atlas_roimetrics && params.run_roi_metrics ) {
+            ch_for_merge = ch_for_merge.mix(ch_collection_mean_input.map { p -> [[:], p] })
+        }
+        if ( params.run_gm_roimetrics && params.run_roi_metrics ) {
+            ch_for_merge = ch_for_merge.mix(ch_collection_gm_mean.map { p -> [[:], p] })
+        }
+        if ( params.run_csf_roimetrics ) {
+            ch_for_merge = ch_for_merge.mix(ch_csf_stats_merged.map { p -> [[:], p] })
+        }
+        collectStatsFiles(
+            ch_for_merge,
+            "space-native_all-regions_label-mean_desc-roi_stats.tsv",
+            "${params.outdir}/metrics/"
+        )
     }
 
     if ( params.run_tractometry ) {

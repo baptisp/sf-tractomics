@@ -92,6 +92,11 @@ workflow ATLAS_CSF_ROIMETRICS {
             ch_csf_atlas = channel.fromPath(options.atlas_csf_atlas, checkIfExists: true)
         }
         else {
+            if (!options.fs_license) {
+                error "ATLAS_CSF_ROIMETRICS requires a FreeSurfer license to extract the MNI152 atlas from the container.\n" +
+                      "Register for free at https://surfer.nmr.mgh.harvard.edu/registration.html and set params.freesurfer_license to the path of your license.txt file.\n" +
+                      "Alternatively, provide a pre-converted NIfTI atlas via params.atlas_csf_atlas."
+            }
             ch_fs_license = channel.fromPath(options.fs_license, checkIfExists: true)
             EXTRACT_FREESURFER_MNI_ATLAS(ch_fs_license)
             ch_versions = ch_versions.mix(EXTRACT_FREESURFER_MNI_ATLAS.out.versions)

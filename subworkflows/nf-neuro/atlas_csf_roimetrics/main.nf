@@ -44,6 +44,9 @@ process EXTRACT_FREESURFER_MNI_ATLAS {
     storeDir "${launchDir}/.atlas_cache/freesurfer"
     container "freesurfer/freesurfer:7.4.1"
 
+    input:
+    path fs_license
+
     output:
     path "mni152_aparc_aseg.nii.gz", emit: aparc_aseg
     path "versions.yml",             emit: versions
@@ -53,6 +56,7 @@ process EXTRACT_FREESURFER_MNI_ATLAS {
 
     script:
     """
+    cp $fs_license \$FREESURFER_HOME/license.txt
     mri_convert \$FREESURFER_HOME/subjects/cvs_avg35_inMNI152/mri/aparc+aseg.mgz mni152_aparc_aseg.nii.gz
 
     cat <<-END_VERSIONS > versions.yml
@@ -88,7 +92,8 @@ workflow ATLAS_CSF_ROIMETRICS {
             ch_csf_atlas = channel.fromPath(options.atlas_csf_atlas, checkIfExists: true)
         }
         else {
-            EXTRACT_FREESURFER_MNI_ATLAS()
+            ch_fs_license = channel.fromPath(options.fs_license, checkIfExists: true)
+            EXTRACT_FREESURFER_MNI_ATLAS(ch_fs_license)
             ch_versions = ch_versions.mix(EXTRACT_FREESURFER_MNI_ATLAS.out.versions)
             ch_csf_atlas = EXTRACT_FREESURFER_MNI_ATLAS.out.aparc_aseg
         }

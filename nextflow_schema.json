@@ -1143,6 +1143,11 @@
             "default": "",
             "help_text": "Extracts diffusion metrics and volumes for CSF structures (ventricles, choroid plexus, CSF spaces) from the FreeSurfer MNI152 parcellation. Independent of the IIT atlas pipeline.",
             "properties": {
+                "freesurfer_license": {
+                    "type": "string",
+                    "description": "Path to a valid FreeSurfer license file. Required when run_csf_roimetrics, run_csf_volumes, run_csf_comparison_roimetrics, or run_csf_comparison_volumes is enabled.",
+                    "help_text": "The FreeSurfer license is free and can be obtained at https://surfer.nmr.mgh.harvard.edu/registration.html. Provide the full path to the license.txt file."
+                },
                 "run_csf_roimetrics": {
                     "type": "boolean",
                     "description": "Extract FA/MD/RD/AD/AFD per CSF region (ventricles, choroid plexus, CSF spaces) using the FreeSurfer MNI152 atlas.",

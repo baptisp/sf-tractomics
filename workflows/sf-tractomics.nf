@@ -353,6 +353,7 @@ workflow SF_TRACTOMICS {
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
             mergeCovariatesIntoMeta(ch_input_metrics, ch_covariates),
             [
+                fs_license:                    params.freesurfer_license,
                 atlas_csf_atlas:               params.atlas_csf_atlas,
                 atlas_csf_lut:                 params.atlas_csf_lut,
                 run_roi_metrics:               params.run_csf_roimetrics,

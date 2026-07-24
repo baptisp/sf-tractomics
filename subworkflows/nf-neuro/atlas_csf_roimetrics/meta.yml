@@ -55,6 +55,13 @@ input:
       type: map
       description: Map of options for the subworkflow.
       entries:
+        fs_license:
+          type: string
+          description: |
+            Path to a valid FreeSurfer license file. Required when atlas_csf_atlas is null
+            (auto-extraction via mri_convert from the FreeSurfer container requires the license).
+            Not needed when providing a custom atlas_csf_atlas.
+          default: null
         atlas_csf_atlas:
           type: string
           description: |

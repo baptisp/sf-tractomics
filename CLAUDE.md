@@ -189,8 +189,7 @@ Volumes: `metrics/comparison/space-native_atlas-freesurfer-comparison_desc-roi_v
 | `run_csf_comparison_roimetrics` | false | Extract FA/MD/RD/AD/AFD for GM/WM/ventricles (FreeSurfer) → `comparison/` subdir |
 | `run_csf_comparison_volumes` | false | Compute comparison region volumes → `comparison/` subdir |
 | `atlas_csf_comparison_lut` | null | Custom comparison LUT (.json); null = use `assets/freesurfer_comparison_lut.json` |
-| `run_merge_all_stats` | false | Merge WM + GM + CSF stats TSVs into `metrics/space-native_all-regions_label-mean_desc-roi_stats.tsv` |
-| `run_merge_all_volumes` | false | Merge all available metrics/volumes into `metrics/space-native_all-regions_desc-roi_combined.tsv`; uses stats TSV when metrics are enabled (already has volumes if both active), falls back to volume CSV when only volumes enabled |
+| `run_merge_all_stats` | false | Merge all available metrics/volumes into `metrics/space-native_all-regions_desc-roi_combined.tsv`; uses stats TSV when metrics are enabled (already has volumes if both active), falls back to volume CSV when only volumes enabled |
 
 ## Adding new metrics to ROI extraction
 

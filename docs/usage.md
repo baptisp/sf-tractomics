@@ -110,22 +110,12 @@ Reuses the warped FreeSurfer atlas from the CSF pipeline to extract metrics acro
 --atlas_csf_comparison_lut      /path/to/custom_comparison_lut.json  # optional
 ```
 
-### Merging all stats
-
-To merge WM + GM + CSF stats TSVs into a single file (adds a `region_type` column):
-
-```bash
---run_merge_all_stats true
-```
-
-Output: `metrics/space-native_all-regions_label-mean_desc-roi_stats.tsv`
-
-### Merging all metrics and volumes
+### Merging all stats and volumes
 
 To merge all available data (metrics TSVs and/or volume CSVs) across WM, GM, and CSF region types into a single file:
 
 ```bash
---run_merge_all_volumes true
+--run_merge_all_stats true
 ```
 
 Output: `metrics/space-native_all-regions_desc-roi_combined.tsv`

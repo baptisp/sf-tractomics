@@ -15,8 +15,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 - ROI volume computation (voxel count + mm³) for WM, GM, and CSF regions via new `stats/roivolumes` module.
 - Master param switches `--run_roi_metrics` and `--run_roi_volumes` to enable all region types at once.
 - Per-type param switches `--run_wm_metrics`, `--run_gm_metrics`, `--run_csf_metrics`, `--run_wm_volumes`, `--run_gm_volumes`, `--run_csf_volumes`.
-- `--run_merge_all_stats` option to concatenate WM + GM + CSF stats into a single TSV with a `region_type` column.
-- `--run_merge_all_volumes` option to merge all available metrics and/or volumes into a single file (`space-native_all-regions_desc-roi_combined.tsv`); uses the collected stats TSV when metrics are enabled (with volumes joined when both active), falls back to the volume CSV when only volumes are enabled.
+- `--run_merge_all_stats` option to merge all available metrics and/or volumes into a single file (`space-native_all-regions_desc-roi_combined.tsv`); uses the collected stats TSV when metrics are enabled (with volumes joined when both active), falls back to the volume CSV when only volumes are enabled.
 - `region_type` column in all stats output files.
 - `CLAUDE.md` codebase documentation.
 

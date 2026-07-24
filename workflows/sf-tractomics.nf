@@ -259,14 +259,10 @@ workflow SF_TRACTOMICS {
         error "IIT atlas metrics/volumes (WM or GM) require run_atlas_roimetrics = true."
     }
 
-    if ( params.run_merge_all_stats && !do_wm_metrics && !do_gm_metrics && !do_csf_metrics ) {
-        log.warn "run_merge_all_stats is enabled but no metrics pipelines are active. The merged file will be empty."
-    }
-
-    if ( params.run_merge_all_volumes &&
+    if ( params.run_merge_all_stats &&
          !do_wm_metrics && !do_gm_metrics && !do_csf_metrics &&
          !do_wm_volumes && !do_gm_volumes && !do_csf_volumes ) {
-        log.warn "run_merge_all_volumes is enabled but no metrics or volume pipelines are active. The merged file will be empty."
+        log.warn "run_merge_all_stats is enabled but no metrics or volume pipelines are active. The merged file will be empty."
     }
 
     ch_collection_mean_input = channel.empty()
@@ -460,7 +456,7 @@ workflow SF_TRACTOMICS {
         }
     }
 
-    if ( params.run_merge_all_volumes ) {
+    if ( params.run_merge_all_stats ) {
         def ch_for_unified = channel.empty()
         // For each region type: use the collected stats TSV when metrics are enabled
         // (already includes volumes if collectStatsFilesWithVolumes was used),
@@ -497,24 +493,6 @@ workflow SF_TRACTOMICS {
         collectUnifiedFiles(
             ch_for_unified,
             "space-native_all-regions_desc-roi_combined.tsv",
-            "${params.outdir}/metrics/"
-        )
-    }
-
-    if ( params.run_merge_all_stats ) {
-        def ch_for_merge = channel.empty()
-        if ( params.run_atlas_roimetrics && do_wm_metrics ) {
-            ch_for_merge = ch_for_merge.mix(ch_collection_mean_input.map { p -> [[:], p] })
-        }
-        if ( params.run_atlas_roimetrics && do_gm_metrics ) {
-            ch_for_merge = ch_for_merge.mix(ch_collection_gm_mean.map { p -> [[:], p] })
-        }
-        if ( do_csf_metrics ) {
-            ch_for_merge = ch_for_merge.mix(ch_csf_stats_merged.map { p -> [[:], p] })
-        }
-        collectStatsFiles(
-            ch_for_merge,
-            "space-native_all-regions_label-mean_desc-roi_stats.tsv",
             "${params.outdir}/metrics/"
         )
     }

@@ -254,6 +254,14 @@ workflow SF_TRACTOMICS {
         error "run_roi_volumes requires run_atlas_roimetrics = true."
     }
 
+    if ( params.run_merge_all_stats
+            && !(params.run_atlas_roimetrics && params.run_roi_metrics)
+            && !params.run_csf_roimetrics ) {
+        log.warn "run_merge_all_stats is enabled but no stats pipelines will produce output " +
+                 "(requires run_atlas_roimetrics + run_roi_metrics and/or run_csf_roimetrics). " +
+                 "The merged file will be empty."
+    }
+
     ch_collection_mean_input = channel.empty()
     ch_collection_gm_mean = channel.empty()
     ch_csf_stats_merged = channel.empty()
@@ -286,8 +294,7 @@ workflow SF_TRACTOMICS {
                     "WM_bundle"
                 )
             } else {
-                ch_collection_mean_input = ATLAS_ROIMETRICS.out.stats_tab_mean
-                ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
+                ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.stats_tab_mean, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
             }
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
 
@@ -378,11 +385,6 @@ workflow SF_TRACTOMICS {
         )
         ch_versions = ch_versions.mix(ATLAS_CSF_ROIMETRICS.out.versions)
 
-        // Per-row type map for the comparison file (mixes WM, GM, and CSF regions)
-        def comparison_type_map = new groovy.json.JsonSlurper()
-            .parse(new File("${projectDir}/assets/freesurfer_comparison_type_map.json"))
-            .collectEntries { k, v -> [(k): v] }
-
         if ( params.run_csf_roimetrics ) {
             if ( params.run_csf_volumes ) {
                 ch_csf_stats_merged = collectStatsFilesWithVolumes(
@@ -413,6 +415,10 @@ workflow SF_TRACTOMICS {
         }
 
         if ( params.run_csf_comparison_roimetrics ) {
+            // Per-row type map: maps each region name to WM/GM/CSF for the region_type column
+            def comparison_type_map = new groovy.json.JsonSlurper()
+                .parse(new File("${projectDir}/assets/freesurfer_comparison_type_map.json"))
+                .collectEntries { k, v -> [(k): v] }
             if ( params.run_csf_comparison_volumes ) {
                 collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
@@ -624,18 +630,17 @@ workflow SF_TRACTOMICS {
 
 }
 
-//
-// This function should simply collect the stats files into a single file by appending each row of the TSV/CSV files.
-// Nextflow's channel serialization strips the leading '/' from absolute path strings
-// inside .collect().map{} closures. This top-level helper restores it.
+// Nextflow 26.x channel serialization strips the leading '/' from Path objects that cross
+// a .collect() boundary. This top-level helper restores it before the path becomes a String.
 def toAbsFile(p) {
     def s = p.toString()
     return new File(s.startsWith('/') ? s : '/' + s)
 }
 
-// However, some files might have more or less fields in their TSV/CSV files, which can cause misalignement and
-// columns with no names. To avoid this, we read each file, build a set of all column names across all files, and
-// then write a new file with all columns, filling missing values with no value.
+// Collect per-subject stats TSV files into a single global file.
+// Handles unequal column sets across files: builds a union header and fills missing values
+// with empty strings. Paths are converted to absolute strings before .collect() to avoid
+// the Nextflow 26.x Path serialization bug.
 //
 // regionType: String (fixed for all rows), Map<roi_name, type> (per-row lookup), or null (no column).
 // When provided, a region_type column is inserted right after the roi column.
@@ -658,7 +663,7 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
             path_strings.each { path_str ->
                 def lines = new File(path_str.toString()).readLines()
                 if (lines.size() < 2) {
-                    log.info("Warning: No data rows in file ${path_str}. Skipping.")
+                    log.warn("No data rows in file ${path_str}. Skipping.")
                     return
                 }
                 def file_columns = lines[0].split('\t').toList()

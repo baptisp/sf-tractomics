@@ -27,6 +27,7 @@ def download_file_csf(url, output_path) {
 }
 
 def fetch_iit_b0_for_csf(dest) {
+    new File(dest).mkdirs()
     def outFile = new File("${dest}/IITmean_b0.nii.gz")
     if (!outFile.exists()) {
         download_file_csf(
@@ -40,7 +41,7 @@ def fetch_iit_b0_for_csf(dest) {
 // Extract the FreeSurfer cvs_avg35_inMNI152 parcellation from the container.
 // storeDir prevents re-extraction across pipeline runs.
 process EXTRACT_FREESURFER_MNI_ATLAS {
-    storeDir "${workflow.workDir}/atlas_csf"
+    storeDir "${launchDir}/.atlas_cache/freesurfer"
     container "freesurfer/freesurfer:7.4.1"
 
     output:
@@ -56,7 +57,7 @@ process EXTRACT_FREESURFER_MNI_ATLAS {
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
-        Freesurfer: \$(mri_convert -version | grep "freesurfer" | sed -E 's/.* ([0-9.]+).*/\\1/')
+        Freesurfer: \$(mri_convert --version 2>&1 | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -1 || echo "7.4.1")
     END_VERSIONS
     """
 
@@ -98,8 +99,7 @@ workflow ATLAS_CSF_ROIMETRICS {
         ch_csf_lut = channel.fromPath(lut_path, checkIfExists: true)
 
         // ----- Fetch IIT B0 as registration reference (isolated: own copy) -----
-        new File("${workflow.workDir}/atlas_csf").mkdirs()
-        def b0File = fetch_iit_b0_for_csf("${workflow.workDir}/atlas_csf")
+        def b0File = fetch_iit_b0_for_csf("${launchDir}/.atlas_cache/freesurfer")
         ch_template_ref = channel.fromPath(b0File.absolutePath, checkIfExists: true)
 
         // ----- Register atlas B0 reference → subject B0 -----

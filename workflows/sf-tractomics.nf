@@ -654,7 +654,7 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
             all_columns = all_columns.toList()
 
             // Create file writer for new file
-            def output_file = toAbsFile(output_file_path)
+            def output_file = new File(output_file_path).absoluteFile
             output_file.getParentFile().mkdirs()
             def file_writer = output_file.newWriter()
 
@@ -731,7 +731,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             all_columns.add("volume_mm3")
             all_columns = all_columns.toList()
 
-            def output_file = toAbsFile(output_file_path)
+            def output_file = new File(output_file_path).absoluteFile
             output_file.getParentFile().mkdirs()
             def fw = output_file.newWriter()
 

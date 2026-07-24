@@ -626,7 +626,7 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
 
             // Collect all column names across all files
             stats_files.each { stats_file ->
-                def lines = file(stats_file).readLines()
+                def lines = new File(stats_file.toString()).readLines()
                 if (lines.size() < 2) {
                     log.info("Warning: No data rows in file ${stats_file}. Skipping.")
                     return
@@ -645,13 +645,13 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
             all_columns = all_columns.toList()
 
             // Create file writer for new file
-            def output_file = file(output_file_path)
-            output_file.getParent().mkdirs()
+            def output_file = new File(output_file_path)
+            output_file.getParentFile().mkdirs()
             def file_writer = output_file.newWriter()
 
             // Read all stats files to write rows with all columns, filling missing values with no value
             stats_files.each { stats_file ->
-                def lines = file(stats_file).readLines()
+                def lines = new File(stats_file.toString()).readLines()
                 if (lines.size() < 2) {
                     return
                 }
@@ -699,7 +699,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             def all_columns = new LinkedHashSet()
 
             pairs.each { pair ->
-                def lines = file(pair[0]).readLines()
+                def lines = new File(pair[0].toString()).readLines()
                 if (lines.size() < 2) return
                 lines[0].split('\t').each { all_columns.add(it) }
             }
@@ -715,19 +715,19 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             all_columns.add("volume_mm3")
             all_columns = all_columns.toList()
 
-            def output_file = file(output_file_path)
-            output_file.getParent().mkdirs()
+            def output_file = new File(output_file_path)
+            output_file.getParentFile().mkdirs()
             def fw = output_file.newWriter()
 
             pairs.each { pair ->
-                def stats_lines = file(pair[0]).readLines()
+                def stats_lines = new File(pair[0].toString()).readLines()
                 if (stats_lines.size() < 2) return
 
                 def stats_cols = stats_lines[0].split('\t').toList()
                 def stats_idx  = stats_cols.withIndex().collectEntries { c, i -> [c, i] }
 
                 def vol_map = [:]
-                def vol_lines = file(pair[1]).readLines()
+                def vol_lines = new File(pair[1].toString()).readLines()
                 if (vol_lines.size() >= 2) {
                     def vol_cols = vol_lines[0].split(',').toList()
                     def roi_col  = vol_cols.find { it in ["region", "bundle"] }

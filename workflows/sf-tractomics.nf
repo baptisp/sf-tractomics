@@ -274,46 +274,53 @@ workflow SF_TRACTOMICS {
         ch_collection_mean_input = channel.empty()
 
         if ( params.run_roi_metrics ) {
-            // Collect all ROI stats into a single file
-            // by appending each row of the TSV/CSV files,
-            // while keeping the header from the first
-            // file only and skipping it in the rest.
-            ch_collection_mean_input = ATLAS_ROIMETRICS.out.stats_tab_mean
-            ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/")
+            if ( params.run_roi_volumes ) {
+                ch_collection_mean_input = collectStatsFilesWithVolumes(
+                    ATLAS_ROIMETRICS.out.stats_tab_mean,
+                    ATLAS_ROIMETRICS.out.wm_volumes,
+                    "space-native_atlas-iit_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/"
+                )
+            } else {
+                ch_collection_mean_input = ATLAS_ROIMETRICS.out.stats_tab_mean
+                ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/")
+            }
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
 
             if ( params.run_gm_roimetrics ) {
-                ch_collection_gm_mean = collectStatsFiles(
-                    ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
-                    "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
-                    "${params.outdir}/metrics/"
-                )
+                if ( params.run_roi_volumes ) {
+                    ch_collection_gm_mean = collectStatsFilesWithVolumes(
+                        ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
+                        ATLAS_ROIMETRICS.out.gm_volumes,
+                        "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
+                        "${params.outdir}/metrics/"
+                    )
+                } else {
+                    ch_collection_gm_mean = collectStatsFiles(
+                        ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
+                        "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
+                        "${params.outdir}/metrics/"
+                    )
+                }
                 ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
             }
         }
 
-        if ( params.run_roi_volumes ) {
-            // Collect WM bundle volumes into a single global CSV
+        if ( params.run_roi_volumes && !params.run_roi_metrics ) {
             ATLAS_ROIMETRICS.out.wm_volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
                     name: "space-native_atlas-iit_desc-roi_volumes.csv",
-                    skip: 1,
-                    keepHeader: true,
-                    sort: true
+                    skip: 1, keepHeader: true, sort: true
                 )
-
-            // Collect GM region volumes into a single global CSV
             if ( params.run_gm_roimetrics ) {
                 ATLAS_ROIMETRICS.out.gm_volumes
                     .map { _meta, csv -> csv }
                     .collectFile(
                         storeDir: "${params.outdir}/metrics/",
                         name: "space-native_atlas-iit-gm_desc-roi_volumes.csv",
-                        skip: 1,
-                        keepHeader: true,
-                        sort: true
+                        skip: 1, keepHeader: true, sort: true
                     )
             }
         }
@@ -366,42 +373,56 @@ workflow SF_TRACTOMICS {
         ch_versions = ch_versions.mix(ATLAS_CSF_ROIMETRICS.out.versions)
 
         if ( params.run_csf_roimetrics ) {
-            collectStatsFiles(
-                ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
-                "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
-                "${params.outdir}/metrics/"
-            )
+            if ( params.run_csf_volumes ) {
+                collectStatsFilesWithVolumes(
+                    ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
+                    ATLAS_CSF_ROIMETRICS.out.volumes,
+                    "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/"
+                )
+            } else {
+                collectStatsFiles(
+                    ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
+                    "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/"
+                )
+            }
         }
 
-        if ( params.run_csf_volumes ) {
+        if ( params.run_csf_volumes && !params.run_csf_roimetrics ) {
             ATLAS_CSF_ROIMETRICS.out.volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
                     name: "space-native_atlas-freesurfer-csf_desc-roi_volumes.csv",
-                    skip: 1,
-                    keepHeader: true,
-                    sort: true
+                    skip: 1, keepHeader: true, sort: true
                 )
         }
 
         if ( params.run_csf_comparison_roimetrics ) {
-            collectStatsFiles(
-                ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
-                "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
-                "${params.outdir}/metrics/comparison/"
-            )
+            if ( params.run_csf_comparison_volumes ) {
+                collectStatsFilesWithVolumes(
+                    ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
+                    ATLAS_CSF_ROIMETRICS.out.comparison_volumes,
+                    "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/comparison/"
+                )
+            } else {
+                collectStatsFiles(
+                    ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
+                    "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/comparison/"
+                )
+            }
         }
 
-        if ( params.run_csf_comparison_volumes ) {
+        if ( params.run_csf_comparison_volumes && !params.run_csf_comparison_roimetrics ) {
             ATLAS_CSF_ROIMETRICS.out.comparison_volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/comparison/",
                     name: "space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv",
-                    skip: 1,
-                    keepHeader: true,
-                    sort: true
+                    skip: 1, keepHeader: true, sort: true
                 )
         }
     }
@@ -632,6 +653,81 @@ def collectStatsFiles(ch_stats_files, name, storeDir) {
             // Close the file writer
             file_writer.close()
 
+            return output_file
+        }
+}
+
+// Variant of collectStatsFiles that also joins per-subject volumes (CSV) into the stats
+// (TSV) as extra columns (volume_voxels, volume_mm3), merging on the roi column.
+// The volumes CSV uses "region" (GM/CSF) or "bundle" (WM) — both are matched to "roi".
+def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir) {
+
+    def output_file_path = "${storeDir}/${name}"
+
+    return ch_stats_files
+        .join(ch_volumes)
+        .map { _meta, stats_file, volumes_file -> [stats_file, volumes_file] }
+        .collect()
+        .map { pairs ->
+            def header_written = false
+            def all_columns = new LinkedHashSet()
+
+            pairs.each { pair ->
+                def lines = file(pair[0]).readLines()
+                if (lines.size() < 2) return
+                lines[0].split('\t').each { all_columns.add(it) }
+            }
+            all_columns.add("volume_voxels")
+            all_columns.add("volume_mm3")
+            all_columns = all_columns.toList()
+
+            def output_file = file(output_file_path)
+            output_file.getParent().mkdirs()
+            def fw = output_file.newWriter()
+
+            pairs.each { pair ->
+                def stats_lines = file(pair[0]).readLines()
+                if (stats_lines.size() < 2) return
+
+                def stats_cols = stats_lines[0].split('\t').toList()
+                def stats_idx  = stats_cols.withIndex().collectEntries { c, i -> [c, i] }
+
+                def vol_map = [:]
+                def vol_lines = file(pair[1]).readLines()
+                if (vol_lines.size() >= 2) {
+                    def vol_cols = vol_lines[0].split(',').toList()
+                    def roi_col  = vol_cols.find { it in ["region", "bundle"] }
+                    def roi_i    = vol_cols.indexOf(roi_col)
+                    def vox_i    = vol_cols.indexOf("volume_voxels")
+                    def mm3_i    = vol_cols.indexOf("volume_mm3")
+                    vol_lines[1..-1].each { line ->
+                        if (!line.trim()) return
+                        def v = line.split(',')
+                        vol_map[v[roi_i]] = [v[vox_i], v[mm3_i]]
+                    }
+                }
+
+                if (!header_written) {
+                    log.debug("Writing header with columns: ${all_columns.join(', ')}")
+                    fw.write(all_columns.join('\t') + '\n')
+                    header_written = true
+                }
+
+                stats_lines[1..-1].each { line ->
+                    if (!line.trim()) return
+                    def vals = line.split('\t', -1)
+                    def roi  = stats_idx.containsKey("roi") ? vals[stats_idx["roi"]] : ""
+                    def vd   = vol_map.getOrDefault(roi, ["", ""])
+                    def row  = all_columns.collect { col ->
+                        if (col == "volume_voxels") return vd[0]
+                        if (col == "volume_mm3")    return vd[1]
+                        stats_idx.containsKey(col) ? (stats_idx[col] < vals.size() ? vals[stats_idx[col]] : '') : ''
+                    }
+                    fw.write(row.join('\t') + '\n')
+                }
+            }
+
+            fw.close()
             return output_file
         }
 }

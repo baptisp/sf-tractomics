@@ -279,11 +279,12 @@ workflow SF_TRACTOMICS {
                     ATLAS_ROIMETRICS.out.stats_tab_mean,
                     ATLAS_ROIMETRICS.out.wm_volumes,
                     "space-native_atlas-iit_label-mean_desc-roi_stats.tsv",
-                    "${params.outdir}/metrics/"
+                    "${params.outdir}/metrics/",
+                    "WM_bundle"
                 )
             } else {
                 ch_collection_mean_input = ATLAS_ROIMETRICS.out.stats_tab_mean
-                ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/")
+                ch_collection_mean_input = collectStatsFiles(ch_collection_mean_input, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
             }
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
 
@@ -293,13 +294,15 @@ workflow SF_TRACTOMICS {
                         ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
                         ATLAS_ROIMETRICS.out.gm_volumes,
                         "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
-                        "${params.outdir}/metrics/"
+                        "${params.outdir}/metrics/",
+                        "GM_region"
                     )
                 } else {
                     ch_collection_gm_mean = collectStatsFiles(
                         ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
                         "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
-                        "${params.outdir}/metrics/"
+                        "${params.outdir}/metrics/",
+                        "GM_region"
                     )
                 }
                 ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
@@ -372,19 +375,26 @@ workflow SF_TRACTOMICS {
         )
         ch_versions = ch_versions.mix(ATLAS_CSF_ROIMETRICS.out.versions)
 
+        // Per-row type map for the comparison file (mixes WM, GM, and CSF regions)
+        def comparison_type_map = new groovy.json.JsonSlurper()
+            .parse(file("${projectDir}/assets/freesurfer_comparison_type_map.json"))
+            .collectEntries { k, v -> [(k): v] }
+
         if ( params.run_csf_roimetrics ) {
             if ( params.run_csf_volumes ) {
                 collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
                     ATLAS_CSF_ROIMETRICS.out.volumes,
                     "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
-                    "${params.outdir}/metrics/"
+                    "${params.outdir}/metrics/",
+                    "CSF_region"
                 )
             } else {
                 collectStatsFiles(
                     ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
                     "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
-                    "${params.outdir}/metrics/"
+                    "${params.outdir}/metrics/",
+                    "CSF_region"
                 )
             }
         }
@@ -405,13 +415,15 @@ workflow SF_TRACTOMICS {
                     ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
                     ATLAS_CSF_ROIMETRICS.out.comparison_volumes,
                     "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
-                    "${params.outdir}/metrics/comparison/"
+                    "${params.outdir}/metrics/comparison/",
+                    comparison_type_map
                 )
             } else {
                 collectStatsFiles(
                     ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
                     "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
-                    "${params.outdir}/metrics/comparison/"
+                    "${params.outdir}/metrics/comparison/",
+                    comparison_type_map
                 )
             }
         }
@@ -597,7 +609,9 @@ workflow SF_TRACTOMICS {
 // columns with no names. To avoid this, we read each file, build a set of all column names across all files, and
 // then write a new file with all columns, filling missing values with no value.
 //
-def collectStatsFiles(ch_stats_files, name, storeDir) {
+// regionType: String (fixed for all rows), Map<roi_name, type> (per-row lookup), or null (no column).
+// When provided, a region_type column is inserted right after the roi column.
+def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
 
     def output_file_path = "${storeDir}/${name}"
 
@@ -619,6 +633,14 @@ def collectStatsFiles(ch_stats_files, name, storeDir) {
                 }
                 def file_columns = lines[0].split('\t').toList()
                 all_columns.addAll(file_columns)
+            }
+
+            // Insert region_type right after roi
+            if (regionType != null) {
+                def cols = all_columns.toList()
+                def roi_pos = cols.indexOf("roi")
+                cols.add(roi_pos >= 0 ? roi_pos + 1 : cols.size(), "region_type")
+                all_columns = new LinkedHashSet(cols)
             }
             all_columns = all_columns.toList()
 
@@ -642,8 +664,11 @@ def collectStatsFiles(ch_stats_files, name, storeDir) {
                 }
 
                 lines[1..-1].each { line ->
-                    def values = line.split('\t')
+                    def values = line.split('\t', -1)
+                    def roi_val = column_indices.containsKey("roi") ? values[column_indices["roi"]] : ""
+                    def rt = regionType instanceof Map ? regionType.getOrDefault(roi_val, "") : (regionType ?: "")
                     def row = all_columns.collect { col ->
+                        if (col == "region_type") return rt
                         column_indices.containsKey(col) ? values[column_indices[col]] : ''
                     }
                     file_writer.write(row.join('\t') + '\n')
@@ -660,7 +685,8 @@ def collectStatsFiles(ch_stats_files, name, storeDir) {
 // Variant of collectStatsFiles that also joins per-subject volumes (CSV) into the stats
 // (TSV) as extra columns (volume_voxels, volume_mm3), merging on the roi column.
 // The volumes CSV uses "region" (GM/CSF) or "bundle" (WM) — both are matched to "roi".
-def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir) {
+// regionType behaves the same as in collectStatsFiles (String, Map, or null).
+def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, regionType = null) {
 
     def output_file_path = "${storeDir}/${name}"
 
@@ -676,6 +702,14 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir) {
                 def lines = file(pair[0]).readLines()
                 if (lines.size() < 2) return
                 lines[0].split('\t').each { all_columns.add(it) }
+            }
+
+            // Insert region_type right after roi, then append volume columns
+            if (regionType != null) {
+                def cols = all_columns.toList()
+                def roi_pos = cols.indexOf("roi")
+                cols.add(roi_pos >= 0 ? roi_pos + 1 : cols.size(), "region_type")
+                all_columns = new LinkedHashSet(cols)
             }
             all_columns.add("volume_voxels")
             all_columns.add("volume_mm3")
@@ -717,8 +751,10 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir) {
                     if (!line.trim()) return
                     def vals = line.split('\t', -1)
                     def roi  = stats_idx.containsKey("roi") ? vals[stats_idx["roi"]] : ""
+                    def rt   = regionType instanceof Map ? regionType.getOrDefault(roi, "") : (regionType ?: "")
                     def vd   = vol_map.getOrDefault(roi, ["", ""])
                     def row  = all_columns.collect { col ->
+                        if (col == "region_type")   return rt
                         if (col == "volume_voxels") return vd[0]
                         if (col == "volume_mm3")    return vd[1]
                         stats_idx.containsKey(col) ? (stats_idx[col] < vals.size() ? vals[stats_idx[col]] : '') : ''

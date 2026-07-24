@@ -75,18 +75,22 @@ input:
           type: boolean
           description: If 'true', the IIT bundle masks will be thresholded to create binary masks before extracting the metrics.
           default: false
-        run_gm_roimetrics:
+        run_wm_metrics:
           type: boolean
-          description: If 'true', also extract metrics per IIT GM Desikan parcellation region, reusing the WM atlas B0 registration.
+          description: If 'true', extract diffusion metrics (FA/MD/RD/AD/AFD) per WM bundle using STATS_METRICSINROI.
           default: false
-        run_roi_volumes:
+        run_gm_metrics:
           type: boolean
-          description: If 'true', compute voxel count and volume (mm3) for each WM bundle mask and GM region using mrstats.
+          description: If 'true', extract diffusion metrics per IIT GM Desikan parcellation region, reusing the WM atlas B0 registration.
           default: false
-        run_roi_metrics:
+        run_wm_volumes:
           type: boolean
-          description: If 'false', skip STATS_METRICSINROI and STATS_GM_ROIMETRICS (diffusion metric extraction). Useful when only volumes are needed. Defaults to true.
-          default: true
+          description: If 'true', compute voxel count and volume (mm3) for each WM bundle mask.
+          default: false
+        run_gm_volumes:
+          type: boolean
+          description: If 'true', compute voxel count and volume (mm3) for each GM Desikan region.
+          default: false
         atlas_iit_gm_atlas:
           type: string
           description: Path to the IIT GM Desikan atlas. If provided, used instead of downloading from NITRC.

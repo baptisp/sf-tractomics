@@ -4,7 +4,9 @@ description: |
   Extracts diffusion metrics (FA/MD/RD/AD/AFD) and volumes for CSF-related
   brain regions (ventricles, choroid plexus, CSF spaces) using the
   FreeSurfer cvs_avg35_inMNI152 whole-brain parcellation warped to
-  subject DWI space. Completely independent from the WM/GM IIT atlas pipeline.
+  subject DWI space. Optionally extracts the same metrics for GM subcortical
+  structures and WM regions for comparison purposes. Completely independent
+  from the WM/GM IIT atlas pipeline — own registration, own outputs.
 keywords:
   - csf
   - ventricles
@@ -19,25 +21,158 @@ components:
   - stats/metricsinroi
   - stats/roivolumes
   - utils_options
-options:
-  - atlas_csf_atlas:
-      type: string
+input:
+  - ch_subject_reference:
+      type: file
       description: |
-        Path to a custom labeled atlas in MNI space. If null, the subworkflow
-        automatically extracts cvs_avg35_inMNI152/mri/aparc+aseg from the
-        FreeSurfer 7.4.1 container.
-      default: null
-  - atlas_csf_lut:
-      type: string
+        Reference image from each subject (B0) in the subject's DWI space.
+        The FreeSurfer MNI152 atlas will be registered to this image.
+      structure:
+        - meta:
+            type: map
+            description: Metadata map.
+        - b0:
+            type: file
+            description: B0 image for a subject in the subject's DWI space.
+      pattern: "*.nii.gz"
+      ontologies:
+        - edam: http://edamontology.org/format_4001 # NIFTI format
+  - ch_metrics:
+      type: file
       description: |
-        Path to a JSON LUT mapping label integers to region names.
-        Defaults to assets/freesurfer_csf_lut.json (ventricles + choroid plexus + CSF).
-      default: null
-  - run_roi_metrics:
-      type: boolean
-      description: Extract per-region diffusion metric statistics.
-      default: true
-  - run_roi_volumes:
-      type: boolean
-      description: Compute per-region volumes (voxel count + mm³).
-      default: false
+        List of metric maps for each subject in the subject's DWI space.
+      structure:
+        - meta:
+            type: map
+            description: Metadata map.
+        - metrics:
+            type: file
+            description: List of metric maps for a subject in the subject's DWI space.
+      pattern: "*.nii.gz"
+      ontologies:
+        - edam: http://edamontology.org/format_4001 # NIFTI format
+  - options:
+      type: map
+      description: Map of options for the subworkflow.
+      entries:
+        atlas_csf_atlas:
+          type: string
+          description: |
+            Path to a custom labeled atlas in MNI space (.nii.gz). If null, the
+            subworkflow automatically extracts cvs_avg35_inMNI152/mri/aparc+aseg.mgz
+            from the FreeSurfer 7.4.1 container.
+          default: null
+        atlas_csf_lut:
+          type: string
+          description: |
+            Path to a JSON LUT mapping label integers (as strings) to region names.
+            If null, uses the bundled assets/freesurfer_csf_lut.json which covers
+            ventricles, CSF spaces, and choroid plexus.
+          default: null
+        run_roi_metrics:
+          type: boolean
+          description: |
+            If true, extract per-region diffusion metric statistics (FA/MD/RD/AD/AFD)
+            for the CSF regions. Set to false when only volumes are needed.
+          default: true
+        run_roi_volumes:
+          type: boolean
+          description: Compute per-region volumes (voxel count + mm³) for the CSF regions.
+          default: false
+        run_csf_comparison_roimetrics:
+          type: boolean
+          description: |
+            If true, also extract diffusion metrics for GM subcortical structures,
+            WM regions, and ventricles using freesurfer_comparison_lut.json.
+            Outputs go to comparison/ subdirectories.
+          default: false
+        run_csf_comparison_volumes:
+          type: boolean
+          description: |
+            If true, compute volumes for the comparison regions (GM subcortical + WM +
+            ventricles). Outputs go to comparison/ subdirectories.
+          default: false
+        atlas_csf_comparison_lut:
+          type: string
+          description: |
+            Path to a JSON LUT for the comparison extraction. If null, uses the bundled
+            assets/freesurfer_comparison_lut.json (GM subcortical + WM + ventricles).
+          default: null
+      mandatory: true
+output:
+  - stats_tab_mean:
+      type: file
+      description: |
+        Tabular (TSV) file holding mean metric values per CSF region.
+        Column structure: (sample, roi, metric1, metric2, ..., metricN).
+      structure:
+        - meta:
+            type: map
+            description: Metadata map.
+        - tab_mean:
+            type: file
+            description: Mean statistics table file.
+      pattern: "*_desc-mean_*.{csv,tsv}"
+      ontologies: []
+  - stats_tab_std:
+      type: file
+      description: |
+        Tabular (TSV) file holding standard deviation metric values per CSF region.
+      structure:
+        - meta:
+            type: map
+            description: Metadata map.
+        - tab_std:
+            type: file
+            description: Standard deviation statistics table file.
+      pattern: "*_desc-std_*.{csv,tsv}"
+      ontologies: []
+  - volumes:
+      type: file
+      description: CSV file with voxel count and volume (mm³) per CSF region.
+      structure:
+        - meta:
+            type: map
+            description: Metadata map.
+        - volumes:
+            type: file
+            description: Volumes CSV file.
+      pattern: "*_volumes.csv"
+      ontologies: []
+  - comparison_stats_tab_mean:
+      type: file
+      description: |
+        Mean metrics per comparison region (GM subcortical + WM + ventricles).
+      structure:
+        - meta:
+            type: map
+            description: Metadata map.
+        - tab_mean:
+            type: file
+            description: Mean statistics table file.
+      pattern: "*_desc-mean_*.{csv,tsv}"
+      ontologies: []
+  - comparison_volumes:
+      type: file
+      description: CSV file with voxel count and volume (mm³) per comparison region.
+      structure:
+        - meta:
+            type: map
+            description: Metadata map.
+        - volumes:
+            type: file
+            description: Volumes CSV file.
+      pattern: "*_volumes.csv"
+      ontologies: []
+  - versions:
+      type: file
+      description: File containing software versions.
+      structure:
+        - versions:
+            type: file
+            description: Versions YAML file.
+      pattern: "versions.yml"
+authors:
+  - "@baptisp"
+maintainers:
+  - "@baptisp"

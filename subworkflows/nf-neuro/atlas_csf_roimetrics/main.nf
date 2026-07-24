@@ -56,7 +56,7 @@ process EXTRACT_FREESURFER_MNI_ATLAS {
 
     script:
     """
-    cp $fs_license \$FREESURFER_HOME/license.txt
+    export FS_LICENSE=\$(realpath $fs_license)
     mri_convert \$FREESURFER_HOME/subjects/cvs_avg35_inMNI152/mri/aparc+aseg.mgz mni152_aparc_aseg.nii.gz
 
     cat <<-END_VERSIONS > versions.yml

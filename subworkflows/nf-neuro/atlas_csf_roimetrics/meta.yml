@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "atlas_csf_roimetrics"
+description: |
+  Extracts diffusion metrics (FA/MD/RD/AD/AFD) and volumes for CSF-related
+  brain regions (ventricles, choroid plexus, CSF spaces) using the
+  FreeSurfer cvs_avg35_inMNI152 whole-brain parcellation warped to
+  subject DWI space. Completely independent from the WM/GM IIT atlas pipeline.
+keywords:
+  - csf
+  - ventricles
+  - freesurfer
+  - parcellation
+  - roi
+  - metrics
+  - stats
+components:
+  - registration/ants
+  - registration/antsapplytransforms
+  - stats/metricsinroi
+  - stats/roivolumes
+  - utils_options
+options:
+  - atlas_csf_atlas:
+      type: string
+      description: |
+        Path to a custom labeled atlas in MNI space. If null, the subworkflow
+        automatically extracts cvs_avg35_inMNI152/mri/aparc+aseg from the
+        FreeSurfer 7.4.1 container.
+      default: null
+  - atlas_csf_lut:
+      type: string
+      description: |
+        Path to a JSON LUT mapping label integers to region names.
+        Defaults to assets/freesurfer_csf_lut.json (ventricles + choroid plexus + CSF).
+      default: null
+  - run_roi_metrics:
+      type: boolean
+      description: Extract per-region diffusion metric statistics.
+      default: true
+  - run_roi_volumes:
+      type: boolean
+      description: Compute per-region volumes (voxel count + mm³).
+      default: false

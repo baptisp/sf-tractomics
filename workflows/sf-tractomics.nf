@@ -18,6 +18,7 @@ include { RECONST_FW_NODDI       } from '../subworkflows/nf-neuro/reconst_fw_nod
 include { BUNDLE_SEG             } from '../subworkflows/nf-neuro/bundle_seg/main'
 include { STATS_METRICSINROI     } from '../modules/nf-neuro/stats/metricsinroi/main'
 include { ATLAS_ROIMETRICS       } from '../subworkflows/nf-neuro/atlas_roimetrics/main'
+include { ATLAS_CSF_ROIMETRICS   } from '../subworkflows/nf-neuro/atlas_csf_roimetrics/main'
 include { TRACTOMETRY            } from '../subworkflows/nf-neuro/tractometry/main'
 include { REGISTRATION_ANTSAPPLYTRANSFORMS as REGISTRATION_METRICS_TO_ORIG } from '../modules/nf-neuro/registration/antsapplytransforms/main'
 include { REGISTRATION_TRACTOGRAM as REGISTRATION_TRACTOGRAM_TO_ORIG } from '../modules/nf-neuro/registration/tractogram/main'
@@ -317,7 +318,6 @@ workflow SF_TRACTOMICS {
             }
         }
 
-
         if ( params.harmonization_reference ) {
             // The QC expects the harmonization reference to have the following pattern: *.reference.tsv
             // So we copy the file in the workflow workdir with the expected name pattern. If the file
@@ -345,6 +345,63 @@ workflow SF_TRACTOMICS {
                 HARMONIZATION.out.qc_plot_data_json,
                 HARMONIZATION.out.qc_reports
             )
+        }
+    }
+
+    if ( params.run_csf_roimetrics || params.run_csf_volumes || params.run_csf_comparison_roimetrics || params.run_csf_comparison_volumes ) {
+        ATLAS_CSF_ROIMETRICS(
+            mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
+            mergeCovariatesIntoMeta(ch_input_metrics, ch_covariates),
+            [
+                atlas_csf_atlas:               params.atlas_csf_atlas,
+                atlas_csf_lut:                 params.atlas_csf_lut,
+                run_roi_metrics:               params.run_csf_roimetrics,
+                run_roi_volumes:               params.run_csf_volumes,
+                run_csf_comparison_roimetrics: params.run_csf_comparison_roimetrics,
+                run_csf_comparison_volumes:    params.run_csf_comparison_volumes,
+                atlas_csf_comparison_lut:      params.atlas_csf_comparison_lut
+            ]
+        )
+        ch_versions = ch_versions.mix(ATLAS_CSF_ROIMETRICS.out.versions)
+
+        if ( params.run_csf_roimetrics ) {
+            collectStatsFiles(
+                ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
+                "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
+                "${params.outdir}/metrics/"
+            )
+        }
+
+        if ( params.run_csf_volumes ) {
+            ATLAS_CSF_ROIMETRICS.out.volumes
+                .map { _meta, csv -> csv }
+                .collectFile(
+                    storeDir: "${params.outdir}/metrics/",
+                    name: "space-native_atlas-freesurfer-csf_desc-roi_volumes.csv",
+                    skip: 1,
+                    keepHeader: true,
+                    sort: true
+                )
+        }
+
+        if ( params.run_csf_comparison_roimetrics ) {
+            collectStatsFiles(
+                ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
+                "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
+                "${params.outdir}/metrics/comparison/"
+            )
+        }
+
+        if ( params.run_csf_comparison_volumes ) {
+            ATLAS_CSF_ROIMETRICS.out.comparison_volumes
+                .map { _meta, csv -> csv }
+                .collectFile(
+                    storeDir: "${params.outdir}/metrics/comparison/",
+                    name: "space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv",
+                    skip: 1,
+                    keepHeader: true,
+                    sort: true
+                )
         }
     }
 

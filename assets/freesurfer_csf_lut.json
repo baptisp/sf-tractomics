@@ -1,0 +1,11 @@
+{
+    "4":  "Left-Lateral-Ventricle",
+    "5":  "Left-Inf-Lat-Vent",
+    "14": "3rd-Ventricle",
+    "15": "4th-Ventricle",
+    "24": "CSF",
+    "31": "Left-choroid-plexus",
+    "43": "Right-Lateral-Ventricle",
+    "44": "Right-Inf-Lat-Vent",
+    "63": "Right-choroid-plexus"
+}

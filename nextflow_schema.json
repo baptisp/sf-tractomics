@@ -1136,6 +1136,53 @@
                 }
             }
         },
+        "atlas_csf_roimetrics": {
+            "title": "CSF region ROI metrics options",
+            "type": "object",
+            "description": "Parameters for CSF/ventricle ROI metrics using the FreeSurfer cvs_avg35_inMNI152 atlas.",
+            "default": "",
+            "help_text": "Extracts diffusion metrics and volumes for CSF structures (ventricles, choroid plexus, CSF spaces) from the FreeSurfer MNI152 parcellation. Independent of the IIT atlas pipeline.",
+            "properties": {
+                "run_csf_roimetrics": {
+                    "type": "boolean",
+                    "description": "Extract FA/MD/RD/AD/AFD per CSF region (ventricles, choroid plexus, CSF spaces) using the FreeSurfer MNI152 atlas.",
+                    "help_text": "Runs an independent atlas registration (IIT B0 -> subject B0) and warps the FreeSurfer cvs_avg35_inMNI152 parcellation to subject DWI space, then extracts per-CSF-region metrics.",
+                    "default": false
+                },
+                "run_csf_volumes": {
+                    "type": "boolean",
+                    "description": "Compute voxel count and volume (mm3) for each CSF region.",
+                    "help_text": "Computes per-subject CSV files with region, volume_voxels, volume_mm3 for all CSF labels in the LUT.",
+                    "default": false
+                },
+                "atlas_csf_atlas": {
+                    "type": "string",
+                    "description": "Path to a custom labeled atlas in MNI space (.nii.gz). If null, auto-extracts aparc+aseg.mgz from the FreeSurfer 7.4.1 container.",
+                    "help_text": "Must be a NIfTI parcellation in MNI152 space. The atlas will be registered to each subject's B0 image."
+                },
+                "atlas_csf_lut": {
+                    "type": "string",
+                    "description": "Path to a JSON LUT mapping FreeSurfer label integers to region names. If null, uses bundled assets/freesurfer_csf_lut.json.",
+                    "help_text": "JSON format: {\"4\": \"Left-Lateral-Ventricle\", ...}. Default covers ventricles, CSF spaces, and choroid plexus."
+                },
+                "run_csf_comparison_roimetrics": {
+                    "type": "boolean",
+                    "description": "Extract FA/MD/RD/AD/AFD for GM subcortical structures, WM regions, and ventricles from the FreeSurfer atlas. Outputs go to comparison/ subdirectories.",
+                    "help_text": "Uses assets/freesurfer_comparison_lut.json by default (32 regions: GM subcortical bilateral + WM + ventricles). Reuses the warped atlas from the CSF pipeline.",
+                    "default": false
+                },
+                "run_csf_comparison_volumes": {
+                    "type": "boolean",
+                    "description": "Compute voxel count and volume (mm3) for the comparison regions (GM subcortical + WM + ventricles). Outputs go to comparison/ subdirectories.",
+                    "default": false
+                },
+                "atlas_csf_comparison_lut": {
+                    "type": "string",
+                    "description": "Path to a custom JSON LUT for the comparison extraction. If null, uses bundled assets/freesurfer_comparison_lut.json.",
+                    "help_text": "JSON format: {\"10\": \"Left-Thalamus\", ...}. Default covers 32 regions: GM subcortical bilateral, WM structures, and all CSF/ventricle labels."
+                }
+            }
+        },
         "harmonization": {
             "title": "Harmonization options",
             "type": "object",
@@ -1249,6 +1296,9 @@
         },
         {
             "$ref": "#/$defs/atlas_iit"
+        },
+        {
+            "$ref": "#/$defs/atlas_csf_roimetrics"
         },
         {
             "$ref": "#/$defs/harmonization"

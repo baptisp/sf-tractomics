@@ -263,6 +263,12 @@
                     "description": "If set, will use the slice drop correction option from Eddy.",
                     "help_text": "If set, will use the slice drop correction option from Eddy."
                 },
+                "eddy_extra_args": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Extra arguments to pass directly to the Eddy command.",
+                    "help_text": "Arbitrary flags passed verbatim to eddy_cpu/eddy_cuda, e.g. '--b_range=25'."
+                },
                 "bet_dwi_final_f": {
                     "type": "number",
                     "default": 0.16,
@@ -1085,22 +1091,34 @@
                     "help_text": "Run atlas-based ROI metrics. The atlas used must be specified using one of the 'use_atlas_*' parameters.",
                     "default": false
                 },
-                "run_gm_roimetrics": {
-                    "type": "boolean",
-                    "description": "Extract per-region GM diffusion metrics using the IIT Desikan parcellation atlas. Requires run_atlas_roimetrics = true.",
-                    "help_text": "Reuses the WM atlas B0 registration to warp the IIT GM Desikan atlas to subject space, then extracts FA/MD/RD/AD/AFD per GM region.",
-                    "default": false
-                },
                 "run_roi_metrics": {
                     "type": "boolean",
-                    "description": "Extract FA/MD/RD/AD/AFD per WM bundle and GM region. Set to false to skip diffusion metrics and only compute volumes. Requires run_atlas_roimetrics = true.",
-                    "help_text": "When false, STATS_METRICSINROI and STATS_GM_ROIMETRICS are skipped. Only atlas registration and volume computation (if run_roi_volumes = true) run. Useful when only volumes are needed.",
-                    "default": true
+                    "description": "Master switch: extract FA/MD/RD/AD/AFD for all region types (WM, GM, CSF). Equivalent to enabling run_wm_metrics + run_gm_metrics + run_csf_metrics together.",
+                    "default": false
+                },
+                "run_wm_metrics": {
+                    "type": "boolean",
+                    "description": "Extract FA/MD/RD/AD/AFD per WM bundle (IIT atlas). Requires run_atlas_roimetrics = true.",
+                    "default": false
+                },
+                "run_gm_metrics": {
+                    "type": "boolean",
+                    "description": "Extract FA/MD/RD/AD/AFD per GM Desikan region (IIT atlas). Requires run_atlas_roimetrics = true.",
+                    "default": false
                 },
                 "run_roi_volumes": {
                     "type": "boolean",
-                    "description": "Compute voxel count and volume (mm3) for each WM bundle and GM region using mrstats. Requires run_atlas_roimetrics = true.",
-                    "help_text": "Runs mrstats on each warped bundle mask (WM) and each label of the warped GM atlas (GM) to produce per-subject CSV files with subject_id, region, volume_voxels, volume_mm3.",
+                    "description": "Master switch: compute volumes for all region types (WM, GM, CSF). Equivalent to enabling run_wm_volumes + run_gm_volumes + run_csf_volumes together.",
+                    "default": false
+                },
+                "run_wm_volumes": {
+                    "type": "boolean",
+                    "description": "Compute voxel count and volume (mm3) for each WM bundle mask. Requires run_atlas_roimetrics = true.",
+                    "default": false
+                },
+                "run_gm_volumes": {
+                    "type": "boolean",
+                    "description": "Compute voxel count and volume (mm3) for each GM Desikan region. Requires run_atlas_roimetrics = true.",
                     "default": false
                 }
             }
@@ -1145,10 +1163,10 @@
             "properties": {
                 "freesurfer_license": {
                     "type": "string",
-                    "description": "Path to a valid FreeSurfer license file. Required when run_csf_roimetrics, run_csf_volumes, run_csf_comparison_roimetrics, or run_csf_comparison_volumes is enabled.",
+                    "description": "Path to a valid FreeSurfer license file. Required when run_csf_metrics, run_csf_volumes, run_csf_comparison_roimetrics, or run_csf_comparison_volumes is enabled.",
                     "help_text": "The FreeSurfer license is free and can be obtained at https://surfer.nmr.mgh.harvard.edu/registration.html. Provide the full path to the license.txt file."
                 },
-                "run_csf_roimetrics": {
+                "run_csf_metrics": {
                     "type": "boolean",
                     "description": "Extract FA/MD/RD/AD/AFD per CSF region (ventricles, choroid plexus, CSF spaces) using the FreeSurfer MNI152 atlas.",
                     "help_text": "Runs an independent atlas registration (IIT B0 -> subject B0) and warps the FreeSurfer cvs_avg35_inMNI152 parcellation to subject DWI space, then extracts per-CSF-region metrics.",
@@ -1185,6 +1203,12 @@
                     "type": "string",
                     "description": "Path to a custom JSON LUT for the comparison extraction. If null, uses bundled assets/freesurfer_comparison_lut.json.",
                     "help_text": "JSON format: {\"10\": \"Left-Thalamus\", ...}. Default covers 32 regions: GM subcortical bilateral, WM structures, and all CSF/ventricle labels."
+                },
+                "run_merge_all_stats": {
+                    "type": "boolean",
+                    "description": "Merge WM, GM, and CSF metrics TSVs into a single global file (space-native_all-regions_label-mean_desc-roi_stats.tsv).",
+                    "help_text": "Concatenates the collected WM, GM, and CSF mean stats TSVs into one file in the metrics/ output directory. Only merges types that are enabled.",
+                    "default": false
                 }
             }
         },

@@ -742,7 +742,10 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             encoded_pairs.each { encoded ->
                 def sf = new File(encoded.toString().split(':::')[0])
                 def lines = sf.readLines()
-                if (lines.size() < 2) return
+                if (lines.size() < 2) {
+                    log.warn("No data rows in file ${sf}. Skipping.")
+                    return
+                }
                 lines[0].split('\t').each { all_columns.add(it) }
             }
 

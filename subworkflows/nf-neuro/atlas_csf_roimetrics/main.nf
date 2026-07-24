@@ -134,7 +134,7 @@ workflow ATLAS_CSF_ROIMETRICS {
         ch_csf_stats_mean = channel.empty()
         ch_csf_stats_std  = channel.empty()
 
-        if (options.run_roi_metrics != false) {
+        if (options.run_roi_metrics) {
             ch_csf_metrics_input = ch_metrics
                 .join(TRANSFORM_CSF_ATLAS.out.warped_image)
                 .combine(ch_csf_lut)

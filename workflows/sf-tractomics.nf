@@ -246,20 +246,21 @@ workflow SF_TRACTOMICS {
         return [meta, metrics]
     }
 
-    if ( params.run_gm_roimetrics && !params.run_atlas_roimetrics ) {
-        error "run_gm_roimetrics requires run_atlas_roimetrics = true (GM uses the same atlas registration as WM)."
+    // Derive per-type computation flags: master switches enable all types;
+    // per-type switches enable individual types when the master is false.
+    def do_wm_metrics  = params.run_roi_metrics || params.run_wm_metrics
+    def do_gm_metrics  = params.run_roi_metrics || params.run_gm_metrics
+    def do_csf_metrics = params.run_roi_metrics || params.run_csf_metrics
+    def do_wm_volumes  = params.run_roi_volumes || params.run_wm_volumes
+    def do_gm_volumes  = params.run_roi_volumes || params.run_gm_volumes
+    def do_csf_volumes = params.run_roi_volumes || params.run_csf_volumes
+
+    if ( (do_wm_metrics || do_wm_volumes || do_gm_metrics || do_gm_volumes) && !params.run_atlas_roimetrics ) {
+        error "IIT atlas metrics/volumes (WM or GM) require run_atlas_roimetrics = true."
     }
 
-    if ( params.run_roi_volumes && !params.run_atlas_roimetrics ) {
-        error "run_roi_volumes requires run_atlas_roimetrics = true."
-    }
-
-    if ( params.run_merge_all_stats
-            && !(params.run_atlas_roimetrics && params.run_roi_metrics)
-            && !params.run_csf_roimetrics ) {
-        log.warn "run_merge_all_stats is enabled but no stats pipelines will produce output " +
-                 "(requires run_atlas_roimetrics + run_roi_metrics and/or run_csf_roimetrics). " +
-                 "The merged file will be empty."
+    if ( params.run_merge_all_stats && !do_wm_metrics && !do_gm_metrics && !do_csf_metrics ) {
+        log.warn "run_merge_all_stats is enabled but no metrics pipelines are active. The merged file will be empty."
     }
 
     ch_collection_mean_input = channel.empty()
@@ -275,17 +276,18 @@ workflow SF_TRACTOMICS {
                 use_binary_masks: params.use_binary_masks,
                 atlas_iit_b0: params.atlas_iit_b0,
                 atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir,
-                run_roi_metrics: params.run_roi_metrics,
-                run_gm_roimetrics: params.run_gm_roimetrics,
+                run_wm_metrics: do_wm_metrics,
+                run_gm_metrics: do_gm_metrics,
                 atlas_iit_gm_atlas: params.atlas_iit_gm_atlas,
                 atlas_iit_gm_lut: params.atlas_iit_gm_lut,
-                run_roi_volumes: params.run_roi_volumes
+                run_wm_volumes: do_wm_volumes,
+                run_gm_volumes: do_gm_volumes
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)
 
-        if ( params.run_roi_metrics ) {
-            if ( params.run_roi_volumes ) {
+        if ( do_wm_metrics ) {
+            if ( do_wm_volumes ) {
                 ch_collection_mean_input = collectStatsFilesWithVolumes(
                     ATLAS_ROIMETRICS.out.stats_tab_mean,
                     ATLAS_ROIMETRICS.out.wm_volumes,
@@ -297,29 +299,29 @@ workflow SF_TRACTOMICS {
                 ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.stats_tab_mean, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
             }
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
-
-            if ( params.run_gm_roimetrics ) {
-                if ( params.run_roi_volumes ) {
-                    ch_collection_gm_mean = collectStatsFilesWithVolumes(
-                        ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
-                        ATLAS_ROIMETRICS.out.gm_volumes,
-                        "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
-                        "${params.outdir}/metrics/",
-                        "GM_region"
-                    )
-                } else {
-                    ch_collection_gm_mean = collectStatsFiles(
-                        ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
-                        "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
-                        "${params.outdir}/metrics/",
-                        "GM_region"
-                    )
-                }
-                ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
-            }
         }
 
-        if ( params.run_roi_volumes && !params.run_roi_metrics ) {
+        if ( do_gm_metrics ) {
+            if ( do_gm_volumes ) {
+                ch_collection_gm_mean = collectStatsFilesWithVolumes(
+                    ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
+                    ATLAS_ROIMETRICS.out.gm_volumes,
+                    "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/",
+                    "GM_region"
+                )
+            } else {
+                ch_collection_gm_mean = collectStatsFiles(
+                    ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
+                    "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
+                    "${params.outdir}/metrics/",
+                    "GM_region"
+                )
+            }
+            ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
+        }
+
+        if ( do_wm_volumes && !do_wm_metrics ) {
             ATLAS_ROIMETRICS.out.wm_volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
@@ -327,15 +329,16 @@ workflow SF_TRACTOMICS {
                     name: "space-native_atlas-iit_desc-roi_volumes.csv",
                     skip: 1, keepHeader: true, sort: true
                 )
-            if ( params.run_gm_roimetrics ) {
-                ATLAS_ROIMETRICS.out.gm_volumes
-                    .map { _meta, csv -> csv }
-                    .collectFile(
-                        storeDir: "${params.outdir}/metrics/",
-                        name: "space-native_atlas-iit-gm_desc-roi_volumes.csv",
-                        skip: 1, keepHeader: true, sort: true
-                    )
-            }
+        }
+
+        if ( do_gm_volumes && !do_gm_metrics ) {
+            ATLAS_ROIMETRICS.out.gm_volumes
+                .map { _meta, csv -> csv }
+                .collectFile(
+                    storeDir: "${params.outdir}/metrics/",
+                    name: "space-native_atlas-iit-gm_desc-roi_volumes.csv",
+                    skip: 1, keepHeader: true, sort: true
+                )
         }
 
         if ( params.harmonization_reference ) {
@@ -368,7 +371,7 @@ workflow SF_TRACTOMICS {
         }
     }
 
-    if ( params.run_csf_roimetrics || params.run_csf_volumes || params.run_csf_comparison_roimetrics || params.run_csf_comparison_volumes ) {
+    if ( do_csf_metrics || do_csf_volumes || params.run_csf_comparison_roimetrics || params.run_csf_comparison_volumes ) {
         ATLAS_CSF_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
             mergeCovariatesIntoMeta(ch_input_metrics, ch_covariates),
@@ -376,8 +379,8 @@ workflow SF_TRACTOMICS {
                 fs_license:                    params.freesurfer_license,
                 atlas_csf_atlas:               params.atlas_csf_atlas,
                 atlas_csf_lut:                 params.atlas_csf_lut,
-                run_roi_metrics:               params.run_csf_roimetrics,
-                run_roi_volumes:               params.run_csf_volumes,
+                run_roi_metrics:               do_csf_metrics,
+                run_roi_volumes:               do_csf_volumes,
                 run_csf_comparison_roimetrics: params.run_csf_comparison_roimetrics,
                 run_csf_comparison_volumes:    params.run_csf_comparison_volumes,
                 atlas_csf_comparison_lut:      params.atlas_csf_comparison_lut
@@ -385,8 +388,8 @@ workflow SF_TRACTOMICS {
         )
         ch_versions = ch_versions.mix(ATLAS_CSF_ROIMETRICS.out.versions)
 
-        if ( params.run_csf_roimetrics ) {
-            if ( params.run_csf_volumes ) {
+        if ( do_csf_metrics ) {
+            if ( do_csf_volumes ) {
                 ch_csf_stats_merged = collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
                     ATLAS_CSF_ROIMETRICS.out.volumes,
@@ -404,7 +407,7 @@ workflow SF_TRACTOMICS {
             }
         }
 
-        if ( params.run_csf_volumes && !params.run_csf_roimetrics ) {
+        if ( do_csf_volumes && !do_csf_metrics ) {
             ATLAS_CSF_ROIMETRICS.out.volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
@@ -450,13 +453,13 @@ workflow SF_TRACTOMICS {
 
     if ( params.run_merge_all_stats ) {
         def ch_for_merge = channel.empty()
-        if ( params.run_atlas_roimetrics && params.run_roi_metrics ) {
+        if ( params.run_atlas_roimetrics && do_wm_metrics ) {
             ch_for_merge = ch_for_merge.mix(ch_collection_mean_input.map { p -> [[:], p] })
         }
-        if ( params.run_gm_roimetrics && params.run_roi_metrics ) {
+        if ( params.run_atlas_roimetrics && do_gm_metrics ) {
             ch_for_merge = ch_for_merge.mix(ch_collection_gm_mean.map { p -> [[:], p] })
         }
-        if ( params.run_csf_roimetrics ) {
+        if ( do_csf_metrics ) {
             ch_for_merge = ch_for_merge.mix(ch_csf_stats_merged.map { p -> [[:], p] })
         }
         collectStatsFiles(

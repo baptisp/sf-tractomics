@@ -73,7 +73,7 @@ Volumes: `metrics/space-native_atlas-iit_desc-roi_volumes.csv`
 4. `STATS_GM_ROIMETRICS` (alias of `STATS_METRICSINROI`, `use_label = true`) calls `scil_volume_stats_in_labels` with the JSON LUT to extract per-region FA/MD/RD/AD/AFD.
 5. `STATS_GM_VOLUMES` (optional): computes voxel count + mm³ per GM region.
 
-Enabled by `params.run_gm_roimetrics = true` (requires `run_atlas_roimetrics = true`).
+Enabled by `params.run_gm_metrics = true` or `params.run_roi_metrics = true` (requires `run_atlas_roimetrics = true`).
 Config: `conf/modules/stats_metricsinroi.config` (selector `.*:ATLAS_ROIMETRICS:STATS_GM_ROIMETRICS`).
 Output per subject: `*_atlas-iit-gm_desc-roi_stats.tsv`
 Global collected: `metrics/space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv`
@@ -113,7 +113,7 @@ Default LUT covers all CSF-related FreeSurfer labels — **main output files**:
 | 44 | Right-Inf-Lat-Vent |
 | 63 | Right-choroid-plexus |
 
-Enabled by `params.run_csf_roimetrics = true` and/or `params.run_csf_volumes = true`.
+Enabled by `params.run_csf_metrics = true` (or `params.run_roi_metrics = true`) and/or `params.run_csf_volumes = true` (or `params.run_roi_volumes = true`).
 Config: `conf/modules/stats_csfroi.config`.
 Output per subject: `*_atlas-freesurfer-csf_desc-roi_stats.tsv`
 Global collected: `metrics/space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv`
@@ -161,7 +161,7 @@ Reuses the warped FreeSurfer atlas from `TRANSFORM_CSF_ATLAS` (no extra registra
 5. `STATS_CSF_COMPARISON_VOLUMES` (optional): computes voxel count + mm³ per comparison region.
 
 Enabled by `params.run_csf_comparison_roimetrics = true` and/or `params.run_csf_comparison_volumes = true`.
-Does **not** require `run_csf_roimetrics = true` — the atlas extraction and registration run as long as any CSF or comparison param is enabled.
+Does **not** require `run_csf_metrics = true` — the atlas extraction and registration run as long as any CSF or comparison param is enabled.
 Config: `conf/modules/stats_csfroi.config` (selectors `.*:STATS_CSF_COMPARISON` and `.*:STATS_CSF_COMPARISON_VOLUMES`).
 Output per subject: `comparison/*_atlas-freesurfer-comparison_desc-roi_stats.tsv`
 Global collected: `metrics/comparison/space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv`
@@ -173,14 +173,17 @@ Volumes: `metrics/comparison/space-native_atlas-freesurfer-comparison_desc-roi_v
 |---|---|---|
 | `run_synthseg` | true | Use SynthSeg for tissue segmentation |
 | `run_atlas_roimetrics` | false | Enable WM bundle ROI metrics (IIT Atlas v5.0) |
-| `run_gm_roimetrics` | false | Enable GM region ROI metrics (IIT Atlas v5.0 Desikan, requires `run_atlas_roimetrics`) |
-| `run_roi_metrics` | true | Extract FA/MD/RD/AD/AFD per WM bundle and GM region |
-| `run_roi_volumes` | false | Compute WM bundle and GM region volumes |
+| `run_roi_metrics` | false | Master switch: extract FA/MD/RD/AD/AFD for **all** region types (WM, GM, CSF) |
+| `run_wm_metrics` | false | WM bundle diffusion metrics only (IIT atlas, requires `run_atlas_roimetrics`) |
+| `run_gm_metrics` | false | GM Desikan region metrics only (IIT atlas, requires `run_atlas_roimetrics`) |
+| `run_csf_metrics` | false | CSF/ventricle region metrics only (FreeSurfer MNI152) |
+| `run_roi_volumes` | false | Master switch: compute volumes for **all** region types (WM, GM, CSF) |
+| `run_wm_volumes` | false | WM bundle volumes only (IIT atlas, requires `run_atlas_roimetrics`) |
+| `run_gm_volumes` | false | GM Desikan region volumes only (IIT atlas, requires `run_atlas_roimetrics`) |
+| `run_csf_volumes` | false | CSF/ventricle region volumes only (FreeSurfer MNI152) |
 | `use_binary_masks` | false | Use binary masks instead of TDI-weighted for WM extraction |
 | `atlas_iit_gm_atlas` | null | Custom IIT GM atlas path; null = download from NITRC |
 | `atlas_iit_gm_lut` | null | Custom IIT GM LUT path (JSON or raw .txt); null = download + convert from NITRC |
-| `run_csf_roimetrics` | false | Enable CSF region ROI metrics (FreeSurfer MNI152) |
-| `run_csf_volumes` | false | Compute CSF region volumes |
 | `atlas_csf_atlas` | null | Custom labeled atlas in MNI space; null = auto-extract from FreeSurfer container |
 | `atlas_csf_lut` | null | Custom CSF LUT (.json); null = use `assets/freesurfer_csf_lut.json` |
 | `run_csf_comparison_roimetrics` | false | Extract FA/MD/RD/AD/AFD for GM/WM/ventricles (FreeSurfer) → `comparison/` subdir |

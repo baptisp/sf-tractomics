@@ -624,18 +624,20 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
 
     return ch_stats_files
         .map { _meta, stats_file ->
-            return stats_file
+            // Convert to absolute path string BEFORE collect so no Path object crosses
+            // the collect boundary (Nextflow channel serialisation corrupts Path objects).
+            toAbsFile(stats_file.toString()).absolutePath
         }
         .collect()
-        .map { stats_files ->
+        .map { path_strings ->
             def header_written = false
             def all_columns = new LinkedHashSet()
 
             // Collect all column names across all files
-            stats_files.each { stats_file ->
-                def lines = toAbsFile(stats_file).readLines()
+            path_strings.each { path_str ->
+                def lines = new File(path_str.toString()).readLines()
                 if (lines.size() < 2) {
-                    log.info("Warning: No data rows in file ${stats_file}. Skipping.")
+                    log.info("Warning: No data rows in file ${path_str}. Skipping.")
                     return
                 }
                 def file_columns = lines[0].split('\t').toList()
@@ -657,8 +659,8 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
             def file_writer = output_file.newWriter()
 
             // Read all stats files to write rows with all columns, filling missing values with no value
-            stats_files.each { stats_file ->
-                def lines = toAbsFile(stats_file).readLines()
+            path_strings.each { path_str ->
+                def lines = new File(path_str.toString()).readLines()
                 if (lines.size() < 2) {
                     return
                 }
@@ -699,14 +701,21 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
 
     return ch_stats_files
         .join(ch_volumes)
-        .map { _meta, stats_file, volumes_file -> [stats_file, volumes_file] }
+        .map { _meta, stats_file, volumes_file ->
+            // Encode both paths as a single string BEFORE collect so no Path objects
+            // cross the collect boundary (Nextflow channel serialisation corrupts them).
+            def sf = toAbsFile(stats_file.toString()).absolutePath
+            def vf = toAbsFile(volumes_file.toString()).absolutePath
+            "${sf}:::${vf}"
+        }
         .collect()
-        .map { pairs ->
+        .map { encoded_pairs ->
             def header_written = false
             def all_columns = new LinkedHashSet()
 
-            pairs.each { pair ->
-                def lines = toAbsFile(pair[0]).readLines()
+            encoded_pairs.each { encoded ->
+                def sf = new File(encoded.toString().split(':::')[0])
+                def lines = sf.readLines()
                 if (lines.size() < 2) return
                 lines[0].split('\t').each { all_columns.add(it) }
             }
@@ -726,15 +735,19 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             output_file.getParentFile().mkdirs()
             def fw = output_file.newWriter()
 
-            pairs.each { pair ->
-                def stats_lines = toAbsFile(pair[0]).readLines()
+            encoded_pairs.each { encoded ->
+                def parts    = encoded.toString().split(':::')
+                def stats_f  = new File(parts[0])
+                def vols_f   = new File(parts[1])
+
+                def stats_lines = stats_f.readLines()
                 if (stats_lines.size() < 2) return
 
                 def stats_cols = stats_lines[0].split('\t').toList()
                 def stats_idx  = stats_cols.withIndex().collectEntries { c, i -> [c, i] }
 
                 def vol_map = [:]
-                def vol_lines = toAbsFile(pair[1]).readLines()
+                def vol_lines = vols_f.readLines()
                 if (vol_lines.size() >= 2) {
                     def vol_cols = vol_lines[0].split(',').toList()
                     def roi_col  = vol_cols.find { it in ["region", "bundle"] }

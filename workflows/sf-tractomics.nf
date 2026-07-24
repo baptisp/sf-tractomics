@@ -605,6 +605,13 @@ workflow SF_TRACTOMICS {
 
 //
 // This function should simply collect the stats files into a single file by appending each row of the TSV/CSV files.
+// Nextflow's channel serialization strips the leading '/' from absolute path strings
+// inside .collect().map{} closures. This top-level helper restores it.
+def toAbsFile(p) {
+    def s = p.toString()
+    return new File(s.startsWith('/') ? s : '/' + s)
+}
+
 // However, some files might have more or less fields in their TSV/CSV files, which can cause misalignement and
 // columns with no names. To avoid this, we read each file, build a set of all column names across all files, and
 // then write a new file with all columns, filling missing values with no value.
@@ -621,12 +628,6 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
         }
         .collect()
         .map { stats_files ->
-            // Nextflow may strip the leading '/' from path objects in channel closures;
-            // this helper restores the absolute path before creating a java.io.File.
-            def toAbsFile = { p ->
-                def s = p.toString()
-                new File(s.startsWith('/') ? s : '/' + s)
-            }
             def header_written = false
             def all_columns = new LinkedHashSet()
 
@@ -701,12 +702,6 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
         .map { _meta, stats_file, volumes_file -> [stats_file, volumes_file] }
         .collect()
         .map { pairs ->
-            // Nextflow may strip the leading '/' from path objects in channel closures;
-            // this helper restores the absolute path before creating a java.io.File.
-            def toAbsFile = { p ->
-                def s = p.toString()
-                new File(s.startsWith('/') ? s : '/' + s)
-            }
             def header_written = false
             def all_columns = new LinkedHashSet()
 

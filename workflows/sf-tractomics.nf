@@ -377,7 +377,7 @@ workflow SF_TRACTOMICS {
 
         // Per-row type map for the comparison file (mixes WM, GM, and CSF regions)
         def comparison_type_map = new groovy.json.JsonSlurper()
-            .parse(file("${projectDir}/assets/freesurfer_comparison_type_map.json"))
+            .parse(new File("${projectDir}/assets/freesurfer_comparison_type_map.json"))
             .collectEntries { k, v -> [(k): v] }
 
         if ( params.run_csf_roimetrics ) {

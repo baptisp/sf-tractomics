@@ -687,7 +687,7 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
             // Close the file writer
             file_writer.close()
 
-            return output_file
+            return output_file.toPath()
         }
 }
 
@@ -784,7 +784,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             }
 
             fw.close()
-            return output_file
+            return output_file.toPath()
         }
 }
 

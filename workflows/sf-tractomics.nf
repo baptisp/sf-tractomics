@@ -621,12 +621,18 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
         }
         .collect()
         .map { stats_files ->
+            // Nextflow may strip the leading '/' from path objects in channel closures;
+            // this helper restores the absolute path before creating a java.io.File.
+            def toAbsFile = { p ->
+                def s = p.toString()
+                new File(s.startsWith('/') ? s : '/' + s)
+            }
             def header_written = false
             def all_columns = new LinkedHashSet()
 
             // Collect all column names across all files
             stats_files.each { stats_file ->
-                def lines = new File(stats_file.toString()).readLines()
+                def lines = toAbsFile(stats_file).readLines()
                 if (lines.size() < 2) {
                     log.info("Warning: No data rows in file ${stats_file}. Skipping.")
                     return
@@ -645,13 +651,13 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
             all_columns = all_columns.toList()
 
             // Create file writer for new file
-            def output_file = new File(output_file_path)
+            def output_file = toAbsFile(output_file_path)
             output_file.getParentFile().mkdirs()
             def file_writer = output_file.newWriter()
 
             // Read all stats files to write rows with all columns, filling missing values with no value
             stats_files.each { stats_file ->
-                def lines = new File(stats_file.toString()).readLines()
+                def lines = toAbsFile(stats_file).readLines()
                 if (lines.size() < 2) {
                     return
                 }
@@ -695,11 +701,17 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
         .map { _meta, stats_file, volumes_file -> [stats_file, volumes_file] }
         .collect()
         .map { pairs ->
+            // Nextflow may strip the leading '/' from path objects in channel closures;
+            // this helper restores the absolute path before creating a java.io.File.
+            def toAbsFile = { p ->
+                def s = p.toString()
+                new File(s.startsWith('/') ? s : '/' + s)
+            }
             def header_written = false
             def all_columns = new LinkedHashSet()
 
             pairs.each { pair ->
-                def lines = new File(pair[0].toString()).readLines()
+                def lines = toAbsFile(pair[0]).readLines()
                 if (lines.size() < 2) return
                 lines[0].split('\t').each { all_columns.add(it) }
             }
@@ -715,19 +727,19 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             all_columns.add("volume_mm3")
             all_columns = all_columns.toList()
 
-            def output_file = new File(output_file_path)
+            def output_file = toAbsFile(output_file_path)
             output_file.getParentFile().mkdirs()
             def fw = output_file.newWriter()
 
             pairs.each { pair ->
-                def stats_lines = new File(pair[0].toString()).readLines()
+                def stats_lines = toAbsFile(pair[0]).readLines()
                 if (stats_lines.size() < 2) return
 
                 def stats_cols = stats_lines[0].split('\t').toList()
                 def stats_idx  = stats_cols.withIndex().collectEntries { c, i -> [c, i] }
 
                 def vol_map = [:]
-                def vol_lines = new File(pair[1].toString()).readLines()
+                def vol_lines = toAbsFile(pair[1]).readLines()
                 if (vol_lines.size() >= 2) {
                     def vol_cols = vol_lines[0].split(',').toList()
                     def roi_col  = vol_cols.find { it in ["region", "bundle"] }

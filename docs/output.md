@@ -93,3 +93,15 @@ Enabled by `--run_merge_all_stats`.
 Concatenates WM + GM + CSF stats TSVs into a single file, adding a `region_type` column (`WM`, `GM`, `CSF`) for downstream filtering.
 
 - `metrics/space-native_all-regions_label-mean_desc-roi_stats.tsv`
+
+## Merged combined output (metrics + volumes)
+
+Enabled by `--run_merge_all_volumes`.
+
+Produces a single TSV merging all available data across WM, GM, and CSF region types. For each region type:
+- If metrics are enabled (with or without volumes): the collected stats TSV is used — this already includes volume columns when volumes are also enabled.
+- If only volumes are enabled: the volume CSV is normalised (`bundle`/`region` → `roi`, `region_type` added) and included.
+
+All inputs are merged with a union column set; cells missing in a particular region type's data are left empty. Only region types with at least one of metrics or volumes enabled are included.
+
+- `metrics/space-native_all-regions_desc-roi_combined.tsv`

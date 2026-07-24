@@ -120,6 +120,18 @@ To merge WM + GM + CSF stats TSVs into a single file (adds a `region_type` colum
 
 Output: `metrics/space-native_all-regions_label-mean_desc-roi_stats.tsv`
 
+### Merging all metrics and volumes
+
+To merge all available data (metrics TSVs and/or volume CSVs) across WM, GM, and CSF region types into a single file:
+
+```bash
+--run_merge_all_volumes true
+```
+
+Output: `metrics/space-native_all-regions_desc-roi_combined.tsv`
+
+For each region type, the pipeline uses the metrics TSV when metrics are enabled (which already includes volume columns if volumes are also active), and falls back to the volume CSV when only volumes are enabled. All inputs are merged with a union column set; missing values are left empty.
+
 ## Covariates
 
 To add sample metadata columns (e.g. age, diagnosis) to the output stats TSVs:

@@ -263,9 +263,18 @@ workflow SF_TRACTOMICS {
         log.warn "run_merge_all_stats is enabled but no metrics pipelines are active. The merged file will be empty."
     }
 
+    if ( params.run_merge_all_volumes &&
+         !do_wm_metrics && !do_gm_metrics && !do_csf_metrics &&
+         !do_wm_volumes && !do_gm_volumes && !do_csf_volumes ) {
+        log.warn "run_merge_all_volumes is enabled but no metrics or volume pipelines are active. The merged file will be empty."
+    }
+
     ch_collection_mean_input = channel.empty()
     ch_collection_gm_mean = channel.empty()
     ch_csf_stats_merged = channel.empty()
+    ch_wm_vols_collected  = channel.empty()
+    ch_gm_vols_collected  = channel.empty()
+    ch_csf_vols_collected = channel.empty()
 
     if ( params.run_atlas_roimetrics ) {
         ATLAS_ROIMETRICS(
@@ -322,7 +331,7 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_wm_volumes && !do_wm_metrics ) {
-            ATLAS_ROIMETRICS.out.wm_volumes
+            ch_wm_vols_collected = ATLAS_ROIMETRICS.out.wm_volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
@@ -332,7 +341,7 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_gm_volumes && !do_gm_metrics ) {
-            ATLAS_ROIMETRICS.out.gm_volumes
+            ch_gm_vols_collected = ATLAS_ROIMETRICS.out.gm_volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
@@ -408,7 +417,7 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_csf_volumes && !do_csf_metrics ) {
-            ATLAS_CSF_ROIMETRICS.out.volumes
+            ch_csf_vols_collected = ATLAS_CSF_ROIMETRICS.out.volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
@@ -449,6 +458,47 @@ workflow SF_TRACTOMICS {
                     skip: 1, keepHeader: true, sort: true
                 )
         }
+    }
+
+    if ( params.run_merge_all_volumes ) {
+        def ch_for_unified = channel.empty()
+        // For each region type: use the collected stats TSV when metrics are enabled
+        // (already includes volumes if collectStatsFilesWithVolumes was used),
+        // otherwise fall back to the volumes-only CSV when only volumes are enabled.
+        if ( params.run_atlas_roimetrics ) {
+            if ( do_wm_metrics ) {
+                ch_for_unified = ch_for_unified.mix(
+                    ch_collection_mean_input.map { p -> "STATS:::${toAbsFile(p.toString()).absolutePath}" }
+                )
+            } else if ( do_wm_volumes ) {
+                ch_for_unified = ch_for_unified.mix(
+                    ch_wm_vols_collected.map { p -> "VOLS_WM_bundle:::${toAbsFile(p.toString()).absolutePath}" }
+                )
+            }
+            if ( do_gm_metrics ) {
+                ch_for_unified = ch_for_unified.mix(
+                    ch_collection_gm_mean.map { p -> "STATS:::${toAbsFile(p.toString()).absolutePath}" }
+                )
+            } else if ( do_gm_volumes ) {
+                ch_for_unified = ch_for_unified.mix(
+                    ch_gm_vols_collected.map { p -> "VOLS_GM_region:::${toAbsFile(p.toString()).absolutePath}" }
+                )
+            }
+        }
+        if ( do_csf_metrics ) {
+            ch_for_unified = ch_for_unified.mix(
+                ch_csf_stats_merged.map { p -> "STATS:::${toAbsFile(p.toString()).absolutePath}" }
+            )
+        } else if ( do_csf_volumes ) {
+            ch_for_unified = ch_for_unified.mix(
+                ch_csf_vols_collected.map { p -> "VOLS_CSF_region:::${toAbsFile(p.toString()).absolutePath}" }
+            )
+        }
+        collectUnifiedFiles(
+            ch_for_unified,
+            "space-native_all-regions_desc-roi_combined.tsv",
+            "${params.outdir}/metrics/"
+        )
     }
 
     if ( params.run_merge_all_stats ) {
@@ -812,6 +862,102 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                         stats_idx.containsKey(col) ? (stats_idx[col] < vals.size() ? vals[stats_idx[col]] : '') : ''
                     }
                     fw.write(row.join('\t') + '\n')
+                }
+            }
+
+            fw.close()
+            return output_file.toPath()
+        }
+}
+
+// Merge per-atlas collected stats TSVs and/or volume CSVs into one global file.
+// Encoded items in ch_files:
+//   "STATS:::abs_path"          — TSV already containing roi + region_type + metric cols (± volume cols)
+//   "VOLS_<region_type>:::path" — CSV with bundle/region col; normalized to roi + region_type on the fly
+// Output is a TSV with the union of all columns (missing values filled with empty string).
+def collectUnifiedFiles(ch_files, name, storeDir) {
+
+    def output_file_path = "${storeDir}/${name}"
+
+    return ch_files
+        .collect()
+        .map { encoded_list ->
+            def header_written = false
+            def all_columns = new LinkedHashSet()
+
+            // First pass: build the union of all columns
+            encoded_list.each { encoded ->
+                def parts = encoded.toString().split(':::')
+                def type  = parts[0]
+                def f     = new File(parts[1])
+                def lines = f.readLines()
+                if (lines.size() < 2) return
+
+                if (type == "STATS") {
+                    lines[0].split('\t').each { all_columns.add(it) }
+                } else {
+                    // Volume CSV: rename bundle/region → roi, inject region_type after roi
+                    def cols = lines[0].split(',').toList()
+                    cols.each { col -> all_columns.add(col in ["bundle", "region"] ? "roi" : col) }
+                    if (!all_columns.contains("region_type")) {
+                        def list = all_columns.toList()
+                        def roi_pos = list.indexOf("roi")
+                        list.add(roi_pos >= 0 ? roi_pos + 1 : list.size(), "region_type")
+                        all_columns = new LinkedHashSet(list)
+                    }
+                }
+            }
+            all_columns = all_columns.toList()
+
+            def output_file = new File(output_file_path).absoluteFile
+            output_file.getParentFile().mkdirs()
+            def fw = output_file.newWriter()
+
+            // Second pass: write rows
+            encoded_list.each { encoded ->
+                def parts = encoded.toString().split(':::')
+                def type  = parts[0]
+                def f     = new File(parts[1])
+                def lines = f.readLines()
+                if (lines.size() < 2) {
+                    log.warn("No data rows in file ${f}. Skipping.")
+                    return
+                }
+
+                if (!header_written) {
+                    fw.write(all_columns.join('\t') + '\n')
+                    header_written = true
+                }
+
+                if (type == "STATS") {
+                    def file_cols = lines[0].split('\t').toList()
+                    def col_idx   = file_cols.withIndex().collectEntries { col, i -> [col, i] }
+                    lines[1..-1].each { line ->
+                        if (!line.trim()) return
+                        def vals = line.split('\t', -1)
+                        def row = all_columns.collect { col ->
+                            col_idx.containsKey(col) ? (col_idx[col] < vals.size() ? vals[col_idx[col]] : '') : ''
+                        }
+                        fw.write(row.join('\t') + '\n')
+                    }
+                } else {
+                    // "VOLS_WM_bundle", "VOLS_GM_region", "VOLS_CSF_region"
+                    def region_type = type.replaceFirst(/^VOLS_/, "")
+                    def file_cols   = lines[0].split(',').toList()
+                    def roi_src     = file_cols.find { it in ["bundle", "region"] }
+                    def col_idx     = file_cols.withIndex().collectEntries { col, i -> [col, i] }
+                    lines[1..-1].each { line ->
+                        if (!line.trim()) return
+                        def vals = line.split(',', -1)
+                        def roi  = roi_src ? (col_idx[roi_src] < vals.size() ? vals[col_idx[roi_src]] : '') : ''
+                        def row  = all_columns.collect { col ->
+                            if (col == "roi")         return roi
+                            if (col == "region_type") return region_type
+                            if (col in ["bundle", "region"]) return ''
+                            col_idx.containsKey(col) ? (col_idx[col] < vals.size() ? vals[col_idx[col]] : '') : ''
+                        }
+                        fw.write(row.join('\t') + '\n')
+                    }
                 }
             }
 

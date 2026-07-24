@@ -1209,6 +1209,12 @@
                     "description": "Merge WM, GM, and CSF metrics TSVs into a single global file (space-native_all-regions_label-mean_desc-roi_stats.tsv).",
                     "help_text": "Concatenates the collected WM, GM, and CSF mean stats TSVs into one file in the metrics/ output directory. Only merges types that are enabled.",
                     "default": false
+                },
+                "run_merge_all_volumes": {
+                    "type": "boolean",
+                    "description": "Merge all available metrics and/or volumes into a single global file (space-native_all-regions_desc-roi_combined.tsv).",
+                    "help_text": "For each region type (WM, GM, CSF): when metrics are enabled, the collected stats TSV is used (which already includes volume columns if volumes are also enabled). When only volumes are enabled, the volume CSV is normalised and included. All inputs are merged with a union column set; missing values are left empty. Only region types that have at least one of metrics or volumes enabled are included.",
+                    "default": false
                 }
             }
         },

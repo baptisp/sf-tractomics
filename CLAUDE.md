@@ -130,16 +130,16 @@ Config: `conf/modules/stats_csfroi.config` (`.*:STATS_CSF_COMPARISON`).
 
 `collectUnifiedFiles` in `workflows/sf-tractomics.nf` merges WM, GM, and CSF stats into one wide TSV.
 
-**Output schema** — one row per subject × metric, each ROI as a column:
+**Output schema** — one row per subject × ROI, each metric as a column:
 ```
-sid  session  run  metric  [covariates]  [WM bundles]  [GM regions]  [CSF regions]
+sid  session  run  roi  region_type  [covariates]  [metrics]
 ```
 
 **How it works**: each input is tagged with its type before being passed to the function:
 - `"STATS_WM_bundle:::path"` — TSV: rows=bundles, cols=metrics (roi=bundle name)
 - `"STATS_GM_region:::path"` — TSV: rows=GM regions, cols=metrics (roi=region name) — same orientation as WM
 - `"STATS_CSF_region:::path"` — TSV: rows=CSF regions, cols=metrics (roi=region name) — same orientation as WM
-- `"VOLS_*:::path"` — CSV: `sid,session,run,bundle/region,volume_voxels,volume_mm3` → `volume_voxels` and `volume_mm3` become additional metric rows
+- `"VOLS_*:::path"` — CSV: `sid,session,run,bundle/region,volume_voxels,volume_mm3` → `volume_voxels` and `volume_mm3` become additional metric columns
 
 All three STATS types have identical orientation since the module transposes GM/CSF. The function reconstructs the subject key from `sid+session+run` columns (new module format) or falls back to `sample` (legacy).
 

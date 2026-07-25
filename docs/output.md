@@ -18,16 +18,16 @@ Atlas: IIT Atlas v5.0 TDI bundle masks (41 bundles), registered to subject DWI s
 
 **Per-subject:**
 
-- `dwi/<subject>_atlas-iit_desc-roi_stats.tsv` — FA/MD/RD/AD/AFD mean per WM bundle
+- `dwi/<subject>_atlas-iit-wm_desc-roi_stats.tsv` — FA/MD/RD/AD/AFD mean per WM bundle
 
 **Globally collected:**
 
-- `metrics/space-native_atlas-iit_label-mean_desc-roi_stats.tsv` — all subjects merged
+- `metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv` — all subjects merged
 
 **Volumes** (enabled by `--run_wm_volumes` or `--run_roi_volumes`):
 
-- `dwi/<subject>_atlas-iit_desc-roi_volumes.csv` — voxel count and mm³ per bundle
-- `metrics/space-native_atlas-iit_desc-roi_volumes.csv` — all subjects merged
+- `dwi/<subject>_atlas-iit-wm_desc-roi_volumes.csv` — voxel count and mm³ per bundle
+- `metrics/space-native_atlas-iit-wm_desc-roi_volumes.csv` — all subjects merged
 
 ## GM Desikan region ROI metrics
 

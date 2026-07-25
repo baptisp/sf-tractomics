@@ -59,9 +59,9 @@ SynthSeg runs on the **T1 already registered to DWI space**, so all its outputs 
 
 Enabled by `params.run_atlas_roimetrics = true`.
 Config: `conf/modules/stats_metricsinroi.config`.
-Output per subject: `*_atlas-iit_desc-roi_stats.tsv`
-Global collected: `metrics/space-native_atlas-iit_label-mean_desc-roi_stats.tsv`
-Volumes: `metrics/space-native_atlas-iit_desc-roi_volumes.csv`
+Output per subject: `*_atlas-iit-wm_desc-roi_stats.tsv`
+Global collected: `metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv`
+Volumes: `metrics/space-native_atlas-iit-wm_desc-roi_volumes.csv`
 
 ## GM region ROI metrics pipeline
 

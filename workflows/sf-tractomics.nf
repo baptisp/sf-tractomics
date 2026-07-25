@@ -295,12 +295,12 @@ workflow SF_TRACTOMICS {
                 ch_collection_mean_input = collectStatsFilesWithVolumes(
                     ATLAS_ROIMETRICS.out.stats_tab_mean,
                     ATLAS_ROIMETRICS.out.wm_volumes,
-                    "space-native_atlas-iit_label-mean_desc-roi_stats.tsv",
+                    "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "WM_bundle"
                 )
             } else {
-                ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.stats_tab_mean, "space-native_atlas-iit_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
+                ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.stats_tab_mean, "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
             }
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
         }
@@ -330,7 +330,7 @@ workflow SF_TRACTOMICS {
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
-                    name: "space-native_atlas-iit_desc-roi_volumes.csv",
+                    name: "space-native_atlas-iit-wm_desc-roi_volumes.csv",
                     skip: 1, keepHeader: true, sort: true
                 )
         }

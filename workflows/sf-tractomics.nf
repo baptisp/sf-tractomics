@@ -883,25 +883,6 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
             def data     = [:]
             def cov_data = [:]  // subject_key → covariate col → value
 
-            def ensureSubject = { String sk ->
-                if (!data.containsKey(sk))     data[sk]     = [:]
-                if (!cov_data.containsKey(sk)) cov_data[sk] = [:]
-            }
-
-            // Strip leading underscores from metric names produced by double-underscore removal
-            def cleanMetric = { String m -> m.replaceAll(/^_+/, "") }
-
-            // Parse BIDS-style combined sample key into [sid, session, run]
-            def parseSample = { String s ->
-                def m_sub = (s =~ /(?:^|_)(sub-[^_]+)/)
-                def m_ses = (s =~ /(?:^|_)(ses-[^_]+)/)
-                def m_run = (s =~ /(?:^|_)(run-[^_]+)/)
-                def sid  = m_sub  ? m_sub[0][1]  : s
-                def ses  = m_ses  ? m_ses[0][1]  : ""
-                def run  = m_run  ? m_run[0][1]  : ""
-                [sid, ses, run]
-            }
-
             encoded_list.each { encoded ->
                 def parts = encoded.toString().split(':::')
                 def type  = parts[0]
@@ -942,7 +923,8 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                         def sample = (sample_idx >= 0 && sample_idx < vals.size()) ? vals[sample_idx] : ""
                         def roi    = (roi_idx    >= 0 && roi_idx    < vals.size()) ? vals[roi_idx]    : ""
 
-                        ensureSubject(sample)
+                        if (!data.containsKey(sample))     data[sample]     = [:]
+                        if (!cov_data.containsKey(sample)) cov_data[sample] = [:]
                         subjects.add(sample)
 
                         // Store covariate values for this subject
@@ -964,7 +946,7 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                             }
                         } else {
                             // roi = metric name (possibly _fa → fa); data cols = region values
-                            def metric = cleanMetric(roi)
+                            def metric = roi.replaceAll(/^_+/, "")
                             all_metrics.add(metric)
                             if (!data[sample].containsKey(metric)) data[sample][metric] = [:]
                             data_names.eachWithIndex { region, ri ->
@@ -998,7 +980,8 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                         def vox    = (vox_idx >= 0 && vox_idx < vals.size()) ? vals[vox_idx] : ""
                         def mm3    = (mm3_idx >= 0 && mm3_idx < vals.size()) ? vals[mm3_idx] : ""
 
-                        ensureSubject(sample)
+                        if (!data.containsKey(sample))     data[sample]     = [:]
+                        if (!cov_data.containsKey(sample)) cov_data[sample] = [:]
                         subjects.add(sample)
 
                         if (type == "VOLS_WM_bundle")  wm_bundles.add(roi)
@@ -1023,7 +1006,12 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
             fw.write(header.join('\t') + '\n')
 
             subjects.sort().each { sample ->
-                def (sid, session, run) = parseSample(sample)
+                def m_sub   = (sample =~ /(?:^|_)(sub-[^_]+)/)
+                def m_ses   = (sample =~ /(?:^|_)(ses-[^_]+)/)
+                def m_run   = (sample =~ /(?:^|_)(run-[^_]+)/)
+                def sid     = m_sub ? m_sub[0][1] : sample
+                def session = m_ses ? m_ses[0][1] : ""
+                def run     = m_run ? m_run[0][1] : ""
                 all_metrics.sort().each { metric ->
                     if (!data[sample]?.containsKey(metric)) return
                     def metric_data = data[sample][metric]

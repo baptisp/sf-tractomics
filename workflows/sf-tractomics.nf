@@ -665,6 +665,12 @@ workflow SF_TRACTOMICS {
 // a .collect() boundary. This top-level helper restores it before the path becomes a String.
 def toAbsFile(p) {
     def s = p.toString()
+    // Nextflow 26.x channel serialization strips the leading '/' from Path objects that cross
+    // a .collect() boundary. This helper restores it before the path becomes a String.
+    // Relative paths (e.g. when --outdir is relative) are resolved against the JVM CWD instead.
+    if (s.startsWith('./') || s.startsWith('../')) {
+        return new File(s).absoluteFile
+    }
     return new File(s.startsWith('/') ? s : '/' + s)
 }
 

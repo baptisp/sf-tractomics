@@ -909,12 +909,14 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                     }
                     def cov_indices = covariate_cols.collect { c -> cols.indexOf(c) }
 
+                    // volume_voxels/volume_mm3 are metrics, not brain regions — exclude from region sets
+                    def vol_cols = ["volume_voxels", "volume_mm3"] as Set
                     if (type == "STATS_WM_bundle") {
                         all_metrics.addAll(data_names)
                     } else if (type == "STATS_GM_region") {
-                        gm_regions.addAll(data_names)
+                        gm_regions.addAll(data_names.findAll { !(it in vol_cols) })
                     } else {
-                        csf_regions.addAll(data_names)
+                        csf_regions.addAll(data_names.findAll { !(it in vol_cols) })
                     }
 
                     lines[1..-1].each { line ->
@@ -950,6 +952,7 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                             all_metrics.add(metric)
                             if (!data[sample].containsKey(metric)) data[sample][metric] = [:]
                             data_names.eachWithIndex { region, ri ->
+                                if (region in vol_cols) return  // volumes are metrics not regions
                                 def idx = data_indices[ri]
                                 def val = (idx < vals.size()) ? vals[idx] : ""
                                 data[sample][metric][region] = val

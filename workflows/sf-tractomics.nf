@@ -16,7 +16,6 @@ include { ATLAS_IIT              } from '../subworkflows/nf-neuro/atlas_iit/main
 include { RECONST_SHSIGNAL       } from '../modules/nf-neuro/reconst/shsignal'
 include { RECONST_FW_NODDI       } from '../subworkflows/nf-neuro/reconst_fw_noddi/main'
 include { BUNDLE_SEG             } from '../subworkflows/nf-neuro/bundle_seg/main'
-include { STATS_METRICSINROI     } from '../modules/nf-neuro/stats/metricsinroi/main'
 include { ATLAS_ROIMETRICS       } from '../subworkflows/nf-neuro/atlas_roimetrics/main'
 include { ATLAS_CSF_ROIMETRICS   } from '../subworkflows/nf-neuro/atlas_csf_roimetrics/main'
 include { TRACTOMETRY            } from '../subworkflows/nf-neuro/tractometry/main'

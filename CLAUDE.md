@@ -54,7 +54,7 @@ SynthSeg runs on the **T1 already registered to DWI space**, so all its outputs 
 1. `ATLAS_IIT` downloads 41 WM bundle TDI masks from NITRC (IIT Atlas v5.0, MNI space).
 2. `REGISTER_ATLAS_REF`: ANTs registers atlas B0 → subject B0.
 3. `TRANSFORM_ATLAS_BUNDLES`: warps all bundle masks to subject DWI space (MultiLabel interpolation).
-4. `STATS_METRICSINROI`: extracts FA/MD/RD/AD/AFD per bundle using `scil_volume_stats_in_ROI`.
+4. `STATS_WM_ROIMETRICS`: extracts FA/MD/RD/AD/AFD per bundle using `scil_volume_stats_in_ROI`.
 5. `STATS_WM_VOLUMES` (optional): computes voxel count + mm³ per bundle.
 
 Enabled by `params.run_atlas_roimetrics = true`.
@@ -70,7 +70,7 @@ Volumes: `metrics/space-native_atlas-iit_desc-roi_volumes.csv`
 1. `ATLAS_IIT` downloads `IIT_GM_Desikan_atlas.nii.gz` and `LUT_GM_Desikan_0to1.txt` from NITRC. The LUT (tab-separated: `index R G B "name"`) is converted to JSON at runtime in Groovy inside `atlas_iit/main.nf`.
 2. The IIT atlas B0 registration transform (already computed for WM) is **reused** — no second registration.
 3. `TRANSFORM_GM_ATLAS` (alias of `REGISTRATION_ANTSAPPLYTRANSFORMS`, MultiLabel) warps the GM atlas to subject DWI space.
-4. `STATS_GM_ROIMETRICS` (alias of `STATS_METRICSINROI`, `use_label = true`) calls `scil_volume_stats_in_labels` with the JSON LUT to extract per-region FA/MD/RD/AD/AFD.
+4. `STATS_GM_ROIMETRICS` (alias of `STATS_METRICSINROI` module, `use_label = true`) calls `scil_volume_stats_in_labels` with the JSON LUT to extract per-region FA/MD/RD/AD/AFD.
 5. `STATS_GM_VOLUMES` (optional): computes voxel count + mm³ per GM region.
 
 Enabled by `params.run_gm_metrics = true` or `params.run_roi_metrics = true` (requires `run_atlas_roimetrics = true`).
@@ -94,7 +94,7 @@ By default, the subworkflow auto-extracts `cvs_avg35_inMNI152/mri/aparc+aseg.mgz
 1. `EXTRACT_FREESURFER_MNI_ATLAS` (process, runs once, cached with `storeDir`): extracts `aparc+aseg.mgz` → NIfTI from the FreeSurfer container.
 2. `REGISTER_CSF_REF`: ANTs registers IIT B0 (downloaded separately) → subject B0. Independent from the IIT WM/GM registration.
 3. `TRANSFORM_CSF_ATLAS`: warps the FreeSurfer parcellation to subject DWI space (MultiLabel).
-4. `STATS_CSF_ROIMETRICS` (alias of `STATS_METRICSINROI`, `use_label = true`): extracts per-region FA/MD/RD/AD/AFD for CSF regions.
+4. `STATS_CSF_ROIMETRICS` (alias of `STATS_METRICSINROI` module, `use_label = true`): extracts per-region FA/MD/RD/AD/AFD for CSF regions.
 5. `STATS_CSF_VOLUMES` (optional): computes voxel count + mm³ per CSF region.
 
 ### LUT: `assets/freesurfer_csf_lut.json`
@@ -157,7 +157,7 @@ Covers GM subcortical structures (bilateral), WM regions, and ventricles/CSF:
 
 Reuses the warped FreeSurfer atlas from `TRANSFORM_CSF_ATLAS` (no extra registration).
 
-4. `STATS_CSF_COMPARISON` (alias of `STATS_METRICSINROI`): extracts per-region FA/MD/RD/AD/AFD using `assets/freesurfer_comparison_lut.json`.
+4. `STATS_CSF_COMPARISON` (alias of `STATS_METRICSINROI` module): extracts per-region FA/MD/RD/AD/AFD using `assets/freesurfer_comparison_lut.json`.
 5. `STATS_CSF_COMPARISON_VOLUMES` (optional): computes voxel count + mm³ per comparison region.
 
 Enabled by `params.run_csf_comparison_roimetrics = true` and/or `params.run_csf_comparison_volumes = true`.
@@ -198,7 +198,7 @@ All three pipelines (WM, GM, CSF) use `ch_input_metrics` from `workflows/sf-trac
 ## Process naming convention for config selectors
 
 Nextflow process names follow the call hierarchy:
-- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_METRICSINROI`
+- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_WM_ROIMETRICS`
 - `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_GM_ROIMETRICS`
 - `SF_TRACTOMICS:ATLAS_CSF_ROIMETRICS:STATS_CSF_ROIMETRICS`
 - `SF_TRACTOMICS:ATLAS_CSF_ROIMETRICS:STATS_CSF_VOLUMES`

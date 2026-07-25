@@ -1,7 +1,7 @@
 include { REGISTRATION_ANTS as REGISTER_ATLAS_REF } from '../../../modules/nf-neuro/registration/ants/main'
 include { REGISTRATION_ANTSAPPLYTRANSFORMS as TRANSFORM_ATLAS_BUNDLES } from '../../../modules/nf-neuro/registration/antsapplytransforms/main.nf'
 include { REGISTRATION_ANTSAPPLYTRANSFORMS as TRANSFORM_GM_ATLAS } from '../../../modules/nf-neuro/registration/antsapplytransforms/main.nf'
-include { STATS_METRICSINROI     } from '../../../modules/nf-neuro/stats/metricsinroi/main'
+include { STATS_METRICSINROI as STATS_WM_ROIMETRICS } from '../../../modules/nf-neuro/stats/metricsinroi/main'
 include { STATS_METRICSINROI as STATS_GM_ROIMETRICS } from '../../../modules/nf-neuro/stats/metricsinroi/main'
 include { STATS_ROIVOLUMES as STATS_WM_VOLUMES } from '../../../modules/nf-neuro/stats/roivolumes/main'
 include { STATS_ROIVOLUMES as STATS_GM_VOLUMES } from '../../../modules/nf-neuro/stats/roivolumes/main'
@@ -80,12 +80,12 @@ workflow ATLAS_ROIMETRICS {
                         [meta, metrics, masks, []]
                 }
 
-            STATS_METRICSINROI(ch_input_metricsinroi)
-            ch_versions = ch_versions.mix(STATS_METRICSINROI.out.versions)
+            STATS_WM_ROIMETRICS(ch_input_metricsinroi)
+            ch_versions = ch_versions.mix(STATS_WM_ROIMETRICS.out.versions)
 
-            ch_stats_json = STATS_METRICSINROI.out.stats_json
-            ch_stats_mean = STATS_METRICSINROI.out.stats_mean
-            ch_stats_std  = STATS_METRICSINROI.out.stats_std
+            ch_stats_json = STATS_WM_ROIMETRICS.out.stats_json
+            ch_stats_mean = STATS_WM_ROIMETRICS.out.stats_mean
+            ch_stats_std  = STATS_WM_ROIMETRICS.out.stats_std
         }
 
         //

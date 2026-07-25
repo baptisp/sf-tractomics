@@ -77,7 +77,7 @@
                     "scilpy": "2.2.2",
                     "fsl": 6.0
                 },
-                "STATS_METRICSINROI": {
+                "STATS_WM_ROIMETRICS": {
                     "scilpy": "2.2.2",
                     "jq": 1.7
                 },
@@ -113,7 +113,7 @@
             [
                 "metrics",
                 "metrics/bundles_mean_stats.tsv",
-                "metrics/space-native_atlas-iit_label-mean_desc-roi_stats.tsv",
+                "metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv",
                 "multiqc",
                 "multiqc/global_multiqc_data",
                 "multiqc/global_multiqc_plots",
@@ -138,7 +138,7 @@
                 "sub-test-1/dwi/bundles/sub-test-1_AF_L.trk",
                 "sub-test-1/dwi/bundles/sub-test-1_space-MNI152Lin_tract-ArcuateFasciculus_hemi-left_track-sdstream_tractogram.trk",
                 "sub-test-1/dwi/bundles/sub-test-1_space-orig_tract-ArcuateFasciculus_hemi-left_track-sdstream_tractogram.trk",
-                "sub-test-1/dwi/sub-test-1_atlas-iit_desc-roi_stats.tsv",
+                "sub-test-1/dwi/sub-test-1_atlas-iit-wm_desc-roi_stats.tsv",
                 "sub-test-1/dwi/sub-test-1_desc-brain_mask.nii.gz",
                 "sub-test-1/dwi/sub-test-1_desc-ensemble_tractogram.trk",
                 "sub-test-1/dwi/sub-test-1_desc-local_tractogram.trk",

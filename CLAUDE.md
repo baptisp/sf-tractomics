@@ -45,16 +45,25 @@ So `task.ext.prefix` = `sub-027S6001_ses-20170111` (combined). This is used as t
 
 Each pipeline performs its **own independent ANTs registration** (IIT B0 → subject B0 for WM/GM; separate for CSF/comparison).
 
-## Critical: two different stats file orientations
+## Stats module orientation (unified)
 
-`modules/nf-neuro/stats/metricsinroi/main.nf` wraps two SCILPY commands with **opposite JSON structures**:
+`modules/nf-neuro/stats/metricsinroi/main.nf` produces a **consistent TSV orientation for all modes**:
 
-| Mode | Command | Outer JSON key | Inner JSON key | Result in TSV |
-|---|---|---|---|---|
-| `use_label = false` (WM) | `scil_volume_stats_in_ROI` | ROI mask filename → **bundle name** | metric filename → **metric name** | rows = bundles, cols = metrics |
-| `use_label = true` (GM/CSF) | `scil_volume_stats_in_labels` | metric filename → **metric name** | region name from LUT → **region name** | rows = metrics, cols = regions |
+| Mode | SCILPY command | Module step | TSV result |
+|---|---|---|---|
+| `use_label = false` (WM) | `scil_volume_stats_in_ROI` | Raw output is already ROI-centric | rows = bundles, cols = metrics |
+| `use_label = true` (GM/CSF) | `scil_volume_stats_in_labels` | Module transposes metric-centric JSON → region-centric | rows = regions, cols = metrics |
 
-This inversion is fundamental. `key_substrs_to_remove` cleans the **outer** keys; `value_substrs_to_remove` cleans the **inner** keys. Both are configured in `conf/modules/stats_metricsinroi.config` and `conf/modules/stats_csfroi.config`.
+**Both modes produce `sid  session  run  roi  [meta_cols]  [metrics]`.** `roi` = bundle name (WM) or region name (GM/CSF).
+
+**FW-corrected metrics** (`_desc-fwc__`): the module's internal `extract_desc` jq step renames these automatically (e.g., `prefix_desc-fwc__fa` → `prefix__fat`). So `value_substrs_to_remove = ["prefix__"]` alone is sufficient for all cases — the `_desc-fwc__` entry is no longer needed.
+
+`key_substrs_to_remove` cleans **outer keys** (ROI names before TSV output):
+- WM: bundle mask filenames → bundle names (`["prefix_", "_mask_warped", "_warped"]`)
+- GM/CSF: region names from LUT → already clean → `[]`
+
+`value_substrs_to_remove` cleans **inner keys** (metric filenames → metric names):
+- All modes: `["${task.ext.prefix}__"]`
 
 ## WM bundle ROI metrics pipeline
 
@@ -79,11 +88,12 @@ Global collected: `metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.t
 
 1. Reuses the IIT B0 registration transform from WM pipeline — no second registration.
 2. `TRANSFORM_GM_ATLAS`: warps GM atlas to subject DWI space (MultiLabel).
-3. `STATS_GM_ROIMETRICS` (`use_label = true`): calls `scil_volume_stats_in_labels`. Outer keys = metric filenames → cleaned to metric names. Inner keys = region names from LUT.
+3. `STATS_GM_ROIMETRICS` (`use_label = true`): calls `scil_volume_stats_in_labels`; module transposes to region-centric. TSV rows = GM regions, cols = metrics.
 4. `STATS_GM_VOLUMES` (optional).
 
 Config: `conf/modules/stats_metricsinroi.config` (`.*:ATLAS_ROIMETRICS:STATS_GM_ROIMETRICS`).
-- `key_substrs_to_remove = ["prefix__"]` (double `__` → clean metric names: `fa`, `md`, not `_fa`)
+- `key_substrs_to_remove = []` (region names from LUT are already clean)
+- `value_substrs_to_remove = ["prefix__"]` (strips metric filename prefix; `_desc-fwc__` handled internally by module)
 
 Output per subject: `*_atlas-iit-gm_desc-roi_stats.tsv`
 Global collected: `metrics/space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv`
@@ -97,11 +107,12 @@ Global collected: `metrics/space-native_atlas-iit-gm_label-mean_desc-roi_stats.t
 1. `EXTRACT_FREESURFER_MNI_ATLAS`: extracts atlas NIfTI from FreeSurfer container (cached with `storeDir`).
 2. `REGISTER_CSF_REF`: ANTs registers IIT B0 → subject B0 (independent run).
 3. `TRANSFORM_CSF_ATLAS`: warps FreeSurfer parcellation to subject DWI space (MultiLabel).
-4. `STATS_CSF_ROIMETRICS` (`use_label = true`): same orientation as GM — rows = metrics, cols = CSF regions.
+4. `STATS_CSF_ROIMETRICS` (`use_label = true`): same as GM — module transposes, TSV rows = CSF regions, cols = metrics.
 5. `STATS_CSF_VOLUMES` (optional).
 
 Config: `conf/modules/stats_csfroi.config` (`.*:ATLAS_CSF_ROIMETRICS:STATS_CSF_ROIMETRICS`).
-- `key_substrs_to_remove = ["prefix__"]` (double `__` — must match GM convention for consistent metric names in combined output)
+- `key_substrs_to_remove = []` (region names from LUT are already clean)
+- `value_substrs_to_remove = ["prefix__"]`
 
 Default LUT (`assets/freesurfer_csf_lut.json`): labels 4, 5, 14, 15, 24, 31, 43, 44, 63 (ventricles + choroid plexus + CSF).
 
@@ -113,7 +124,7 @@ Global collected: `metrics/space-native_atlas-freesurfer-csf_label-mean_desc-roi
 Reuses `TRANSFORM_CSF_ATLAS` warped atlas with `assets/freesurfer_comparison_lut.json` (broader LUT covering WM, GM subcortical, and ventricles/CSF). Outputs to `comparison/` subdirectory.
 
 Config: `conf/modules/stats_csfroi.config` (`.*:STATS_CSF_COMPARISON`).
-- `key_substrs_to_remove = ["prefix__"]` (same double `__` convention)
+- `key_substrs_to_remove = []`, `value_substrs_to_remove = ["prefix__"]`
 
 ## Combined stats file (`run_merge_all_stats`)
 
@@ -124,15 +135,15 @@ Config: `conf/modules/stats_csfroi.config` (`.*:STATS_CSF_COMPARISON`).
 sid  session  run  metric  [covariates]  [WM bundles]  [GM regions]  [CSF regions]
 ```
 
-**How it works**: each input is tagged with its orientation type before being passed to the function:
-- `"STATS_WM_bundle:::path"` — TSV with rows=bundles, cols=metrics → function transposes (bundles become columns)
-- `"STATS_GM_region:::path"` — TSV with rows=metrics, cols=regions → used directly
-- `"STATS_CSF_region:::path"` — TSV with rows=metrics, cols=regions → used directly
-- `"VOLS_*:::path"` — CSV with `sid,session,run,bundle/region,volume_voxels,volume_mm3` → `volume_voxels` and `volume_mm3` become additional metric rows
+**How it works**: each input is tagged with its type before being passed to the function:
+- `"STATS_WM_bundle:::path"` — TSV: rows=bundles, cols=metrics (roi=bundle name)
+- `"STATS_GM_region:::path"` — TSV: rows=GM regions, cols=metrics (roi=region name) — same orientation as WM
+- `"STATS_CSF_region:::path"` — TSV: rows=CSF regions, cols=metrics (roi=region name) — same orientation as WM
+- `"VOLS_*:::path"` — CSV: `sid,session,run,bundle/region,volume_voxels,volume_mm3` → `volume_voxels` and `volume_mm3` become additional metric rows
 
-The function receives `covariate_cols` from `params.tractometry_covariates` to distinguish covariate columns from data columns. The `sample` key in stats TSVs is parsed back into `sid`/`session`/`run` using BIDS regex.
+All three STATS types have identical orientation since the module transposes GM/CSF. The function reconstructs the subject key from `sid+session+run` columns (new module format) or falls back to `sample` (legacy).
 
-**Do not** use the old `"STATS:::"` tag — it was the bug: the function could not distinguish orientations and produced a garbage column union.
+**Do not** use the old `"STATS:::"` tag — it was the bug: the function could not distinguish WM vs GM/CSF orientations (before the module transposition was added).
 
 **Note**: `collectUnifiedFiles` and `collectStatsFiles` are Groovy closures, not Nextflow processes — they always re-execute even with `-resume`. Only the upstream stats processes (STATS_*_ROIMETRICS) are cached.
 

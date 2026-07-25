@@ -867,7 +867,8 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
 
     def output_file_path = "${storeDir}/${name}"
     def cov_set          = covariate_cols as Set
-    def FIXED_COLS       = ["sample", "roi", "region_type"] as Set
+    // Covers both old format (sample, roi) and new module format (sid, session, run, roi)
+    def FIXED_COLS       = ["sample", "sid", "session", "run", "roi", "region_type"] as Set
 
     return ch_files
         .collect()
@@ -894,9 +895,13 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                 }
 
                 if (type in ["STATS_WM_bundle", "STATS_GM_region", "STATS_CSF_region"]) {
-                    def cols       = lines[0].split('\t').toList()
-                    def sample_idx = cols.indexOf("sample")
-                    def roi_idx    = cols.indexOf("roi")
+                    def cols    = lines[0].split('\t').toList()
+                    // New module outputs sid/session/run/roi; old format used sample/roi — handle both
+                    def sid_idx = cols.indexOf("sid")
+                    def ses_idx = cols.indexOf("session")
+                    def run_idx = cols.indexOf("run")
+                    def sam_idx = cols.indexOf("sample")
+                    def roi_idx = cols.indexOf("roi")
 
                     // Identify data columns (not fixed, not covariates)
                     def data_indices = []
@@ -909,21 +914,25 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                     }
                     def cov_indices = covariate_cols.collect { c -> cols.indexOf(c) }
 
-                    // volume_voxels/volume_mm3 are metrics, not brain regions — exclude from region sets
-                    def vol_cols = ["volume_voxels", "volume_mm3"] as Set
-                    if (type == "STATS_WM_bundle") {
-                        all_metrics.addAll(data_names)
-                    } else if (type == "STATS_GM_region") {
-                        gm_regions.addAll(data_names.findAll { !(it in vol_cols) })
-                    } else {
-                        csf_regions.addAll(data_names.findAll { !(it in vol_cols) })
-                    }
+                    // All three STATS types now have the same orientation:
+                    // roi = ROI name (bundle/GM region/CSF region), data cols = metric values
+                    all_metrics.addAll(data_names)
 
                     lines[1..-1].each { line ->
                         if (!line.trim()) return
-                        def vals   = line.split('\t', -1)
-                        def sample = (sample_idx >= 0 && sample_idx < vals.size()) ? vals[sample_idx] : ""
-                        def roi    = (roi_idx    >= 0 && roi_idx    < vals.size()) ? vals[roi_idx]    : ""
+                        def vals = line.split('\t', -1)
+
+                        // Reconstruct subject key from sid+session+run (new format) or sample (old format)
+                        def sample
+                        if (sid_idx >= 0) {
+                            def sid  = (sid_idx < vals.size()) ? vals[sid_idx] : ""
+                            def ses  = (ses_idx >= 0 && ses_idx < vals.size()) ? vals[ses_idx] : ""
+                            def run_ = (run_idx >= 0 && run_idx < vals.size()) ? vals[run_idx] : ""
+                            sample = [sid, ses, run_].findAll { it }.join("_")
+                        } else {
+                            sample = (sam_idx >= 0 && sam_idx < vals.size()) ? vals[sam_idx] : ""
+                        }
+                        def roi = (roi_idx >= 0 && roi_idx < vals.size()) ? vals[roi_idx] : ""
 
                         if (!data.containsKey(sample))     data[sample]     = [:]
                         if (!cov_data.containsKey(sample)) cov_data[sample] = [:]
@@ -937,26 +946,16 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                             }
                         }
 
-                        if (type == "STATS_WM_bundle") {
-                            // roi = bundle name; data cols = metric values
-                            wm_bundles.add(roi)
-                            data_names.eachWithIndex { metric, mi ->
-                                def idx = data_indices[mi]
-                                def val = (idx < vals.size()) ? vals[idx] : ""
-                                if (!data[sample].containsKey(metric)) data[sample][metric] = [:]
-                                data[sample][metric][roi] = val
-                            }
-                        } else {
-                            // roi = metric name (possibly _fa → fa); data cols = region values
-                            def metric = roi.replaceAll(/^_+/, "")
-                            all_metrics.add(metric)
+                        // Add ROI to its type-specific set and store metric values
+                        if (type == "STATS_WM_bundle")       wm_bundles.add(roi)
+                        else if (type == "STATS_GM_region")  gm_regions.add(roi)
+                        else                                 csf_regions.add(roi)
+
+                        data_names.eachWithIndex { metric, mi ->
+                            def idx = data_indices[mi]
+                            def val = (idx < vals.size()) ? vals[idx] : ""
                             if (!data[sample].containsKey(metric)) data[sample][metric] = [:]
-                            data_names.eachWithIndex { region, ri ->
-                                if (region in vol_cols) return  // volumes are metrics not regions
-                                def idx = data_indices[ri]
-                                def val = (idx < vals.size()) ? vals[idx] : ""
-                                data[sample][metric][region] = val
-                            }
+                            data[sample][metric][roi] = val
                         }
                     }
 

@@ -35,7 +35,15 @@ process STATS_METRICSINROI {
     def sep = output_format == 'tsv' ? '\t' : ','
     def subject_id_col = meta.id ?: ""
     def session_id_col = meta.session ?: ""
-    def run_id_col     = meta.run ?: ""
+    // Output a bare run number ("6", not "run-6"), matching participants.tsv's own
+    // 'run' column convention. An absent run entity (single-run subject/session) is
+    // canonicalized to run 1, matching the same "run-1" default used when joining
+    // participants.tsv covariates (see canonicalTsvRun in
+    // utils_nfcore_sf-tractomics_pipeline) -- the "run-" prefix only matters for that
+    // internal join key, not for this output column, so it's stripped here.
+    // parseParticipantsTsv() separately warns (does not silently guess) if
+    // participants.tsv records a conflicting explicit run for this subject/session.
+    def run_id_col     = (meta.run ?: "run-1").replaceFirst(/^run-/, "")
     """
     export OMP_NUM_THREADS=${task.ext.single_thread ? 1 : task.cpus}
 

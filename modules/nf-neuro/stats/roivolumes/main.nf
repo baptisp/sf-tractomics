@@ -25,7 +25,13 @@ process STATS_ROIVOLUMES {
     def rois_str          = rois instanceof List ? rois.join(' ') : "${rois}"
     def subject_id        = meta.id ?: ""
     def session_id        = meta.session ?: ""
-    def run_id            = meta.run ?: ""
+    // Bare run number ("6", not "run-6"), matching participants.tsv's own 'run'
+    // column convention and metricsinroi/main.nf's identical treatment. Absent run
+    // entity (single-run subject/session) canonicalizes to run 1, matching the
+    // "run-1" default used when joining participants.tsv covariates (see
+    // canonicalTsvRun in utils_nfcore_sf-tractomics_pipeline) -- the "run-" prefix
+    // only matters for that internal join key, not for this output column.
+    def run_id            = (meta.run ?: "run-1").replaceFirst(/^run-/, "")
     """
     python3 << 'PYEOF'
 import nibabel as nib

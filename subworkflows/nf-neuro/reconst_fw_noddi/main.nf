@@ -6,6 +6,17 @@ include { RECONST_DTIMETRICS as FW_CORRECTED_DTIMETRICS } from '../../../modules
 include { UTILS_OPTIONS } from '../utils_options/main'
 
 
+def format_input(ch) {
+    return ch.ifEmpty { [[tag: 'empty'], null] }
+        .map { it ->
+            if (it instanceof List && it.size() == 2)
+                return it
+            else {
+                return [[tag: 'global'], it]
+            }
+        }
+}
+ 
 workflow RECONST_FW_NODDI {
 
     take:
@@ -29,19 +40,6 @@ workflow RECONST_FW_NODDI {
         ch_base_noddi = dwi_bval_bvec.join(brain_mask)
         ch_base_freewater = dwi_bval_bvec.join(brain_mask)
 
-        // Format inputs to get the same shape of tuple for all possible cases.
-        def format_input = { ch ->
-            ch.ifEmpty { [[tag: 'empty'], null] }
-                .map { it ->
-                    // If we have subject-bound, leave as is
-                    if (it instanceof List && it.size() == 2)
-                        return it
-                    // If we have a single value, convert to tuple
-                    else {
-                        return [[tag: 'global'], it]
-                    }
-                }
-        }
         para_diff = format_input(diffusivities.para_diff)
         iso_diff = format_input(diffusivities.iso_diff)
         perp_diff_min = format_input(diffusivities.perp_diff_min)

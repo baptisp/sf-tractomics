@@ -883,6 +883,12 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
             // data[subject_key][roi][metric] = value_string
             def data     = [:]
             def cov_data = [:]  // subject_key → covariate col → value
+            // subject_key → [sid, session, run] as actually read from the input files.
+            // Stored directly rather than re-derived later from the joined sample string
+            // (regex-matching sid-/ses-/run- prefixes back out of it) -- that reconstruction
+            // is fragile by construction: it silently breaks the moment any of those values
+            // don't carry the prefix it looks for (e.g. a bare run number instead of "run-N").
+            def sample_meta = [:]
 
             encoded_list.each { encoded ->
                 def parts = encoded.toString().split(':::')
@@ -927,6 +933,11 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                             def ses  = (ses_idx >= 0 && ses_idx < vals.size()) ? vals[ses_idx] : ""
                             def run_ = (run_idx >= 0 && run_idx < vals.size()) ? vals[run_idx] : ""
                             sample = [sid, ses, run_].findAll { it }.join("_")
+                            // Store the actual values read, not a format re-derived from `sample`
+                            // later (see sample_meta declaration above for why).
+                            if (!sample_meta.containsKey(sample)) {
+                                sample_meta[sample] = [sid: sid, session: ses, run: run_]
+                            }
                         } else {
                             sample = (sam_idx >= 0 && sam_idx < vals.size()) ? vals[sam_idx] : ""
                         }
@@ -976,6 +987,9 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                         def ses    = (ses_idx >= 0 && ses_idx < vals.size()) ? vals[ses_idx] : ""
                         def run    = (run_idx >= 0 && run_idx < vals.size()) ? vals[run_idx] : ""
                         def sample = [sid, ses, run].findAll { it }.join("_")
+                        if (!sample_meta.containsKey(sample)) {
+                            sample_meta[sample] = [sid: sid, session: ses, run: run]
+                        }
                         def roi    = (roi_idx >= 0 && roi_idx < vals.size()) ? vals[roi_idx] : ""
                         def vox    = (vox_idx >= 0 && vox_idx < vals.size()) ? vals[vox_idx] : ""
                         def mm3    = (mm3_idx >= 0 && mm3_idx < vals.size()) ? vals[mm3_idx] : ""
@@ -1012,12 +1026,29 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
             fw.write(header.join('\t') + '\n')
 
             subjects.sort().each { sample ->
-                def m_sub   = (sample =~ /(?:^|_)(sub-[^_]+)/)
-                def m_ses   = (sample =~ /(?:^|_)(ses-[^_]+)/)
-                def m_run   = (sample =~ /(?:^|_)(run-[^_]+)/)
-                def sid     = m_sub ? m_sub[0][1] : sample
-                def session = m_ses ? m_ses[0][1] : ""
-                def run     = m_run ? m_run[0][1] : ""
+                // Prefer the sid/session/run actually read from the input file
+                // (sample_meta, populated above) over re-deriving them from the joined
+                // `sample` string, which only works when every part still carries the
+                // sub-/ses-/run- prefix it looks for -- true for the legacy "sample"
+                // column format this regex fallback exists for, but not guaranteed for
+                // any given value in the new sid/session/run column format (e.g. a bare
+                // run number).
+                def meta_here = sample_meta[sample]
+                def sid
+                def session
+                def run
+                if (meta_here) {
+                    sid     = meta_here.sid ?: sample
+                    session = meta_here.session ?: ""
+                    run     = meta_here.run ?: ""
+                } else {
+                    def m_sub = (sample =~ /(?:^|_)(sub-[^_]+)/)
+                    def m_ses = (sample =~ /(?:^|_)(ses-[^_]+)/)
+                    def m_run = (sample =~ /(?:^|_)(run-[^_]+)/)
+                    sid     = m_sub ? m_sub[0][1] : sample
+                    session = m_ses ? m_ses[0][1] : ""
+                    run     = m_run ? m_run[0][1] : ""
+                }
                 all_rois.each { roi ->
                     if (!data[sample]?.containsKey(roi)) return
                     def roi_data    = data[sample][roi]

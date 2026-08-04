@@ -308,6 +308,30 @@ workflow PIPELINE_INITIALISATION {
 }
 
 
+// BIDS omits the 'run' entity from a file's name when a subject/session has
+// only a single run — that acquisition is implicitly run 1. A
+// participants.tsv row for the same acquisition may still record run=1
+// explicitly. So an absent run is canonicalized to "run-1" on both the tsv
+// side and the BIDS meta side in parseParticipantsTsv() below — this never
+// changes the key for any run explicitly numbered 2 or higher, so distinct
+// runs (with or without an explicit run entity, or a mix of both within the
+// same session) are never collapsed into one another.
+def canonicalTsvRun(r) {
+    return r ? "run-${r}" : "run-1"
+}
+
+// Different cohorts format the participants.tsv 'session' column differently:
+// some store the bare label (e.g. "20170621"), others already include the
+// BIDS 'ses-' prefix (e.g. "ses-d0757", seen in OASIS3). Unconditionally
+// prepending "ses-" double-prefixes the latter ("ses-ses-d0757"), which then
+// never matches the BIDS meta's "ses-d0757" — silently dropping every
+// covariate for that cohort. Both forms are normalized to the same "ses-..."
+// key used by the BIDS-parsed metadata.
+def canonicalTsvSession(s) {
+    if (!s) return ""
+    return s.startsWith("ses-") ? s : "ses-${s}"
+}
+
 def parseParticipantsTsv(participants_path, ch_with_proper_meta) {
 
     if (participants_path == null) {
@@ -320,6 +344,23 @@ def parseParticipantsTsv(participants_path, ch_with_proper_meta) {
         .collect { item -> item.trim() }
         .toList()
 
+    // Plain, synchronous (non-channel) lookup of every explicit run recorded per
+    // (id, session) in participants.tsv, regardless of whether it matches any BIDS
+    // file. Read directly here rather than reusing the reactive participants_rows
+    // channel below, since this needs to be an ordinary Groovy value usable inside
+    // the ch_original_meta .map() closure further down -- a channel's contents
+    // aren't available synchronously at that point.
+    def id_col = all_tsv_headers.indexOf('participant_id')
+    def ses_col = all_tsv_headers.indexOf('session')
+    def run_col = all_tsv_headers.indexOf('run')
+    def tsv_runs_by_idses = [:]
+    tsv_file.readLines().drop(1).findAll { line -> line.trim() }.each { line ->
+        def cols = line.split('\t', -1)
+        def idses = [cols[id_col].trim(), canonicalTsvSession(cols[ses_col].trim())]
+        def run = canonicalTsvRun(run_col < cols.size() ? cols[run_col].trim() : "")
+        tsv_runs_by_idses.computeIfAbsent(idses, { [] as Set }) << run
+    }
+
     // Create joining keys
     def primary_keys = ['participant_id', 'session', 'run']
     def content_keys = all_tsv_headers - primary_keys
@@ -327,25 +368,130 @@ def parseParticipantsTsv(participants_path, ch_with_proper_meta) {
 
     // Parse "${params.inputs}/participants.tsv"
     def ch_participants = channel.fromPath(tsv_file)
-    def participants_content = ch_participants
+    def participants_rows = ch_participants
         .splitCsv(header: true, sep: '\t')
         .map { row ->
             def id = row.participant_id
-            def ses = row.session ? "ses-" + row.session: ""
-            def run = row.run ? "run-" + row.run: ""
+            def ses = canonicalTsvSession(row.session)
+            def run = canonicalTsvRun(row.run)
 
             def key = [id: id, session: ses, run: run]
             def content = default_content.clone()
             content_keys.each { ckey -> content[ckey] = row[ckey] }
             content = content.collectEntries { k, v -> [k.toLowerCase(), v] }
-            return [key, content]
+            return [key, content, row]
         }
+    def participants_content = participants_rows.map { key, content, _row -> [key, content] }
 
-    // Prepare keys
+    // Prepare keys — an absent 'run' entity in the BIDS metadata (single-run
+    // subject/session) is treated the same as tsv run=1, see canonicalTsvRun above.
     def ch_original_meta = ch_with_proper_meta
         .map { meta, _content ->
-            def key = [id: meta.id, session: meta.session ?: "", run: meta.run ?: ""]
+            def key = [id: meta.id, session: meta.session ?: "", run: meta.run ?: "run-1"]
             return [key, meta]
+        }
+
+    // Verify every participants.tsv entry is associated with exactly one file.
+    // A row is not "unique" when its key matches zero files (no data for that
+    // entry), more than one file (ambiguous — e.g. duplicate acquisitions
+    // resolving to the same run), or when another participants.tsv row shares
+    // its key (the tsv itself can't tell the files apart). Any of these means
+    // covariates may silently end up associated with the wrong file, so all
+    // offending entries are reported together in a single warning.
+    // (tagged and mixed into one channel, then split back apart in the
+    // subscriber — combine()/join()/collect() would instead flatten the
+    // already-list-shaped [tag, key, row] items into extra tuple slots, so
+    // toList() is used here to keep each entry intact as a nested list)
+    participants_rows
+        .map { key, _content, row -> ["tsv", key, row] }
+        .mix(ch_original_meta.map { key, meta -> ["bids", key, meta.run] })
+        .toList()
+        .subscribe { entries ->
+            def tsv_entries = entries.findAll { tag, _key, _row -> tag == "tsv" }
+                .collect { _tag, key, row -> [key, row] }
+            def bids_counts = entries.findAll { tag, _key, _row -> tag == "bids" }
+                .collect { _tag, key, _row -> key }
+                .countBy { it }
+            def tsv_counts  = tsv_entries.collect { key, _row -> key }.countBy { it }
+
+            def offenders = tsv_entries.findAll { key, _row ->
+                (bids_counts[key] ?: 0) != 1 || (tsv_counts[key] ?: 0) != 1
+            }
+
+            // Split into two distinct problems:
+            //  - ambiguous: the entry DOES match at least one file, but the
+            //    association isn't 1:1 (duplicate tsv rows for the same run,
+            //    and/or more than one file resolving to that run). This is
+            //    always worth a full, itemized warning — it's rare and means
+            //    covariates may be silently assigned to the wrong file.
+            //  - unmatched: the entry matches zero files. This is routine
+            //    when participants.tsv is a superset cohort table and the
+            //    current run only stages a subset of subjects, so it gets a
+            //    one-line summary count first, followed by the full list
+            //    (useful for auditing, but not the headline).
+            def ambiguous = offenders.findAll { key, _row -> (bids_counts[key] ?: 0) > 0 }
+            def unmatched = offenders.findAll { key, _row -> (bids_counts[key] ?: 0) == 0 }
+
+            if (ambiguous) {
+                def details = ambiguous.collect { key, row ->
+                    def reasons = []
+                    if ((bids_counts[key] ?: 0) > 1) {
+                        reasons << "matches ${bids_counts[key]} files"
+                    }
+                    if ((tsv_counts[key] ?: 0) > 1) {
+                        reasons << "shares its (id, session, run) with ${tsv_counts[key] - 1} " +
+                            "other participants.tsv row(s)"
+                    }
+                    "  - participant_id=${row.participant_id} session=${row.session ?: ''} " +
+                        "run=${row.run ?: ''} (${reasons.join('; ')})"
+                }
+                log.warn("parseParticipantsTsv: the following participants.tsv entries are " +
+                    "ambiguously associated with files:\n" + details.join("\n"))
+            }
+
+            if (unmatched) {
+                log.warn("parseParticipantsTsv: ${unmatched.size()} participants.tsv entries " +
+                    "have no matching file in this run (expected if participants.tsv is a " +
+                    "superset covering more subjects than this run's BIDS input).")
+
+                // log.debug (not log.warn): still fully captured in
+                // .nextflow.log for auditing, but this list can be in the
+                // thousands (see the summary count above) and would flood
+                // the terminal if printed at warn level.
+                def details = unmatched.collect { _key, row ->
+                    "  - participant_id=${row.participant_id} session=${row.session ?: ''} " +
+                        "run=${row.run ?: ''}"
+                }
+                log.debug("parseParticipantsTsv: full list of participants.tsv entries with no " +
+                    "matching file:\n" + details.join("\n"))
+            }
+
+            // Extra safeguard: a BIDS file with no run entity in its name defaults to
+            // "run-1" (see canonicalTsvRun above) purely because that's the only sensible
+            // guess when there's nothing to go on. But if participants.tsv actually records
+            // an explicit, different run for this same (id, session), guessing "run-1"
+            // could silently mislabel it. Flag every such case loudly rather than let the
+            // default apply unnoticed -- this does NOT change what value is used for the
+            // join key here (still "run-1", so existing join/covariate behavior is
+            // unchanged), it only surfaces the ambiguity so it can be checked by hand.
+            def bids_entries = entries.findAll { tag, _key, _run -> tag == "bids" }
+                .collect { _tag, key, orig_run -> [key, orig_run] }
+            def run_conflicts = bids_entries.findAll { key, orig_run ->
+                def tsv_runs = tsv_runs_by_idses[[key.id, key.session]]
+                !orig_run && tsv_runs && tsv_runs != (["run-1"] as Set)
+            }
+            if (run_conflicts) {
+                def details = run_conflicts.collect { key, _orig_run ->
+                    def tsv_runs = tsv_runs_by_idses[[key.id, key.session]]
+                    "  - participant_id=${key.id} session=${key.session}: BIDS file has no run " +
+                        "entity (defaults to run-1), but participants.tsv records run(s) " +
+                        "${tsv_runs.sort()} for this subject/session -- verify by hand which run " +
+                        "this file actually corresponds to."
+                }
+                log.warn("parseParticipantsTsv: possible run-number conflicts between BIDS " +
+                    "metadata and participants.tsv (still defaulting to run-1 despite this " +
+                    "mismatch):\n" + details.join("\n"))
+            }
         }
 
     // Join with participants.tsv content

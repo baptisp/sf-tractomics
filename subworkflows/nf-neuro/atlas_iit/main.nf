@@ -66,6 +66,7 @@ def fetch_iit_atlas_tdi(bundleMapsUrl, dest, thresholds) {
     return output_dir + "bundle_maps/IIT_bundles"
 }
 
+// Fetch the IIT GM Desikan parcellation atlas
 def fetch_iit_gm_desikan_atlas(atlasUrl, dest) {
     def outFile = new File("$dest/IIT_GM_Desikan_atlas.nii.gz")
     if (!outFile.exists()) {
@@ -74,6 +75,8 @@ def fetch_iit_gm_desikan_atlas(atlasUrl, dest) {
     return outFile
 }
 
+// The IIT GM LUT is distributed as a tab-separated TXT (index R G B name).
+// STATS_ROIVOLUMES and STATS_METRICSINROI both expect a JSON {index: name} map.
 def convert_lut_txt_to_json(File lutFile, File jsonFile) {
     def lutMap = [:]
     lutFile.eachLine { line ->
@@ -100,8 +103,8 @@ def fetch_and_convert_iit_gm_lut(lutUrl, dest) {
     return jsonFile
 }
 
-// Convert a user-provided local TXT LUT to JSON (no download needed — for HPC)
-def fetch_and_convert_iit_gm_lut_from_local(localTxtPath, dest) {
+// Convert a user-provided local TXT LUT to JSON, so offline/HPC runs need no download.
+def convert_local_iit_gm_lut(localTxtPath, dest) {
     def lutFile  = new File(localTxtPath)
     def jsonFile = new File("$dest/IIT_GM_Desikan_lut.json")
     if (!jsonFile.exists()) {
@@ -264,7 +267,7 @@ workflow ATLAS_IIT {
                 })
         }
 
-        // Fetch IIT GM Desikan atlas and LUT (only when requested)
+        // Fetch the IIT GM Desikan parcellation atlas and its LUT (only when requested)
         ch_gm_atlas = channel.empty()
         ch_gm_lut   = channel.empty()
 
@@ -284,18 +287,11 @@ workflow ATLAS_IIT {
             }
 
             if (options.atlas_iit_gm_lut) {
-                def gm_lut_path = options.atlas_iit_gm_lut
-                if (gm_lut_path.endsWith(".txt")) {
-                    // User provided the raw NITRC TXT — convert to JSON locally (no internet needed)
-                    def gm_lut_file = fetch_and_convert_iit_gm_lut_from_local(
-                        gm_lut_path,
-                        gm_dest
-                    )
-                    ch_gm_lut = channel.fromPath(gm_lut_file.absolutePath, checkIfExists: true)
-                }
-                else {
-                    ch_gm_lut = channel.fromPath(gm_lut_path, checkIfExists: true)
-                }
+                // Accept either the raw NITRC TXT (converted locally) or a ready-made JSON
+                def gm_lut_file = options.atlas_iit_gm_lut.endsWith(".txt")
+                    ? convert_local_iit_gm_lut(options.atlas_iit_gm_lut, gm_dest).absolutePath
+                    : options.atlas_iit_gm_lut
+                ch_gm_lut = channel.fromPath(gm_lut_file, checkIfExists: true)
             }
             else {
                 def gm_lut_file = fetch_and_convert_iit_gm_lut(

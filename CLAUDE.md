@@ -70,12 +70,12 @@ Each pipeline performs its **own independent ANTs registration** (IIT B0 → sub
 **Atlas: IIT Atlas v5.0 WM bundle TDI masks** (41 bundles, MNI152 space, downloaded from NITRC).
 
 1. `ATLAS_IIT` downloads 41 WM bundle TDI masks from NITRC.
-2. `REGISTER_ATLAS_REF`: ANTs registers atlas B0 → subject B0.
-3. `TRANSFORM_ATLAS_BUNDLES`: warps all bundle masks to subject DWI space (MultiLabel).
-4. `STATS_METRICSINROI`: extracts FA/MD/RD/AD/AFD per bundle using `scil_volume_stats_in_ROI`.
-5. `STATS_WM_VOLUMES` (optional): computes voxel count + mm³ per bundle.
+2. `REGISTER_IIT_REF`: ANTs registers atlas B0 → subject B0.
+3. `TRANSFORM_IIT_BUNDLES`: warps all bundle masks to subject DWI space (MultiLabel).
+4. `STATS_MASK_METRICS`: extracts FA/MD/RD/AD/AFD per bundle using `scil_volume_stats_in_ROI`.
+5. `STATS_MASK_VOLUMES` (optional): computes voxel count + mm³ per bundle.
 
-Config: `conf/modules/stats_metricsinroi.config` (`.*:ATLAS_ROIMETRICS:STATS_METRICSINROI`).
+Config: `conf/modules/stats_metricsinroi.config` (`.*:ATLAS_ROIMETRICS:STATS_MASK_METRICS`).
 - `key_substrs_to_remove = ["prefix_", "_mask_warped", "_warped"]` (single `_` — bundle masks use single underscore separator)
 - `value_substrs_to_remove = ["prefix__", "prefix_desc-fwc__"]` (double `__` — metric files)
 
@@ -87,11 +87,11 @@ Global collected: `metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.t
 **Atlas: IIT Atlas v5.0 GM Desikan parcellation** (`IIT_GM_Desikan_atlas.nii.gz`, MNI152, same download as WM).
 
 1. Reuses the IIT B0 registration transform from WM pipeline — no second registration.
-2. `TRANSFORM_GM_ATLAS`: warps GM atlas to subject DWI space (MultiLabel).
-3. `STATS_GM_ROIMETRICS` (`use_label = true`): calls `scil_volume_stats_in_labels`; module transposes to region-centric. TSV rows = GM regions, cols = metrics.
-4. `STATS_GM_VOLUMES` (optional).
+2. `TRANSFORM_IIT_GM_ATLAS`: warps GM atlas to subject DWI space (MultiLabel).
+3. `STATS_LABELMAP_METRICS` (`use_label = true`): calls `scil_volume_stats_in_labels`; module transposes to region-centric. TSV rows = GM regions, cols = metrics.
+4. `STATS_LABELMAP_VOLUMES` (optional).
 
-Config: `conf/modules/stats_metricsinroi.config` (`.*:ATLAS_ROIMETRICS:STATS_GM_ROIMETRICS`).
+Config: `conf/modules/stats_metricsinroi.config` (`.*:ATLAS_ROIMETRICS:STATS_LABELMAP_METRICS`).
 - `key_substrs_to_remove = []` (region names from LUT are already clean)
 - `value_substrs_to_remove = ["prefix__"]` (strips metric filename prefix; `_desc-fwc__` handled internally by module)
 
@@ -178,12 +178,19 @@ The ROI column is named `roi` in **both** modes — labels mode (`use_label = fa
 | `run_csf_comparison_volumes` | false | Compute comparison region volumes → `comparison/` subdir |
 | `atlas_csf_comparison_lut` | null | Custom comparison LUT; null = use `assets/freesurfer_comparison_lut.json` |
 
-**WM/GM granularity caveat**: `ATLAS_ROIMETRICS` no longer separates WM from GM. Its
-`run_roi_metrics` covers both metric extractions and its `run_roi_volumes` covers both volume
-computations; `run_gm_roimetrics` only gates whether the GM branch exists at all. Asking for
-`run_gm_volumes` alone therefore also computes the WM volumes (and vice versa). The extra channel
-is simply not consumed downstream — the cost is compute, not wrong output. The CSF pipeline
-(`ATLAS_CSF_ROIMETRICS`) keeps its own independent flags.
+**How the params map onto `ATLAS_ROIMETRICS`**: the subworkflow is not driven by per-tissue
+flags. It takes two independent axes — `roi_sources` (`masks`, `labelmap`) for which ROI
+representation to warp and analyse, and `roi_outputs` (`metrics`, `volumes`) for what to compute
+on it. WM bundles are the `masks` representation, the IIT GM Desikan parcellation is the
+`labelmap` one. `workflows/sf-tractomics.nf` builds both lists from the four `do_*` flags.
+
+Consequence: asking for GM only genuinely skips the 41 bundle warps and all mask statistics —
+the source axis is exact. The **outputs** axis is still shared, so `run_wm_metrics` with
+`run_gm_volumes` computes all four combinations. The extra channels are not consumed downstream;
+the cost is compute, not wrong output.
+
+The CSF pipeline (`ATLAS_CSF_ROIMETRICS`) is a separate subworkflow and keeps its own
+`run_roi_metrics` / `run_roi_volumes` booleans.
 
 ## Adding new metrics to ROI extraction
 
@@ -192,8 +199,8 @@ All three pipelines use `ch_input_metrics` from `workflows/sf-tractomics.nf`. Th
 ## Process naming convention for config selectors
 
 Nextflow process names follow the call hierarchy:
-- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_METRICSINROI`
-- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_GM_ROIMETRICS`
+- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_MASK_METRICS`
+- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_LABELMAP_METRICS`
 - `SF_TRACTOMICS:ATLAS_CSF_ROIMETRICS:STATS_CSF_ROIMETRICS`
 - `SF_TRACTOMICS:ATLAS_CSF_ROIMETRICS:STATS_CSF_VOLUMES`
 - `SF_TRACTOMICS:ATLAS_CSF_ROIMETRICS:STATS_CSF_COMPARISON`

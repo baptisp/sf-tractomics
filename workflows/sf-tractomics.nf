@@ -258,6 +258,17 @@ workflow SF_TRACTOMICS {
         error "IIT atlas metrics/volumes (WM or GM) require run_atlas_roimetrics = true."
     }
 
+    // ATLAS_ROIMETRICS is driven by two independent axes rather than per-tissue flags:
+    // which ROI representation to warp and analyse, and what to compute on it. WM bundles
+    // are the 'masks' representation, the IIT GM Desikan parcellation is the 'labelmap' one.
+    def roi_sources = []
+    if ( do_wm_metrics || do_wm_volumes ) { roi_sources << "masks" }
+    if ( do_gm_metrics || do_gm_volumes ) { roi_sources << "labelmap" }
+
+    def roi_outputs = []
+    if ( do_wm_metrics || do_gm_metrics ) { roi_outputs << "metrics" }
+    if ( do_wm_volumes || do_gm_volumes ) { roi_outputs << "volumes" }
+
     if ( params.run_merge_all_stats &&
          !do_wm_metrics && !do_gm_metrics && !do_csf_metrics &&
          !do_wm_volumes && !do_gm_volumes && !do_csf_volumes ) {
@@ -271,7 +282,7 @@ workflow SF_TRACTOMICS {
     ch_gm_vols_collected  = channel.empty()
     ch_csf_vols_collected = channel.empty()
 
-    if ( params.run_atlas_roimetrics ) {
+    if ( params.run_atlas_roimetrics && roi_sources && roi_outputs ) {
         ATLAS_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
             mergeCovariatesIntoMeta(ch_input_metrics, ch_covariates),
@@ -283,13 +294,11 @@ workflow SF_TRACTOMICS {
                 atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir,
                 atlas_iit_gm_atlas: params.atlas_iit_gm_atlas,
                 atlas_iit_gm_lut: params.atlas_iit_gm_lut,
-                // The subworkflow no longer separates WM from GM: run_roi_metrics and
-                // run_roi_volumes cover both, and run_gm_roimetrics gates the GM branch.
-                // Enabling either type therefore also computes the other; the unwanted
-                // channel is simply not consumed below.
-                run_gm_roimetrics: do_gm_metrics || do_gm_volumes,
-                run_roi_metrics: do_wm_metrics || do_gm_metrics,
-                run_roi_volumes: do_wm_volumes || do_gm_volumes
+                roi_sources: roi_sources,
+                // The outputs axis is shared by both representations, so asking for WM
+                // metrics and GM volumes computes all four. The unwanted channels are
+                // simply not consumed below.
+                roi_outputs: roi_outputs
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)
@@ -297,14 +306,14 @@ workflow SF_TRACTOMICS {
         if ( do_wm_metrics ) {
             if ( do_wm_volumes ) {
                 ch_collection_mean_input = collectStatsFilesWithVolumes(
-                    ATLAS_ROIMETRICS.out.stats_tab_mean,
-                    ATLAS_ROIMETRICS.out.wm_volumes,
+                    ATLAS_ROIMETRICS.out.mask_stats_tab_mean,
+                    ATLAS_ROIMETRICS.out.mask_volumes,
                     "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "WM_bundle"
                 )
             } else {
-                ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.stats_tab_mean, "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
+                ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.mask_stats_tab_mean, "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
             }
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
         }
@@ -312,15 +321,15 @@ workflow SF_TRACTOMICS {
         if ( do_gm_metrics ) {
             if ( do_gm_volumes ) {
                 ch_collection_gm_mean = collectStatsFilesWithVolumes(
-                    ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
-                    ATLAS_ROIMETRICS.out.gm_volumes,
+                    ATLAS_ROIMETRICS.out.labelmap_stats_tab_mean,
+                    ATLAS_ROIMETRICS.out.labelmap_volumes,
                     "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "GM_region"
                 )
             } else {
                 ch_collection_gm_mean = collectStatsFiles(
-                    ATLAS_ROIMETRICS.out.gm_stats_tab_mean,
+                    ATLAS_ROIMETRICS.out.labelmap_stats_tab_mean,
                     "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "GM_region"
@@ -330,7 +339,7 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_wm_volumes && !do_wm_metrics ) {
-            ch_wm_vols_collected = ATLAS_ROIMETRICS.out.wm_volumes
+            ch_wm_vols_collected = ATLAS_ROIMETRICS.out.mask_volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
@@ -340,7 +349,7 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_gm_volumes && !do_gm_metrics ) {
-            ch_gm_vols_collected = ATLAS_ROIMETRICS.out.gm_volumes
+            ch_gm_vols_collected = ATLAS_ROIMETRICS.out.labelmap_volumes
                 .map { _meta, csv -> csv }
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",

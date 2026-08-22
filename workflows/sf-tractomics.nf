@@ -753,7 +753,8 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
 
 // Variant of collectStatsFiles that also joins per-subject volumes (CSV) into the stats
 // (TSV) as extra columns (volume_voxels, volume_mm3), merging on the roi column.
-// The volumes CSV uses "region" (GM/CSF) or "bundle" (WM) — both are matched to "roi".
+// The volumes CSV names its ROI column "roi" in both modes; the legacy "region" (GM/CSF)
+// and "bundle" (WM) headers are still accepted so older CSVs keep merging.
 // regionType behaves the same as in collectStatsFiles (String, Map, or null).
 def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, regionType = null) {
 
@@ -813,7 +814,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                 def vol_lines = vols_f.readLines()
                 if (vol_lines.size() >= 2) {
                     def vol_cols = vol_lines[0].split(',').toList()
-                    def roi_col  = vol_cols.find { it in ["region", "bundle"] }
+                    def roi_col  = vol_cols.find { it in ["roi", "region", "bundle"] }
                     def roi_i    = vol_cols.indexOf(roi_col)
                     def vox_i    = vol_cols.indexOf("volume_voxels")
                     def mm3_i    = vol_cols.indexOf("volume_mm3")
@@ -858,9 +859,9 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
 //   "STATS_WM_bundle:::abs_path"  — TSV: rows=bundles, cols=metrics (fa, md, …)
 //   "STATS_GM_region:::abs_path"  — TSV: rows=GM regions, cols=metrics
 //   "STATS_CSF_region:::abs_path" — TSV: rows=CSF regions, cols=metrics
-//   "VOLS_WM_bundle:::abs_path"   — CSV: sid,session,run,bundle,volume_voxels,volume_mm3
-//   "VOLS_GM_region:::abs_path"   — CSV: sid,session,run,region,volume_voxels,volume_mm3
-//   "VOLS_CSF_region:::abs_path"  — CSV: sid,session,run,region,volume_voxels,volume_mm3
+//   "VOLS_WM_bundle:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
+//   "VOLS_GM_region:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
+//   "VOLS_CSF_region:::abs_path"  — CSV: sid,session,run,roi,volume_voxels,volume_mm3
 //
 // Output schema: sid  session  run  roi  region_type  [covariates]  [metrics as cols]
 def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
@@ -973,7 +974,7 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                     def sid_idx = cols.indexOf("sid")
                     def ses_idx = cols.indexOf("session")
                     def run_idx = cols.indexOf("run")
-                    def roi_col = cols.find { it in ["bundle", "region"] }
+                    def roi_col = cols.find { it in ["roi", "bundle", "region"] }
                     def roi_idx = roi_col ? cols.indexOf(roi_col) : -1
                     def vox_idx = cols.indexOf("volume_voxels")
                     def mm3_idx = cols.indexOf("volume_mm3")

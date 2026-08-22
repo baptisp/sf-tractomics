@@ -139,7 +139,7 @@ sid  session  run  roi  region_type  [covariates]  [metrics]
 - `"STATS_WM_bundle:::path"` — TSV: rows=bundles, cols=metrics (roi=bundle name)
 - `"STATS_GM_region:::path"` — TSV: rows=GM regions, cols=metrics (roi=region name) — same orientation as WM
 - `"STATS_CSF_region:::path"` — TSV: rows=CSF regions, cols=metrics (roi=region name) — same orientation as WM
-- `"VOLS_*:::path"` — CSV: `sid,session,run,bundle/region,volume_voxels,volume_mm3` → `volume_voxels` and `volume_mm3` become additional metric columns
+- `"VOLS_*:::path"` — CSV: `sid,session,run,roi,volume_voxels,volume_mm3` → `volume_voxels` and `volume_mm3` become additional metric columns. The legacy `bundle` / `region` headers are still accepted by the parser.
 
 All three STATS types have identical orientation since the module transposes GM/CSF. The function reconstructs the subject key from `sid+session+run` columns (new module format) or falls back to `sample` (legacy).
 
@@ -150,6 +150,8 @@ All three STATS types have identical orientation since the module transposes GM/
 ## Volumes module (`roivolumes`)
 
 Already outputs `sid`, `session`, `run` as separate columns (not a combined `sample`). No `key_substrs_to_remove` for metric names (volumes don't extract metrics).
+
+The ROI column is named `roi` in **both** modes — labels mode (`use_label = false`, one file per ROI) and atlas/labelmap mode (`use_label = true`, one image plus a LUT). It used to be `bundle` and `region` respectively; `collectStatsFilesWithVolumes` and `collectUnifiedFiles` still accept the old headers.
 
 ## Important params
 

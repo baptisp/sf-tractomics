@@ -72,10 +72,10 @@ Each pipeline performs its **own independent ANTs registration** (IIT B0 → sub
 1. `ATLAS_IIT` downloads 41 WM bundle TDI masks from NITRC.
 2. `REGISTER_ATLAS_REF`: ANTs registers atlas B0 → subject B0.
 3. `TRANSFORM_ATLAS_BUNDLES`: warps all bundle masks to subject DWI space (MultiLabel).
-4. `STATS_WM_ROIMETRICS`: extracts FA/MD/RD/AD/AFD per bundle using `scil_volume_stats_in_ROI`.
+4. `STATS_METRICSINROI`: extracts FA/MD/RD/AD/AFD per bundle using `scil_volume_stats_in_ROI`.
 5. `STATS_WM_VOLUMES` (optional): computes voxel count + mm³ per bundle.
 
-Config: `conf/modules/stats_metricsinroi.config` (`.*:STATS_WM_ROIMETRICS`).
+Config: `conf/modules/stats_metricsinroi.config` (`.*:ATLAS_ROIMETRICS:STATS_METRICSINROI`).
 - `key_substrs_to_remove = ["prefix_", "_mask_warped", "_warped"]` (single `_` — bundle masks use single underscore separator)
 - `value_substrs_to_remove = ["prefix__", "prefix_desc-fwc__"]` (double `__` — metric files)
 
@@ -178,6 +178,13 @@ The ROI column is named `roi` in **both** modes — labels mode (`use_label = fa
 | `run_csf_comparison_volumes` | false | Compute comparison region volumes → `comparison/` subdir |
 | `atlas_csf_comparison_lut` | null | Custom comparison LUT; null = use `assets/freesurfer_comparison_lut.json` |
 
+**WM/GM granularity caveat**: `ATLAS_ROIMETRICS` no longer separates WM from GM. Its
+`run_roi_metrics` covers both metric extractions and its `run_roi_volumes` covers both volume
+computations; `run_gm_roimetrics` only gates whether the GM branch exists at all. Asking for
+`run_gm_volumes` alone therefore also computes the WM volumes (and vice versa). The extra channel
+is simply not consumed downstream — the cost is compute, not wrong output. The CSF pipeline
+(`ATLAS_CSF_ROIMETRICS`) keeps its own independent flags.
+
 ## Adding new metrics to ROI extraction
 
 All three pipelines use `ch_input_metrics` from `workflows/sf-tractomics.nf`. This channel collects DTI metrics (FA/MD/RD/AD, AFD) and optionally NODDI/FW metrics. Any metric added there is automatically extracted in all ROI pipelines.
@@ -185,7 +192,7 @@ All three pipelines use `ch_input_metrics` from `workflows/sf-tractomics.nf`. Th
 ## Process naming convention for config selectors
 
 Nextflow process names follow the call hierarchy:
-- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_WM_ROIMETRICS`
+- `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_METRICSINROI`
 - `SF_TRACTOMICS:ATLAS_ROIMETRICS:STATS_GM_ROIMETRICS`
 - `SF_TRACTOMICS:ATLAS_CSF_ROIMETRICS:STATS_CSF_ROIMETRICS`
 - `SF_TRACTOMICS:ATLAS_CSF_ROIMETRICS:STATS_CSF_VOLUMES`

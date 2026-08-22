@@ -275,17 +275,21 @@ workflow SF_TRACTOMICS {
         ATLAS_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
             mergeCovariatesIntoMeta(ch_input_metrics, ch_covariates),
+            channel.empty(),  // no pre-registered atlas: the IIT atlas is fetched and registered internally
             [
                 use_atlas_iit: params.use_atlas_iit,
                 use_binary_masks: params.use_binary_masks,
                 atlas_iit_b0: params.atlas_iit_b0,
                 atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir,
-                run_wm_metrics: do_wm_metrics,
-                run_gm_metrics: do_gm_metrics,
                 atlas_iit_gm_atlas: params.atlas_iit_gm_atlas,
                 atlas_iit_gm_lut: params.atlas_iit_gm_lut,
-                run_wm_volumes: do_wm_volumes,
-                run_gm_volumes: do_gm_volumes
+                // The subworkflow no longer separates WM from GM: run_roi_metrics and
+                // run_roi_volumes cover both, and run_gm_roimetrics gates the GM branch.
+                // Enabling either type therefore also computes the other; the unwanted
+                // channel is simply not consumed below.
+                run_gm_roimetrics: do_gm_metrics || do_gm_volumes,
+                run_roi_metrics: do_wm_metrics || do_gm_metrics,
+                run_roi_volumes: do_wm_volumes || do_gm_volumes
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)

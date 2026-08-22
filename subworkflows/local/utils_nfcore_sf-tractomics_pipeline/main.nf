@@ -317,7 +317,15 @@ workflow PIPELINE_INITIALISATION {
 // runs (with or without an explicit run entity, or a mix of both within the
 // same session) are never collapsed into one another.
 def canonicalTsvRun(r) {
-    return r ? "run-${r}" : "run-1"
+    if (!r) return "run-1"
+    // Strip "run-" prefix if the TSV value already includes it, then normalize
+    // to integer to drop leading zeros — the BIDS JSON uses integer run values
+    // (e.g. "run-06" on disk → JSON integer 6 → meta.run = "run-6"), so the
+    // TSV side must produce the same form.
+    def bare = r.toString().replaceFirst(/^run-/, "").trim()
+    if (!bare) return "run-1"
+    try { return "run-${bare.toInteger()}" }
+    catch (e) { return "run-${bare}" }
 }
 
 // Different cohorts format the participants.tsv 'session' column differently:

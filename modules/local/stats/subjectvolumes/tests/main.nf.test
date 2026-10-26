@@ -1,0 +1,72 @@
+// Known-answer tests: a synthetic 10x10x10 labelmap with 2 x 1 x 1.5 mm voxels (3 mm3), so every
+// expected volume is an exact voxel count times 3. See data/ for the fixtures.
+//   label 4    : 10 voxels                  ->  30 mm3
+//   label 17   : 27 voxels stored as 16.9999 ->  81 mm3 (checks the rounding of float labelmaps)
+//   label 1025 :  8 voxels                  ->  24 mm3
+//   label 31   : absent from the image      ->   0 (LUT row still written)
+//   label 99   : 1 voxel, not in the LUT    -> no row
+nextflow_process {
+
+    name "Test Process STATS_SUBJECTVOLUMES"
+    script "../main.nf"
+    process "STATS_SUBJECTVOLUMES"
+    config "./nextflow.config"
+
+    tag "modules"
+    tag "modules_local"
+    tag "stats/subjectvolumes"
+
+    test("subject volumes - with SynthSeg volumes table (ICV filled)") {
+
+        when {
+            process {
+                """
+                input[0] = [
+                    [ id:'sub-01', session:'ses-01' ],
+                    file("${moduleDir}/tests/data/labelmap.nii.gz", checkIfExists: true),
+                    file("${moduleDir}/tests/data/lut.json", checkIfExists: true),
+                    file("${moduleDir}/tests/data/synthseg_volumes.csv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def csv = path(process.out.volumes[0][1])
+            assert csv.fileName.toString() == "sub-01_ses-01_atlas-test_volumes.csv"
+            assert csv.readLines() == [
+                "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3",
+                "sub-01,ses-01,,Left-Lateral-Ventricle,10,30.0000,synthseg,1234567.8900",
+                "sub-01,ses-01,,Left-Hippocampus,27,81.0000,synthseg,1234567.8900",
+                "sub-01,ses-01,,Left-choroid-plexus,0,0.0000,synthseg,1234567.8900",
+                "sub-01,ses-01,,ctx-lh-precuneus,8,24.0000,synthseg,1234567.8900"
+            ]
+        }
+    }
+
+    test("subject volumes - without volumes table (FreeSurfer input, ICV empty)") {
+
+        when {
+            process {
+                """
+                input[0] = [
+                    [ id:'sub-01', session:'', run:'1' ],
+                    file("${moduleDir}/tests/data/labelmap.nii.gz", checkIfExists: true),
+                    file("${moduleDir}/tests/data/lut.json", checkIfExists: true),
+                    []
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def lines = path(process.out.volumes[0][1]).readLines()
+            assert lines.size() == 5
+            assert lines[1] == "sub-01,,1,Left-Lateral-Ventricle,10,30.0000,synthseg,"
+            assert lines[2] == "sub-01,,1,Left-Hippocampus,27,81.0000,synthseg,"
+            assert lines[4] == "sub-01,,1,ctx-lh-precuneus,8,24.0000,synthseg,"
+        }
+    }
+}

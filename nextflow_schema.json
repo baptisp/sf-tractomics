@@ -1118,8 +1118,15 @@
                 },
                 "run_gm_volumes": {
                     "type": "boolean",
-                    "description": "Compute voxel count and volume (mm3) for each GM Desikan region. Requires run_atlas_roimetrics = true.",
+                    "description": "Compute voxel count and volume (mm3) for each GM Desikan region. Requires run_atlas_roimetrics = true when volume_source = 'atlas'.",
                     "default": false
+                },
+                "volume_source": {
+                    "type": "string",
+                    "description": "Source of the GM, CSF and comparison volumes: 'atlas' (warped template), 'synthseg' (SynthSeg on the subject's T1) or 'freesurfer' (the subject's aparc+aseg given as input).",
+                    "help_text": "'atlas' counts the voxels of a template warped onto the subject B0, so its volumes reflect the registration and are not suited to measuring atrophy. 'synthseg' and 'freesurfer' count the subject's own segmentation in native T1 space and write the same output files, with extra volume_source and icv_mm3 columns (icv_mm3 is only available with 'synthseg'). WM bundle volumes are always atlas-based. Volumes are cross-sectional: for several sessions per subject, a longitudinal method is recommended.",
+                    "enum": ["atlas", "synthseg", "freesurfer"],
+                    "default": "atlas"
                 }
             }
         },
@@ -1163,7 +1170,7 @@
             "properties": {
                 "freesurfer_license": {
                     "type": "string",
-                    "description": "Path to a valid FreeSurfer license file. Required when run_csf_metrics, run_csf_volumes, run_csf_comparison_roimetrics, or run_csf_comparison_volumes is enabled.",
+                    "description": "Path to a valid FreeSurfer license file. Required when run_csf_metrics, run_csf_volumes, run_csf_comparison_roimetrics, or run_csf_comparison_volumes is enabled, and when volume_source = 'synthseg'.",
                     "help_text": "The FreeSurfer license is free and can be obtained at https://surfer.nmr.mgh.harvard.edu/registration.html. Provide the full path to the license.txt file."
                 },
                 "run_csf_metrics": {

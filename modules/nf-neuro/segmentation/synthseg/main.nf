@@ -40,9 +40,11 @@ process SEGMENTATION_SYNTHSEG {
     """
     export OMP_NUM_THREADS=${task.ext.single_thread ? 1 : task.cpus}
 
-    cp $fs_license \$FREESURFER_HOME/license.txt
+    # FS_LICENSE instead of copying into \$FREESURFER_HOME, which is read-only when the
+    # container runs as the host user (docker profile: -u \$(id -u):\$(id -g)).
+    export FS_LICENSE=\$(realpath $fs_license)
 
-    mri_synthseg --i $image --o seg.nii.gz --threads $nthreads --post posteriors.nii.gz $gpu $robust $fast $ct $output_resample $output_volume $output_qc_score $crop
+    mri_synthseg --i $image --o seg.nii.gz --threads $nthreads --post posteriors.nii.gz $gpu $gm_parc $robust $fast $ct $output_resample $output_volume $output_qc_score $crop
 
     if [[ -n "$gm_parc" ]];
     then
@@ -127,8 +129,6 @@ process SEGMENTATION_SYNTHSEG {
     mri_convert -i ${prefix}__mask_wm.nii.gz --out_data_type uchar -o ${prefix}__mask_wm.nii.gz
     mri_convert -i ${prefix}__mask_gm.nii.gz --out_data_type uchar -o ${prefix}__mask_gm.nii.gz
     mri_convert -i ${prefix}__mask_csf.nii.gz --out_data_type uchar -o ${prefix}__mask_csf.nii.gz
-
-    rm \$FREESURFER_HOME/license.txt
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

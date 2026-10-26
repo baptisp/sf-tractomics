@@ -18,6 +18,10 @@ include { RECONST_FW_NODDI       } from '../subworkflows/nf-neuro/reconst_fw_nod
 include { BUNDLE_SEG             } from '../subworkflows/nf-neuro/bundle_seg/main'
 include { ATLAS_ROIMETRICS       } from '../subworkflows/nf-neuro/atlas_roimetrics/main'
 include { ATLAS_CSF_ROIMETRICS   } from '../subworkflows/nf-neuro/atlas_csf_roimetrics/main'
+include { SEGMENTATION_SYNTHSEG as SYNTHSEG_VOLUMES } from '../modules/nf-neuro/segmentation/synthseg/main'
+include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_GM_VOLUMES         } from '../modules/local/stats/subjectvolumes/main'
+include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_CSF_VOLUMES        } from '../modules/local/stats/subjectvolumes/main'
+include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../modules/local/stats/subjectvolumes/main'
 include { TRACTOMETRY            } from '../subworkflows/nf-neuro/tractometry/main'
 include { REGISTRATION_ANTSAPPLYTRANSFORMS as REGISTRATION_METRICS_TO_ORIG } from '../modules/nf-neuro/registration/antsapplytransforms/main'
 include { REGISTRATION_TRACTOGRAM as REGISTRATION_TRACTOGRAM_TO_ORIG } from '../modules/nf-neuro/registration/tractogram/main'
@@ -253,8 +257,21 @@ workflow SF_TRACTOMICS {
     def do_wm_volumes  = params.run_roi_volumes || params.run_wm_volumes
     def do_gm_volumes  = params.run_roi_volumes || params.run_gm_volumes
     def do_csf_volumes = params.run_roi_volumes || params.run_csf_volumes
+    def do_cmp_volumes = params.run_csf_comparison_volumes
 
-    if ( (do_wm_metrics || do_wm_volumes || do_gm_metrics || do_gm_volumes) && !params.run_atlas_roimetrics ) {
+    // Where GM, CSF and comparison volumes come from. 'atlas' counts voxels of a template warped
+    // onto the subject B0, so it only reflects the registration. 'synthseg' and 'freesurfer'
+    // count the subject's own segmentation in native T1 space. WM bundles are always atlas-based.
+    def volume_source = params.volume_source ?: "atlas"
+    if ( !(volume_source in ["atlas", "synthseg", "freesurfer"]) ) {
+        error "volume_source must be 'atlas', 'synthseg' or 'freesurfer', but got '${volume_source}'."
+    }
+    def subject_volumes = volume_source != "atlas"
+    def do_gm_atlas_volumes  = do_gm_volumes  && !subject_volumes
+    def do_csf_atlas_volumes = do_csf_volumes && !subject_volumes
+    def do_cmp_atlas_volumes = do_cmp_volumes && !subject_volumes
+
+    if ( (do_wm_metrics || do_wm_volumes || do_gm_metrics || do_gm_atlas_volumes) && !params.run_atlas_roimetrics ) {
         error "IIT atlas metrics/volumes (WM or GM) require run_atlas_roimetrics = true."
     }
 
@@ -263,11 +280,11 @@ workflow SF_TRACTOMICS {
     // are the 'masks' representation, the IIT GM Desikan parcellation is the 'labelmap' one.
     def roi_sources = []
     if ( do_wm_metrics || do_wm_volumes ) { roi_sources << "masks" }
-    if ( do_gm_metrics || do_gm_volumes ) { roi_sources << "labelmap" }
+    if ( do_gm_metrics || do_gm_atlas_volumes ) { roi_sources << "labelmap" }
 
     def roi_outputs = []
     if ( do_wm_metrics || do_gm_metrics ) { roi_outputs << "metrics" }
-    if ( do_wm_volumes || do_gm_volumes ) { roi_outputs << "volumes" }
+    if ( do_wm_volumes || do_gm_atlas_volumes ) { roi_outputs << "volumes" }
 
     if ( params.run_merge_all_stats &&
          !do_wm_metrics && !do_gm_metrics && !do_csf_metrics &&
@@ -281,6 +298,76 @@ workflow SF_TRACTOMICS {
     ch_wm_vols_collected  = channel.empty()
     ch_gm_vols_collected  = channel.empty()
     ch_csf_vols_collected = channel.empty()
+    // Per-subject volume CSVs, filled either by the atlas subworkflows or by the
+    // subject-segmentation branch below, depending on volume_source.
+    ch_gm_volumes  = channel.empty()
+    ch_csf_volumes = channel.empty()
+    ch_cmp_volumes = channel.empty()
+
+    if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes) ) {
+        if ( volume_source == "synthseg" ) {
+            if ( !params.freesurfer_license ) {
+                error "volume_source = 'synthseg' requires params.freesurfer_license (SynthSeg runs from the FreeSurfer container)."
+            }
+            // The raw T1 is segmented, not TRACTOFLOW.out.t1_native: brain extraction removes the
+            // extra-cerebral CSF (intracranial volume too small) and any BET error trims cortex.
+            SYNTHSEG_VOLUMES(
+                ch_t1
+                    .map { meta, t1 -> [meta, t1, []] }
+                    .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
+            )
+            ch_versions = ch_versions.mix(SYNTHSEG_VOLUMES.out.versions.first())
+
+            ch_subject_seg = SYNTHSEG_VOLUMES.out.aparc_aseg
+                .join(SYNTHSEG_VOLUMES.out.volume)
+        }
+        else {
+            // Native-space aparc+aseg given as input (samplesheet or BIDS FreeSurfer derivatives),
+            // before TractoFlow warps it to DWI space.
+            ch_subject_seg = ch_aparc_aseg
+                .filter { it -> it[1] }
+                .map { meta, aparc_aseg -> [meta, aparc_aseg, []] }
+        }
+
+        def subjectVolumesInput = { lut_path ->
+            ch_subject_seg
+                .combine(channel.fromPath(lut_path, checkIfExists: true))
+                .map { meta, seg, seg_volumes, lut -> [meta, seg, lut, seg_volumes] }
+        }
+
+        if ( do_gm_volumes ) {
+            STATS_SUBJECT_GM_VOLUMES(subjectVolumesInput.call("${projectDir}/assets/freesurfer_gm_lut.json"))
+            ch_versions = ch_versions.mix(STATS_SUBJECT_GM_VOLUMES.out.versions.first())
+            ch_gm_volumes = STATS_SUBJECT_GM_VOLUMES.out.volumes
+        }
+        if ( do_csf_volumes ) {
+            STATS_SUBJECT_CSF_VOLUMES(subjectVolumesInput.call(params.atlas_csf_lut ?: "${projectDir}/assets/freesurfer_csf_lut.json"))
+            ch_versions = ch_versions.mix(STATS_SUBJECT_CSF_VOLUMES.out.versions.first())
+            ch_csf_volumes = STATS_SUBJECT_CSF_VOLUMES.out.volumes
+        }
+        if ( do_cmp_volumes ) {
+            STATS_SUBJECT_COMPARISON_VOLUMES(subjectVolumesInput.call(params.atlas_csf_comparison_lut ?: "${projectDir}/assets/freesurfer_comparison_lut.json"))
+            ch_versions = ch_versions.mix(STATS_SUBJECT_COMPARISON_VOLUMES.out.versions.first())
+            ch_cmp_volumes = STATS_SUBJECT_COMPARISON_VOLUMES.out.volumes
+        }
+
+        // These volumes are cross-sectional: each session is segmented on its own. On repeated
+        // sessions the segmentation noise is of the order of yearly atrophy, so warn when the
+        // input is longitudinal.
+        ch_t1
+            .map { meta, _t1 -> [meta.id, meta.session ?: ""] }
+            .unique()
+            .groupTuple()
+            .filter { _id, sessions -> sessions.size() > 1 }
+            .map { id, _sessions -> id }
+            .collect()
+            .subscribe { ids ->
+                log.warn "volume_source = '${volume_source}' gives cross-sectional volumes, but ${ids.size()} subject(s) " +
+                         "have several sessions (e.g. ${ids.take(3).join(', ')}). To measure atrophy over time, " +
+                         "implement a longitudinal method (FreeSurfer 'recon-all -long', or SIENA for whole-brain change): " +
+                         "independent segmentations add session-to-session noise comparable to yearly atrophy. See docs/usage.md."
+            }
+    }
 
     if ( params.run_atlas_roimetrics && roi_sources && roi_outputs ) {
         ATLAS_ROIMETRICS(
@@ -318,14 +405,19 @@ workflow SF_TRACTOMICS {
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_mean_input)
         }
 
+        if ( do_gm_atlas_volumes ) {
+            ch_gm_volumes = ATLAS_ROIMETRICS.out.labelmap_volumes
+        }
+
         if ( do_gm_metrics ) {
             if ( do_gm_volumes ) {
                 ch_collection_gm_mean = collectStatsFilesWithVolumes(
                     ATLAS_ROIMETRICS.out.labelmap_stats_tab_mean,
-                    ATLAS_ROIMETRICS.out.labelmap_volumes,
+                    ch_gm_volumes,
                     "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
-                    "GM_region"
+                    "GM_region",
+                    volume_source
                 )
             } else {
                 ch_collection_gm_mean = collectStatsFiles(
@@ -344,16 +436,6 @@ workflow SF_TRACTOMICS {
                 .collectFile(
                     storeDir: "${params.outdir}/metrics/",
                     name: "space-native_atlas-iit-wm_desc-roi_volumes.csv",
-                    skip: 1, keepHeader: true, sort: true
-                )
-        }
-
-        if ( do_gm_volumes && !do_gm_metrics ) {
-            ch_gm_vols_collected = ATLAS_ROIMETRICS.out.labelmap_volumes
-                .map { _meta, csv -> csv }
-                .collectFile(
-                    storeDir: "${params.outdir}/metrics/",
-                    name: "space-native_atlas-iit-gm_desc-roi_volumes.csv",
                     skip: 1, keepHeader: true, sort: true
                 )
         }
@@ -388,7 +470,18 @@ workflow SF_TRACTOMICS {
         }
     }
 
-    if ( do_csf_metrics || do_csf_volumes || params.run_csf_comparison_roimetrics || params.run_csf_comparison_volumes ) {
+    // GM volumes alone may come from the subject's segmentation without running ATLAS_ROIMETRICS,
+    // so they are collected outside its block.
+    if ( do_gm_volumes && !do_gm_metrics ) {
+        ch_gm_vols_collected = collectVolumeFiles(
+            ch_gm_volumes,
+            "space-native_atlas-iit-gm_desc-roi_volumes.csv",
+            "${params.outdir}/metrics/",
+            volume_source
+        )
+    }
+
+    if ( do_csf_metrics || do_csf_atlas_volumes || params.run_csf_comparison_roimetrics || do_cmp_atlas_volumes ) {
         ATLAS_CSF_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
             mergeCovariatesIntoMeta(ch_input_metrics, ch_covariates),
@@ -397,22 +490,30 @@ workflow SF_TRACTOMICS {
                 atlas_csf_atlas:               params.atlas_csf_atlas,
                 atlas_csf_lut:                 params.atlas_csf_lut,
                 run_roi_metrics:               do_csf_metrics,
-                run_roi_volumes:               do_csf_volumes,
+                run_roi_volumes:               do_csf_atlas_volumes,
                 run_csf_comparison_roimetrics: params.run_csf_comparison_roimetrics,
-                run_csf_comparison_volumes:    params.run_csf_comparison_volumes,
+                run_csf_comparison_volumes:    do_cmp_atlas_volumes,
                 atlas_csf_comparison_lut:      params.atlas_csf_comparison_lut
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_CSF_ROIMETRICS.out.versions)
 
+        if ( do_csf_atlas_volumes ) {
+            ch_csf_volumes = ATLAS_CSF_ROIMETRICS.out.volumes
+        }
+        if ( do_cmp_atlas_volumes ) {
+            ch_cmp_volumes = ATLAS_CSF_ROIMETRICS.out.comparison_volumes
+        }
+
         if ( do_csf_metrics ) {
             if ( do_csf_volumes ) {
                 ch_csf_stats_merged = collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
-                    ATLAS_CSF_ROIMETRICS.out.volumes,
+                    ch_csf_volumes,
                     "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
-                    "CSF_region"
+                    "CSF_region",
+                    volume_source
                 )
             } else {
                 ch_csf_stats_merged = collectStatsFiles(
@@ -424,28 +525,19 @@ workflow SF_TRACTOMICS {
             }
         }
 
-        if ( do_csf_volumes && !do_csf_metrics ) {
-            ch_csf_vols_collected = ATLAS_CSF_ROIMETRICS.out.volumes
-                .map { _meta, csv -> csv }
-                .collectFile(
-                    storeDir: "${params.outdir}/metrics/",
-                    name: "space-native_atlas-freesurfer-csf_desc-roi_volumes.csv",
-                    skip: 1, keepHeader: true, sort: true
-                )
-        }
-
         if ( params.run_csf_comparison_roimetrics ) {
             // Per-row type map: maps each region name to WM/GM/CSF for the region_type column
             def comparison_type_map = new groovy.json.JsonSlurper()
                 .parse(new File("${projectDir}/assets/freesurfer_comparison_type_map.json"))
                 .collectEntries { k, v -> [(k): v] }
-            if ( params.run_csf_comparison_volumes ) {
+            if ( do_cmp_volumes ) {
                 collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
-                    ATLAS_CSF_ROIMETRICS.out.comparison_volumes,
+                    ch_cmp_volumes,
                     "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/comparison/",
-                    comparison_type_map
+                    comparison_type_map,
+                    volume_source
                 )
             } else {
                 collectStatsFiles(
@@ -456,16 +548,26 @@ workflow SF_TRACTOMICS {
                 )
             }
         }
+    }
 
-        if ( params.run_csf_comparison_volumes && !params.run_csf_comparison_roimetrics ) {
-            ATLAS_CSF_ROIMETRICS.out.comparison_volumes
-                .map { _meta, csv -> csv }
-                .collectFile(
-                    storeDir: "${params.outdir}/metrics/comparison/",
-                    name: "space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv",
-                    skip: 1, keepHeader: true, sort: true
-                )
-        }
+    // CSF and comparison volumes alone may come from the subject's segmentation without
+    // running ATLAS_CSF_ROIMETRICS, so they are collected outside its block.
+    if ( do_csf_volumes && !do_csf_metrics ) {
+        ch_csf_vols_collected = collectVolumeFiles(
+            ch_csf_volumes,
+            "space-native_atlas-freesurfer-csf_desc-roi_volumes.csv",
+            "${params.outdir}/metrics/",
+            volume_source
+        )
+    }
+
+    if ( do_cmp_volumes && !params.run_csf_comparison_roimetrics ) {
+        collectVolumeFiles(
+            ch_cmp_volumes,
+            "space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv",
+            "${params.outdir}/metrics/comparison/",
+            volume_source
+        )
     }
 
     if ( params.run_merge_all_stats ) {
@@ -483,15 +585,15 @@ workflow SF_TRACTOMICS {
                     ch_wm_vols_collected.map { p -> "VOLS_WM_bundle:::${toAbsFile(p.toString()).absolutePath}" }
                 )
             }
-            if ( do_gm_metrics ) {
-                ch_for_unified = ch_for_unified.mix(
-                    ch_collection_gm_mean.map { p -> "STATS_GM_region:::${toAbsFile(p.toString()).absolutePath}" }
-                )
-            } else if ( do_gm_volumes ) {
-                ch_for_unified = ch_for_unified.mix(
-                    ch_gm_vols_collected.map { p -> "VOLS_GM_region:::${toAbsFile(p.toString()).absolutePath}" }
-                )
-            }
+        }
+        if ( do_gm_metrics ) {
+            ch_for_unified = ch_for_unified.mix(
+                ch_collection_gm_mean.map { p -> "STATS_GM_region:::${toAbsFile(p.toString()).absolutePath}" }
+            )
+        } else if ( do_gm_volumes ) {
+            ch_for_unified = ch_for_unified.mix(
+                ch_gm_vols_collected.map { p -> "VOLS_GM_region:::${toAbsFile(p.toString()).absolutePath}" }
+            )
         }
         if ( do_csf_metrics ) {
             ch_for_unified = ch_for_unified.mix(
@@ -769,13 +871,20 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
 // The volumes CSV names its ROI column "roi" in both modes; the legacy "region" (GM/CSF)
 // and "bundle" (WM) headers are still accepted so older CSVs keep merging.
 // regionType behaves the same as in collectStatsFiles (String, Map, or null).
-def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, regionType = null) {
+// volumeSource: when set ('atlas', 'synthseg', 'freesurfer'), volume_source and icv_mm3 columns
+// are appended too. Values come from the volumes CSV when it has them (subject segmentation),
+// otherwise volume_source falls back to volumeSource and icv_mm3 is left empty.
+def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, regionType = null, volumeSource = null) {
 
     def output_file_path = "${storeDir}/${name}"
 
+    // Join on (id, session), not on the whole meta: volumes from the subject's T1 segmentation
+    // carry the T1 meta, which lacks the covariates and DWI run the stats meta carries.
+    def bySession = { meta, f -> [[meta.id, meta.session ?: ""], f] }
     return ch_stats_files
-        .join(ch_volumes)
-        .map { _meta, stats_file, volumes_file ->
+        .map(bySession)
+        .join(ch_volumes.map(bySession))
+        .map { _key, stats_file, volumes_file ->
             // Encode both paths as a single string BEFORE collect so no Path objects
             // cross the collect boundary (Nextflow channel serialisation corrupts them).
             def sf = toAbsFile(stats_file.toString()).absolutePath
@@ -806,6 +915,10 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             }
             all_columns.add("volume_voxels")
             all_columns.add("volume_mm3")
+            if (volumeSource != null) {
+                all_columns.add("volume_source")
+                all_columns.add("icv_mm3")
+            }
             all_columns = all_columns.toList()
 
             def output_file = new File(output_file_path).absoluteFile
@@ -831,10 +944,14 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                     def roi_i    = vol_cols.indexOf(roi_col)
                     def vox_i    = vol_cols.indexOf("volume_voxels")
                     def mm3_i    = vol_cols.indexOf("volume_mm3")
+                    def src_i    = vol_cols.indexOf("volume_source")
+                    def icv_i    = vol_cols.indexOf("icv_mm3")
                     vol_lines[1..-1].each { line ->
                         if (!line.trim()) return
-                        def v = line.split(',')
-                        vol_map[v[roi_i]] = [v[vox_i], v[mm3_i]]
+                        def v = line.split(',', -1)
+                        def src = (src_i >= 0 && src_i < v.size()) ? v[src_i] : (volumeSource ?: "")
+                        def icv = (icv_i >= 0 && icv_i < v.size()) ? v[icv_i] : ""
+                        vol_map[v[roi_i]] = [v[vox_i], v[mm3_i], src, icv]
                     }
                 }
 
@@ -849,11 +966,13 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                     def vals = line.split('\t', -1)
                     def roi  = stats_idx.containsKey("roi") ? vals[stats_idx["roi"]] : ""
                     def rt   = regionType instanceof Map ? regionType.getOrDefault(roi, "") : (regionType ?: "")
-                    def vd   = vol_map.getOrDefault(roi, ["", ""])
+                    def vd   = vol_map.getOrDefault(roi, ["", "", "", ""])
                     def row  = all_columns.collect { col ->
                         if (col == "region_type")   return rt
                         if (col == "volume_voxels") return vd[0]
                         if (col == "volume_mm3")    return vd[1]
+                        if (col == "volume_source") return vd[2]
+                        if (col == "icv_mm3")       return vd[3]
                         stats_idx.containsKey(col) ? (stats_idx[col] < vals.size() ? vals[stats_idx[col]] : '') : ''
                     }
                     fw.write(row.join('\t') + '\n')
@@ -861,6 +980,54 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             }
 
             fw.close()
+            return output_file.toPath()
+        }
+}
+
+// Collect per-subject volume CSVs into one global CSV with a volume_source and an icv_mm3
+// column. Subject-segmentation CSVs already carry both; atlas CSVs (STATS_ROIVOLUMES) get
+// volume_source = volumeSource and an empty icv_mm3. Replaces a plain collectFile so the global
+// file says where its volumes come from whichever source produced it.
+def collectVolumeFiles(ch_volumes, name, storeDir, volumeSource) {
+
+    def output_file_path = "${storeDir}/${name}"
+    def out_cols = ["sid", "session", "run", "roi", "volume_voxels", "volume_mm3", "volume_source", "icv_mm3"]
+
+    return ch_volumes
+        .map { _meta, csv -> toAbsFile(csv.toString()).absolutePath }
+        .collect()
+        .map { path_strings ->
+            def rows = []
+            path_strings.each { path_str ->
+                def lines = new File(path_str.toString()).readLines()
+                if (lines.size() < 2) {
+                    log.warn("No data rows in file ${path_str}. Skipping.")
+                    return
+                }
+                def cols = lines[0].split(',').toList()
+                // Legacy STATS_ROIVOLUMES headers named the ROI column bundle/region
+                def roi_col = cols.find { it in ["roi", "region", "bundle"] }
+                lines[1..-1].each { line ->
+                    if (!line.trim()) return
+                    def vals = line.split(',', -1)
+                    def value = { col ->
+                        def i = cols.indexOf(col == "roi" ? roi_col : col)
+                        (i >= 0 && i < vals.size()) ? vals[i] : null
+                    }
+                    rows << out_cols.collect { col ->
+                        def v = value.call(col)
+                        (v == null && col == "volume_source") ? volumeSource : (v ?: "")
+                    }
+                }
+            }
+
+            def output_file = new File(output_file_path).absoluteFile
+            output_file.getParentFile().mkdirs()
+            output_file.withWriter { fw ->
+                fw.write(out_cols.join(',') + '\n')
+                // Stable sort on the subject key only, so rows keep the LUT order within a subject
+                rows.sort { a, b -> a[0..2].join(',') <=> b[0..2].join(',') }.each { row -> fw.write(row.join(',') + '\n') }
+            }
             return output_file.toPath()
         }
 }
@@ -875,6 +1042,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
 //   "VOLS_WM_bundle:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
 //   "VOLS_GM_region:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
 //   "VOLS_CSF_region:::abs_path"  — CSV: sid,session,run,roi,volume_voxels,volume_mm3
+//   VOLS_* CSVs may also carry volume_source and icv_mm3 (collectVolumeFiles); both are kept.
 //
 // Output schema: sid  session  run  roi  region_type  [covariates]  [metrics as cols]
 def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
@@ -991,8 +1159,12 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                     def roi_idx = roi_col ? cols.indexOf(roi_col) : -1
                     def vox_idx = cols.indexOf("volume_voxels")
                     def mm3_idx = cols.indexOf("volume_mm3")
+                    def src_idx = cols.indexOf("volume_source")
+                    def icv_idx = cols.indexOf("icv_mm3")
 
                     all_metrics.addAll(["volume_voxels", "volume_mm3"])
+                    if (src_idx >= 0) all_metrics.add("volume_source")
+                    if (icv_idx >= 0) all_metrics.add("icv_mm3")
 
                     lines[1..-1].each { line ->
                         if (!line.trim()) return
@@ -1019,6 +1191,8 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                         if (!data[sample].containsKey(roi)) data[sample][roi] = [:]
                         data[sample][roi]["volume_voxels"] = vox
                         data[sample][roi]["volume_mm3"]    = mm3
+                        if (src_idx >= 0 && src_idx < vals.size()) data[sample][roi]["volume_source"] = vals[src_idx]
+                        if (icv_idx >= 0 && icv_idx < vals.size()) data[sample][roi]["icv_mm3"]       = vals[icv_idx]
                     }
                 }
             }

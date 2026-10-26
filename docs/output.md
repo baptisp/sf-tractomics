@@ -86,6 +86,21 @@ Reuses the warped FreeSurfer atlas to extract metrics across GM subcortical stru
 - `dwi/comparison/<subject>_atlas-freesurfer-comparison_desc-roi_volumes.csv`
 - `metrics/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv`
 
+## Volume source
+
+The GM, CSF and comparison volume files above are filled according to `--volume_source`:
+
+- `atlas` (default): voxel count of the warped template in DWI space. The volumes reflect the registration and are not suited to measuring atrophy.
+- `synthseg` / `freesurfer`: voxel count of the subject's own segmentation in native T1 space. The files keep their names, region names and columns, and add `volume_source` and `icv_mm3` (intracranial volume, `synthseg` only).
+
+The global volume files (`metrics/...desc-roi_volumes.csv`) always carry `volume_source` and `icv_mm3`.
+
+With `synthseg`, the segmentation itself is published per subject:
+
+- `anat/<subject>_desc-synthseg_dseg.nii.gz` — SynthSeg labelmap with Desikan cortical parcels (native T1 space)
+- `anat/<subject>_desc-synthseg_volumes.csv` — SynthSeg's own soft volumes, including total intracranial
+- `anat/<subject>_desc-synthseg_qc.csv` — SynthSeg QC scores
+
 ## Merged output (metrics and/or volumes)
 
 Enabled by `--run_merge_all_stats`.

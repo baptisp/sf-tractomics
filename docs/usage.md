@@ -37,7 +37,7 @@ Individual region types can be enabled independently. Per-type switches are igno
 | `--run_gm_metrics` | false | GM Desikan region metrics (IIT Atlas v5.0) | `--run_atlas_roimetrics` |
 | `--run_csf_metrics` | false | CSF/ventricle region metrics (FreeSurfer MNI152) | — |
 | `--run_wm_volumes` | false | WM bundle volumes | `--run_atlas_roimetrics` |
-| `--run_gm_volumes` | false | GM Desikan region volumes | `--run_atlas_roimetrics` |
+| `--run_gm_volumes` | false | GM Desikan region volumes | `--run_atlas_roimetrics` (only with `--volume_source atlas`) |
 | `--run_csf_volumes` | false | CSF/ventricle volumes | — |
 
 ### WM bundle metrics
@@ -109,6 +109,36 @@ Reuses the warped FreeSurfer atlas from the CSF pipeline to extract metrics acro
 --run_csf_comparison_volumes    true
 --atlas_csf_comparison_lut      /path/to/custom_comparison_lut.json  # optional
 ```
+
+### Volume source: atlas or subject segmentation
+
+`--volume_source` chooses where the GM, CSF/ventricle and comparison volumes come from. WM bundle volumes are always atlas-based.
+
+| Value | What is counted | Suitable for atrophy |
+|---|---|---|
+| `atlas` (default) | Voxels of a template parcellation warped onto the subject B0 (IIT for GM, FreeSurfer `cvs_avg35_inMNI152` for CSF/comparison) | No: the volume is the template region scaled by the registration |
+| `synthseg` | SynthSeg (`--parc --robust`) run on the subject's raw T1, counted in native T1 space. Requires `--freesurfer_license` | Yes |
+| `freesurfer` | The subject's own `aparc+aseg` given as input (samplesheet or BIDS FreeSurfer derivatives), counted in native T1 space | Yes |
+
+```bash
+--run_gm_volumes  true
+--run_csf_volumes true
+--run_csf_comparison_volumes true
+--volume_source   synthseg
+--freesurfer_license /path/to/license.txt
+```
+
+The output files are the same as with `atlas`, with the same region names, plus two columns:
+
+- `volume_source`: `atlas`, `synthseg` or `freesurfer`.
+- `icv_mm3`: total intracranial volume from SynthSeg, for normalising (`volume_mm3 / icv_mm3`). Empty for `atlas` and `freesurfer`.
+
+SynthSeg segments the raw T1, not the brain-extracted one, so the CSF outside the brain stays in the intracranial volume. It has no choroid plexus label, so the two choroid plexus rows of the CSF and comparison files are 0 with `synthseg`. Its segmentation, soft volumes and QC score are written to `anat/<subject>_desc-synthseg_{dseg.nii.gz,volumes.csv,qc.csv}`; check the QC score before using a subject.
+
+GM or CSF diffusion metrics still use the warped atlases. Volumes from the subject segmentation are joined to them by region name.
+
+> [!WARNING]
+> These volumes are **cross-sectional**: each session is segmented on its own. When a subject has several sessions, the session-to-session segmentation noise (roughly 1-3%) is of the order of yearly atrophy. The pipeline warns at startup when it sees several sessions for a subject. For longitudinal analyses, implement a longitudinal method instead: the FreeSurfer longitudinal stream (`recon-all -base` / `recon-all -long`) for regional volumes, or SIENA for whole-brain change.
 
 ### Merging all stats and volumes
 

@@ -9,6 +9,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `--volume_source` (`atlas` | `synthseg` | `freesurfer`) to compute GM, CSF/ventricle and comparison volumes from the subject's own segmentation in native T1 space instead of a warped template. Same output files, plus `volume_source` and `icv_mm3` columns. A warning recommends a longitudinal method when subjects have several sessions. The atlas-only version is tagged `v1.0dev-atlas-volumes`.
 - GM Desikan parcellation ROI metrics pipeline using IIT Atlas v5.0 (`--run_gm_metrics`, `--run_gm_volumes`).
 - CSF/ventricle ROI metrics pipeline using FreeSurfer `cvs_avg35_inMNI152` atlas (`--run_csf_metrics`, `--run_csf_volumes`).
 - Cross-tissue comparison output (GM subcortical + WM + ventricles) using the FreeSurfer atlas (`--run_csf_comparison_roimetrics`, `--run_csf_comparison_volumes`).

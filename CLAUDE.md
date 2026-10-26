@@ -21,6 +21,9 @@ modules/nf-neuro/stats/metricsinroi/        Extracts FA/MD/etc. within ROI masks
 modules/nf-neuro/stats/roivolumes/          Computes ROI volumes (voxel count + mm³)
 assets/freesurfer_csf_lut.json              FreeSurfer CSF label LUT (ventricles, choroid plexus)
 assets/freesurfer_comparison_lut.json       FreeSurfer LUT for GM/WM/ventricles comparison output
+assets/freesurfer_gm_lut.json               FreeSurfer ids → IIT GM region names (subject-segmentation GM volumes)
+modules/local/stats/subjectvolumes/         Volumes of a subject segmentation (+ volume_source, icv_mm3)
+conf/modules/stats_subjectvolumes.config    SynthSeg + subject volume config (volume_source != atlas)
 ```
 
 ## Global ext.prefix convention
@@ -153,6 +156,31 @@ Already outputs `sid`, `session`, `run` as separate columns (not a combined `sam
 
 The ROI column is named `roi` in **both** modes — labels mode (`use_label = false`, one file per ROI) and atlas/labelmap mode (`use_label = true`, one image plus a LUT). It used to be `bundle` and `region` respectively; `collectStatsFilesWithVolumes` and `collectUnifiedFiles` still accept the old headers.
 
+## Volume source (`volume_source`)
+
+`params.volume_source` = `atlas` (default) | `synthseg` | `freesurfer` picks where GM, CSF and
+comparison volumes come from. WM bundle volumes are always atlas-based.
+
+- `atlas`: `STATS_ROIVOLUMES` on the warped template (DWI space). Only reflects the registration.
+- `synthseg`: `SYNTHSEG_VOLUMES` (SEGMENTATION_SYNTHSEG alias, `--parc --robust --vol --qc`) on the
+  **raw** `ch_t1` (not `t1_native`: BET would drop extra-cerebral CSF from the ICV), then
+  `STATS_SUBJECT_{GM,CSF,COMPARISON}_VOLUMES` count labels in native T1 space.
+- `freesurfer`: same counting on the input `ch_aparc_aseg` (native space, before TractoFlow's warp).
+
+The subject branch fills `ch_gm_volumes` / `ch_csf_volumes` / `ch_cmp_volumes`, which replace the
+atlas volume channels in the existing collectors, so the output file names do not change. The
+`do_*_atlas_volumes` flags keep the atlas subworkflows from computing unused volumes, and GM-only
+subject volumes no longer require `run_atlas_roimetrics`.
+
+`assets/freesurfer_gm_lut.json` maps FreeSurfer ids to the **IIT GM names** (`Left-Thalamus-Proper`,
+`ctx-lh-*`), so subject GM volumes join on IIT GM metrics by region name. SynthSeg has no choroid
+plexus label (31/63): those rows are 0.
+
+Global volume CSVs are written by `collectVolumeFiles` (not `collectFile`) and always carry
+`volume_source` and `icv_mm3`; `collectStatsFilesWithVolumes` adds them when given a `volumeSource`
+(not for WM, whose TSV feeds HARMONIZATION). Cross-sectional only: a startup `log.warn` fires when a
+subject has several sessions and recommends a longitudinal method (`recon-all -long`, SIENA).
+
 ## Important params
 
 | Param | Default | Effect |
@@ -167,6 +195,7 @@ The ROI column is named `roi` in **both** modes — labels mode (`use_label = fa
 | `run_wm_volumes` | false | WM bundle volumes only |
 | `run_gm_volumes` | false | GM Desikan region volumes only |
 | `run_csf_volumes` | false | CSF/ventricle region volumes only |
+| `volume_source` | `'atlas'` | GM/CSF/comparison volumes from `atlas`, `synthseg` or `freesurfer` (see above) |
 | `run_merge_all_stats` | false | Produce `metrics/space-native_all-regions_desc-roi_combined.tsv` — wide format with ROIs as columns |
 | `tractometry_covariates` | `'site,age,sex,handedness,disease'` | Comma-separated covariate column names embedded in stats TSVs via `ext.meta_columns` and used by `collectUnifiedFiles` to separate covariates from data columns |
 | `use_binary_masks` | false | Use binary masks instead of TDI-weighted for WM extraction |

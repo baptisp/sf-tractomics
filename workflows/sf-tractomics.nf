@@ -1172,7 +1172,8 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
 
     // Wrapped in maps so combine() does not spread the two lists into one tuple
     def ch_cov_lookup = ch_cov_metas
-        .map { m -> [[m.id, m.session ?: "", m.run ?: ""].findAll { x -> x }.join("_"),
+        // Same run convention as the stats and volume CSVs: bare number, absent = 1
+        .map { m -> [[m.id, m.session ?: "", (m.run ?: "run-1").replaceFirst(/^run-/, "")].findAll { x -> x }.join("_"),
                      covariate_cols.collectEntries { c -> [(c): m[c] != null ? m[c].toString() : ""] }] }
         .toList()
         .map { pairs -> [cov: pairs.collectEntries { p -> [(p[0]): p[1]] }] }

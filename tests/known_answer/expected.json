@@ -1,0 +1,24 @@
+{
+ "label_fa_mean": {
+  "Left-Lateral-Ventricle": 0.25,
+  "Left-Hippocampus": 0.29629629850387573,
+  "ctx-lh-precuneus": 0.6
+ },
+ "label_fa_std": {
+  "Left-Lateral-Ventricle": 0.0,
+  "Left-Hippocampus": 0.09993138909339905,
+  "ctx-lh-precuneus": 0.0
+ },
+ "mask_fa_mean_binary_A": 0.6,
+ "mask_fa_mean_weighted_B": 0.3300000049173832,
+ "mask_fa_mean_unweighted_B": 0.29629629850387573,
+ "voxels": {
+  "4": 10,
+  "17": 27,
+  "1025": 8
+ },
+ "mask_voxels": {
+  "BUNDLEA": 8,
+  "BUNDLEB": 27
+ }
+}

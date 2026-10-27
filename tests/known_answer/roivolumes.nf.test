@@ -1,0 +1,52 @@
+// Known-answer tests of STATS_ROIVOLUMES (the atlas-volume module), on the fixtures described in
+// stats.nf.test: 3 mm3 voxels, so volume_mm3 = 3 x voxel count.
+nextflow_process {
+
+    name "Known-answer tests of ROI volumes"
+    script "../../modules/nf-neuro/stats/roivolumes/main.nf"
+    process "STATS_ROIVOLUMES"
+    tag "known_answer"
+
+    test("labelmap mode: one row per LUT label, absent label = 0") {
+        config "./roivolumes_label.config"
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01', session:'ses-01'], file("\${d}/labels.nii.gz"), file("\${d}/lut.json") ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            assert path(process.out.volumes[0][1]).readLines() == [
+                "sid,session,run,roi,volume_voxels,volume_mm3",
+                "sub-01,ses-01,1,Left-Lateral-Ventricle,10,30.0000",
+                "sub-01,ses-01,1,Left-Hippocampus,27,81.0000",
+                "sub-01,ses-01,1,Left-choroid-plexus,0,0.0000",
+                "sub-01,ses-01,1,ctx-lh-precuneus,8,24.0000"
+            ]
+        }
+    }
+
+    test("masks mode: voxels with any non-zero weight are counted") {
+        config "./roivolumes_masks.config"
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01', session:'ses-01'],
+                             [ file("\${d}/sub-01_ses-01_BUNDLEA.nii.gz"), file("\${d}/sub-01_ses-01_BUNDLEB.nii.gz") ], [] ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            assert path(process.out.volumes[0][1]).readLines() == [
+                "sid,session,run,roi,volume_voxels,volume_mm3",
+                "sub-01,ses-01,1,BUNDLEA,8,24.0000",
+                "sub-01,ses-01,1,BUNDLEB,27,81.0000"
+            ]
+        }
+    }
+}

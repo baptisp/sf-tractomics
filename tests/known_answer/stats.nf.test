@@ -1,0 +1,85 @@
+// Known-answer tests of the ROI statistics modules that produce the atlas volumes and the
+// per-region diffusion metrics. Fixtures (this directory): a 10x10x10 labelmap with 2x1x1.5 mm
+// voxels (3 mm3) and FA/MD maps whose values per region are set by hand:
+//   label 4    (Left-Lateral-Ventricle): 10 voxels, FA 0.25 everywhere
+//   label 17   (Left-Hippocampus):       27 voxels, FA 0.2 (14 voxels) and 0.4 (13 voxels)
+//              -> mean 8.0/27 = 0.296296, population std 0.099931
+//   label 1025 (ctx-lh-precuneus):        8 voxels, FA 0.6 everywhere
+//   MD 1.0e-3 in every labelled voxel; label 31 is in the LUT but absent from the image.
+// Masks: BUNDLEA = label 1025 (binary), BUNDLEB = label 17 weighted 0.5 where FA is 0.2 and
+// 1.0 where FA is 0.4 -> weighted FA mean (14*0.5*0.2 + 13*0.4) / (7 + 13) = 0.33.
+nextflow_process {
+
+    name "Known-answer tests of ROI statistics"
+    script "../../modules/nf-neuro/stats/metricsinroi/main.nf"
+    process "STATS_METRICSINROI"
+    tag "known_answer"
+
+    def table = { f -> def ls = path(f).readLines(); def h = ls[0].split("\t", -1).toList()
+                  ls[1..-1].collectEntries { l -> def r = [h, l.split("\t", -1).toList()].transpose().collectEntries(); [(r.roi): r] } }
+    def close = { a, b -> Math.abs((a as double) - (b as double)) < 1e-5 }
+
+    test("metrics in labels: exact mean and std per region") {
+        config "./metricsinroi_label.config"
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01', session:'ses-01'],
+                             [ file("\${d}/sub-01_ses-01__fa.nii.gz"), file("\${d}/sub-01_ses-01__md.nii.gz") ],
+                             file("\${d}/labels.nii.gz"), file("\${d}/lut.json") ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            def mean = table(process.out.stats_mean[0][1]); def std = table(process.out.stats_std[0][1])
+            assert close(mean["Left-Lateral-Ventricle"].fa, 0.25)
+            assert close(mean["Left-Hippocampus"].fa, 8.0 / 27)
+            assert close(mean["ctx-lh-precuneus"].fa, 0.6)
+            assert close(std["Left-Lateral-Ventricle"].fa, 0.0)
+            assert close(std["Left-Hippocampus"].fa, 0.0999313891)
+            assert ["Left-Lateral-Ventricle", "Left-Hippocampus", "ctx-lh-precuneus"].every { r -> close(mean[r].md, 1.0e-3) }
+            assert mean["Left-Hippocampus"].sid == "sub-01" && mean["Left-Hippocampus"].session == "ses-01" && mean["Left-Hippocampus"].run == "1"
+        }
+    }
+
+    test("metrics in masks: weighted mean by default") {
+        config "./metricsinroi_mask.config"
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01', session:'ses-01'], [ file("\${d}/sub-01_ses-01__fa.nii.gz") ],
+                             [ file("\${d}/sub-01_ses-01_BUNDLEA.nii.gz"), file("\${d}/sub-01_ses-01_BUNDLEB.nii.gz") ], [] ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            def mean = table(process.out.stats_mean[0][1])
+            assert mean.keySet() == ["BUNDLEA", "BUNDLEB"] as Set
+            assert close(mean.BUNDLEA.fa, 0.6)
+            assert close(mean.BUNDLEB.fa, 0.33)
+        }
+    }
+
+    test("metrics in masks: --bin gives the unweighted mean") {
+        config "./metricsinroi_mask_bin.config"
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01', session:'ses-01'], [ file("\${d}/sub-01_ses-01__fa.nii.gz") ],
+                             [ file("\${d}/sub-01_ses-01_BUNDLEA.nii.gz"), file("\${d}/sub-01_ses-01_BUNDLEB.nii.gz") ], [] ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            def mean = table(process.out.stats_mean[0][1])
+            assert close(mean.BUNDLEA.fa, 0.6)
+            assert close(mean.BUNDLEB.fa, 8.0 / 27)
+        }
+    }
+}

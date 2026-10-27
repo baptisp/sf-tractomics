@@ -30,7 +30,9 @@ process STATS_SUBJECTVOLUMES {
     def missing_json  = groovy.json.JsonOutput.toJson((task.ext.missing_labels ?: []).collect { l -> l as int })
     def subject_id    = meta.id ?: ""
     def session_id    = meta.session ?: ""
-    def run_id        = meta.run ?: ""
+    // Same convention as STATS_METRICSINROI and STATS_ROIVOLUMES: a bare run number, and run 1
+    // when the run entity is absent, so stats and volume rows of a sample share one key.
+    def run_id        = (meta.run ?: "run-1").replaceFirst(/^run-/, "")
     """
     python3 << 'PYEOF'
 import csv

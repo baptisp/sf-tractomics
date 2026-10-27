@@ -1,0 +1,60 @@
+// Known-answer tests of the atlas warp step (antsApplyTransforms, MultiLabel, short output) on the
+// 10x10x10 labelmap of stats.nf.test (voxels 2 x 1 x 1.5 mm). The checks compare voxel arrays
+// with a numpy container. ITK transforms are in LPS: +2 mm along LPS x moves the content one voxel
+// up the RAS x axis of these images. A warp that moves, merges, rounds or truncates labels would change
+// every downstream volume.
+nextflow_process {
+
+    name "Known-answer tests of label warping"
+    script "../../modules/nf-neuro/registration/antsapplytransforms/main.nf"
+    process "REGISTRATION_ANTSAPPLYTRANSFORMS"
+    config "./applytransforms_label.config"
+    tag "known_answer"
+
+    def compare = { warped, shift ->
+        // shift = number of voxels the content must move along +x
+        def root = new File(".").canonicalPath   // nf-test runs from the repository root
+        def cmd = ["docker", "run", "--rm", "-v", "${root}:${root}", "-v", "${warped.parent}:${warped.parent}",
+                   "community.wave.seqera.io/library/nibabel_numpy:4148b92a8cbc6976", "python3", "-c",
+                   "import nibabel as nib, numpy as np\n" +
+                   "a = np.asarray(nib.load('${root}/tests/known_answer/labels.nii.gz').dataobj).astype(int)\n" +
+                   "b = np.asarray(nib.load('${warped}').dataobj).astype(int)\n" +
+                   "e = np.zeros_like(a); e[${shift}:] = a[:a.shape[0] - ${shift}]\n" +
+                   "print('EQUAL' if np.array_equal(b, e) else 'DIFF', sorted(np.unique(b).tolist()), {int(l): int((b == l).sum()) for l in (4, 17, 1025)})"]
+        def p = cmd.execute(); p.waitFor(); p.text.trim()
+    }
+
+    test("identity transform leaves every label voxel unchanged") {
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01'], file("\${d}/labels.nii.gz"), file("\${d}/reference.nii.gz"), file("\${d}/identity.txt") ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            def out = compare(file(process.out.warped_image[0][1]), 0)
+            assert out.startsWith("EQUAL") : out
+            assert out.contains("{4: 10, 17: 27, 1025: 8}") : out
+        }
+    }
+
+    test("one-voxel translation moves labels by exactly one voxel, counts unchanged") {
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01'], file("\${d}/labels.nii.gz"), file("\${d}/reference.nii.gz"), file("\${d}/shift_one_voxel_x.txt") ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            def out = compare(file(process.out.warped_image[0][1]), 1)
+            assert out.startsWith("EQUAL") : out
+            assert out.contains("{4: 10, 17: 27, 1025: 8}") : out
+        }
+    }
+}

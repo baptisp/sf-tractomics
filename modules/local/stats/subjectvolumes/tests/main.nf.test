@@ -37,10 +37,10 @@ nextflow_process {
             assert csv.fileName.toString() == "sub-01_ses-01_atlas-test_volumes.csv"
             assert csv.readLines() == [
                 "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3",
-                "sub-01,ses-01,,Left-Lateral-Ventricle,10,30.0000,synthseg,1234567.8900",
-                "sub-01,ses-01,,Left-Hippocampus,27,81.0000,synthseg,1234567.8900",
-                "sub-01,ses-01,,Left-choroid-plexus,0,0.0000,synthseg,1234567.8900",
-                "sub-01,ses-01,,ctx-lh-precuneus,8,24.0000,synthseg,1234567.8900"
+                "sub-01,ses-01,1,Left-Lateral-Ventricle,10,30.0000,synthseg,1234567.8900",
+                "sub-01,ses-01,1,Left-Hippocampus,27,81.0000,synthseg,1234567.8900",
+                "sub-01,ses-01,1,Left-choroid-plexus,0,0.0000,synthseg,1234567.8900",
+                "sub-01,ses-01,1,ctx-lh-precuneus,8,24.0000,synthseg,1234567.8900"
             ]
         }
     }
@@ -92,10 +92,10 @@ nextflow_process {
             // label 4 is present in the image but declared unsupported: empty, not its 10 voxels
             assert path(process.out.volumes[0][1]).readLines() == [
                 "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3",
-                "sub-01,ses-01,,Left-Lateral-Ventricle,,,synthseg,",
-                "sub-01,ses-01,,Left-Hippocampus,27,81.0000,synthseg,",
-                "sub-01,ses-01,,Left-choroid-plexus,,,synthseg,",
-                "sub-01,ses-01,,ctx-lh-precuneus,8,24.0000,synthseg,"
+                "sub-01,ses-01,1,Left-Lateral-Ventricle,,,synthseg,",
+                "sub-01,ses-01,1,Left-Hippocampus,27,81.0000,synthseg,",
+                "sub-01,ses-01,1,Left-choroid-plexus,,,synthseg,",
+                "sub-01,ses-01,1,ctx-lh-precuneus,8,24.0000,synthseg,"
             ]
         }
     }

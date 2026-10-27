@@ -176,7 +176,7 @@ subject volumes no longer require `run_atlas_roimetrics`.
 
 `assets/freesurfer_gm_lut.json` maps FreeSurfer ids to the **IIT GM names** (`Left-Thalamus-Proper`,
 `ctx-lh-*`), so subject GM volumes join on IIT GM metrics by region name. SynthSeg has no choroid
-plexus label (31/63): those rows are 0.
+plexus label (31/63): `ext.missing_labels` leaves those rows empty.
 
 Global volume CSVs are written by `collectVolumeFiles` (not `collectFile`) and always carry
 `volume_source` and `icv_mm3`; `collectStatsFilesWithVolumes` adds them when given a `volumeSource`
@@ -189,7 +189,12 @@ name order) into `SAMSEG_LONG_VOLUMES` (`modules/local/segmentation/samseglong`:
 per-session files `<id_session[_run]>__samseg_{seg.nii.gz,icv.csv}` are mapped back to session metas
 by name with `flatMap`. GM uses `assets/freesurfer_gm_samseg_lut.json` (cortex totals, no Desikan
 parcels). When any volumes are requested, subjects have several sessions and the option is false,
-a startup `log.warn` says `run_longitudinal_volumes` is not activated. The flag is checked with
+a startup `log.warn` says `run_longitudinal_volumes` is not activated.
+
+`collectStatsFilesWithVolumes` pairs stats and volumes on `(id, session, run)` (absent run = run 1),
+falling back to the session's CSV (SAMSEG has one per session), and keeps subject-segmentation ROIs
+missing from the atlas stats as volume-only rows. SynthSeg runs once per distinct T1 file and its
+result is fanned out to every DWI run sharing it. The flag is checked with
 `== true`: a CLI value arrives as a string and `"false" as boolean` is true.
 
 ## Important params

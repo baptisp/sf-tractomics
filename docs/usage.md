@@ -133,7 +133,7 @@ The output files are the same as with `atlas`, with the same region names, plus 
 - `volume_source`: `atlas`, `synthseg` or `freesurfer`.
 - `icv_mm3`: total intracranial volume from SynthSeg, for normalising (`volume_mm3 / icv_mm3`). Empty for `atlas` and `freesurfer`.
 
-SynthSeg segments the raw T1, not the brain-extracted one, so the CSF outside the brain stays in the intracranial volume. It has no choroid plexus label, so the two choroid plexus rows of the CSF and comparison files are 0 with `synthseg`. Its segmentation, soft volumes and QC score are written to `anat/<subject>_desc-synthseg_{dseg.nii.gz,volumes.csv,qc.csv}`; check the QC score before using a subject.
+SynthSeg segments the raw T1, not the brain-extracted one, so the CSF outside the brain stays in the intracranial volume. It has no choroid plexus label, so the two choroid plexus rows of the CSF and comparison files have empty volumes with `synthseg` (not measured, rather than a misleading 0). Its segmentation, soft volumes and QC score are written to `anat/<subject>_desc-synthseg_{dseg.nii.gz,volumes.csv,qc.csv}`; check the QC score before using a subject.
 
 GM or CSF diffusion metrics still use the warped atlases. Volumes from the subject segmentation are joined to them by region name.
 

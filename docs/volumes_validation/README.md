@@ -171,6 +171,39 @@ Every CSV and the combined TSV of the 4 runs were checked independently of the p
   `region_type` matches the file each row came from, covariates match `participants.tsv`, and the
   scanner matches each T1's sidecar.
 
+Three of the four runs were made before the `WM-hypointensities` row was added to the comparison
+files, so their comparison files lack that row. `check_outputs.py` reports it as missing, and
+every other check passes.
+
+## Rerunning the checks
+
+Both scripts need Python 3 with nibabel and numpy, for example in the pipeline's
+`community.wave.seqera.io/library/nibabel_numpy` container. Run them on an output directory and
+the `bids_config` JSON it was made from.
+
+Check one output directory (values, coverage, empty cells, region names, combined TSV; the
+pairing check needs the SynthSeg output of the same inputs):
+
+```bash
+python3 docs/volumes_validation/check_outputs.py --outdir OUT --bids bids.json --method samseg_long \
+    --participants participants.tsv --fs-lut FreeSurferColorLUT.txt --other-outdir SYNTHSEG_OUT
+```
+
+`FreeSurferColorLUT.txt` is in the FreeSurfer container (`/usr/local/freesurfer/`). The exit
+code is 1 when any check fails.
+
+Compare the two methods (the tables of this report):
+
+```bash
+python3 docs/volumes_validation/compare_methods.py \
+    --repeat SAMSEG_REPEAT_OUT SYNTHSEG_REPEAT_OUT --repeat-bids repeat.json \
+    --followup SAMSEG_FOLLOWUP_OUT SYNTHSEG_FOLLOWUP_OUT --participants participants.tsv
+```
+
+In the repeat-scan JSON, each pair is two sessions of one subject (here `d0061r01` and
+`d0061r02` for run-01 and run-02 of session `d0061`). Pairs whose two T1s hold the same voxels
+are excluded automatically.
+
 ## Limits
 
 - Small sample: 8 repeat pairs and 8 follow-up subjects, all from OASIS-3 (Siemens scanners).
@@ -178,5 +211,7 @@ Every CSV and the combined TSV of the 4 runs were checked independently of the p
   follow-up noise is itself noisy.
 - These tests measure precision, not accuracy. Which method is closest to true anatomy would need
   a reference such as manual tracing.
+- Diagnoses change between sessions in OASIS-3 (one subject goes from AD to HC to MCI), so the
+  groups use the diagnosis at each subject's first session in the run.
 - SAMSEG resamples every session to 1 mm, and SynthSeg works at 1 mm internally, so neither result
   says anything about sub-millimetre detail.

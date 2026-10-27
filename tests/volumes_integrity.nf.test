@@ -8,7 +8,8 @@
 //   3 sub-INTB ses-01 run-1   4 sub-INTB ses-01 run-2   (two runs, two segmentations)
 //   5 sub-INTC without session
 // Each T1 has its own BIDS sidecar (sub-INTA ses-02 on a Prisma, the others on a TrioTim), and
-// the T1 of sub-INTB run-2 is a byte-identical copy of run-1's, as in OASIS-3.
+// the T1 of sub-INTB run-2 holds run-1's voxels in a file whose header and bytes differ (a second
+// export of one acquisition, as in OASIS-3).
 // Every row of every volume file and of the combined TSV must carry its own sample's values:
 // a value landing in another subject's, session's or run's row fails the test. The run column
 // follows the stats convention: bare number, absent run = 1.

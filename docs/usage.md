@@ -177,7 +177,7 @@ Volumes from the subject's own segmentation (`synthseg`, `freesurfer`, longitudi
 | `qc_score` | Lowest SynthSeg QC score over its structure groups (SynthSeg only) |
 | `qc_flags` | `;`-separated reasons not to trust the sample, empty when none: `qc_low` (QC score below `--volume_qc_threshold`, default 0.65), `icv_missing`, `icv_implausible` (outside 0.9 to 2.3 L), `icv_drift` (ICV off its subject's median by more than `--volume_icv_drift`, default 3%: ICV is constant in adults, so this points to a failed segmentation or a scanner change), `empty:<regions>` (regions with no voxel), `duplicate` |
 | `scanner` | Manufacturer, model and field strength from the T1's BIDS sidecar JSON |
-| `duplicate_of` | The sample whose T1 is byte-identical to this one (e.g. a `run-02` copied from `run-01` during conversion): not an independent measurement |
+| `duplicate_of` | The sample whose T1 holds the same voxel data as this one, even when the files differ in header or compression (e.g. a `run-02` exported twice from one acquisition): not an independent measurement |
 | `pipeline_revision` | Git commit (or version) of the code that produced the file, in the global CSVs: never mix files of different revisions |
 
 At startup the pipeline also warns when T1s are duplicates and when a subject was scanned on several scanners: a scanner change shifts volumes by itself, so use `scanner` as a covariate.

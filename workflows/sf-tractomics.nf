@@ -322,7 +322,7 @@ workflow SF_TRACTOMICS {
     ch_csf_volumes = channel.empty()
     ch_cmp_volumes = channel.empty()
 
-    // Every T1 annotated once: scanner (BIDS sidecar) and byte-identical duplicates. Used by the
+    // Every T1 annotated once: scanner (BIDS sidecar) and duplicates (same voxel data). Used by the
     // volume branches and by the warnings below.
     ch_t1_annotated = ch_t1.toList().flatMap { items -> annotateT1s(items) }
     ch_t1_vol       = ch_t1_annotated.map { _orig, meta, t1 -> [meta, t1] }
@@ -937,16 +937,77 @@ def fileMd5(path) {
     return digest.digest().encodeHex().toString()
 }
 
+// Decompressed stream of an image (.nii or .nii.gz, detected from the gzip magic bytes)
+def openImageStream(path) {
+    def raw = new BufferedInputStream(new FileInputStream(realPathString(path)), 1 << 16)
+    raw.mark(2)
+    def gzip = raw.read() == 0x1f && raw.read() == 0x8b
+    raw.reset()
+    return gzip ? new BufferedInputStream(new java.util.zip.GZIPInputStream(raw, 1 << 16), 1 << 16) : raw
+}
+
+// Reads the NIfTI-1/2 header at the start of the stream and leaves the stream at the first voxel.
+// Returns the shape and datatype as a string, or null when the file is not a readable NIfTI.
+def readNiftiShape(InputStream stream) {
+    def header = stream.readNBytes(348)
+    if (header.length < 348) return null
+    def buf = java.nio.ByteBuffer.wrap(header).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    if (buf.getInt(0) != 348 && buf.getInt(0) != 540) buf.order(java.nio.ByteOrder.BIG_ENDIAN)
+    if (buf.getInt(0) == 348) {
+        def offset = Math.max(352L, buf.getFloat(108) as long)
+        stream.skipNBytes(offset - 348)
+        return (["nifti1", buf.getShort(70)] + (0..7).collect { i -> buf.getShort(40 + 2 * i) }).join("x")
+    }
+    if (buf.getInt(0) == 540) {
+        def rest = stream.readNBytes(540 - 348)
+        if (rest.length < 540 - 348) return null
+        def buf2 = java.nio.ByteBuffer.allocate(540).put(header).put(rest).order(buf.order())
+        def offset = Math.max(544L, buf2.getLong(168))
+        stream.skipNBytes(offset - 540)
+        return (["nifti2", buf2.getShort(12)] + (0..7).collect { i -> buf2.getLong(16 + 8 * i) }).join("x")
+    }
+    return null
+}
+
+// Cheap key read from the header only: images that differ in it cannot hold the same voxels
+def imageShapeKey(path) {
+    try {
+        def shape = openImageStream(path).withCloseable { stream -> readNiftiShape(stream) }
+        return shape ?: "file:${new File(realPathString(path)).length()}"
+    } catch (Exception ignored) {
+        return "file:${new File(realPathString(path)).length()}"
+    }
+}
+
+// Fingerprint of the image content: shape, datatype and MD5 of the voxel data only. Two exports of
+// one acquisition often differ in the header (affine rounding, description) or in the gzip stream
+// while holding the same voxels, and hashing the file bytes misses them. Falls back to the file
+// MD5 when the file is not a readable NIfTI.
+def imageContentHash(path) {
+    try {
+        def hash = openImageStream(path).withCloseable { stream ->
+            def shape = readNiftiShape(stream)
+            if (!shape) return null
+            def digest = java.security.MessageDigest.getInstance("MD5")
+            stream.transferTo(new java.security.DigestOutputStream(OutputStream.nullOutputStream(), digest))
+            return shape + ":" + digest.digest().encodeHex().toString()
+        }
+        return hash ?: "file:" + fileMd5(path)
+    } catch (Exception ignored) {
+        return "file:" + fileMd5(path)
+    }
+}
+
 // Annotate every [meta, t1] with meta.scanner and meta.duplicate_of. A T1 is a duplicate when its
-// content is byte-identical to the T1 of another subject/session (e.g. run-02 copied from run-01
-// during conversion): it would be counted as an independent measurement. Files are grouped by
-// size first, so only same-size candidates are hashed. The same file shared by several DWI runs of
-// one session is not a duplicate. Returns [original meta, annotated meta, t1] for each item.
+// voxels are identical to the T1 of another subject/session (e.g. run-02 exported twice from one
+// acquisition): it would be counted as an independent measurement. Files are grouped by image shape
+// first, so only candidates that could match are hashed. The same file shared by several DWI runs
+// of one session is not a duplicate. Returns [original meta, annotated meta, t1] for each item.
 def annotateT1s(List items) {
-    def bySize = items.groupBy { item -> new File(realPathString(item[1])).length() }
+    def byShape = items.groupBy { item -> imageShapeKey(item[1]) }
     def duplicateOf = [:]   // real path -> sample label of the first file with the same content
-    bySize.values().findAll { group -> group.collect { item -> realPathString(item[1]) }.unique().size() > 1 }.each { group ->
-        def byHash = group.collect { item -> realPathString(item[1]) }.unique().groupBy { path -> fileMd5(path) }
+    byShape.values().findAll { group -> group.collect { item -> realPathString(item[1]) }.unique().size() > 1 }.each { group ->
+        def byHash = group.collect { item -> realPathString(item[1]) }.unique().groupBy { path -> imageContentHash(path) }
         byHash.values().findAll { paths -> paths.size() > 1 }.each { paths ->
             def labels = paths.collectEntries { path ->
                 def m = group.find { item -> realPathString(item[1]) == path }[0]
@@ -968,7 +1029,7 @@ def warnT1Annotations(List items) {
     def duplicates = items.collect { item -> item[1] }.findAll { m -> m.duplicate_of }
         .collect { m -> "${[m.id, m.session, m.run].findAll { x -> x }.join('_')} = ${m.duplicate_of}" }.unique()
     if (duplicates) {
-        log.warn "${duplicates.size()} T1 image(s) are byte-identical copies of another sample's T1 " +
+        log.warn "${duplicates.size()} T1 image(s) hold the same voxels as another sample's T1 " +
                  "(e.g. ${duplicates.take(3).join('; ')}). They are not independent measurements: their volume rows " +
                  "carry duplicate_of and the qc flag 'duplicate'. Exclude them from repeatability or atrophy statistics."
     }

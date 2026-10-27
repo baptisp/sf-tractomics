@@ -10,7 +10,7 @@
 // qc_flags lists, separated by ';', every reason not to trust this sample's volumes (empty = no
 // reason found): qc_low (SynthSeg QC score below ext.qc_threshold), icv_missing, icv_implausible
 // (outside ext.icv_min..ext.icv_max mm3), empty:<regions> (LUT regions with no voxel), duplicate
-// (the T1 is byte-identical to another sample's, see duplicate_of). Flags that need several
+// (the T1 holds the same voxels as another sample's, see duplicate_of). Flags that need several
 // sessions (intracranial volume drifting within a subject) are added when the global CSVs are built.
 process STATS_SUBJECTVOLUMES {
     tag "$meta.id"

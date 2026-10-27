@@ -515,9 +515,9 @@ def parseParticipantsTsv(participants_path, ch_with_proper_meta) {
 }
 
 def mergeCovariatesIntoMeta(ch_src, ch_covariates) {
-    if (params.participants_tsv == null && !file(params.input).isDirectory()) {
-        // The input is a samplesheet and no participants.tsv was provided.
-        // So there are no covariates to parse.
+    if (params.participants_tsv == null && !(params.input && file(params.input).isDirectory())) {
+        // The input is a samplesheet or a bids_config (params.input unset) and no
+        // participants.tsv was provided. So there are no covariates to parse.
         return ch_src
     }
 

@@ -1,0 +1,6 @@
+participant_id	session	run	site	age	sex	handedness	disease
+sub-INTA	ses-01		S1	61	1	1	HC
+sub-INTA	ses-02		S1	62	1	1	HC
+sub-INTB	ses-01	1	S2	63	2	1	AD
+sub-INTB	ses-01	2	S2	64	2	1	AD
+sub-INTC			S3	65	1	2	MCI

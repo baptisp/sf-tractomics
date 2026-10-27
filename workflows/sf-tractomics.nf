@@ -363,10 +363,12 @@ workflow SF_TRACTOMICS {
             // extra-cerebral CSF (intracranial volume too small) and any BET error trims cortex.
             // A T1 shared by several DWI runs of a session appears once per run: segment each
             // distinct T1 once (~26 GB, minutes per scan) and give its result to every run.
+            // The key keeps subject and session, so a T1 file reused across subjects (copy,
+            // symlink, config typo) can never hand one subject's volumes to another.
             ch_t1_unique = ch_t1
-                .map { meta, t1 -> [t1.toString(), meta, t1] }
+                .map { meta, t1 -> [[meta.id, meta.session ?: "", t1.toString()], meta, t1] }
                 .groupTuple()
-                .map { _path, metas, t1s -> [metas[0], metas, t1s[0]] }
+                .map { _key, metas, t1s -> [metas[0], metas, t1s[0]] }
             SYNTHSEG_VOLUMES(
                 ch_t1_unique
                     .map { meta, _metas, t1 -> [meta, t1, []] }
@@ -684,7 +686,8 @@ workflow SF_TRACTOMICS {
             ch_for_unified,
             "space-native_all-regions_desc-roi_combined.tsv",
             "${params.outdir}/metrics/",
-            params.tractometry_covariates ? params.tractometry_covariates.split(",").toList() : []
+            params.tractometry_covariates ? params.tractometry_covariates.split(",").toList() : [],
+            mergeCovariatesIntoMeta(ch_t1, ch_covariates).map { meta, _t1 -> meta }
         )
     }
 
@@ -1157,16 +1160,30 @@ def collectVolumeFiles(ch_volumes, name, storeDir, volumeSource) {
 //   VOLS_* CSVs may also carry volume_source and icv_mm3 (collectVolumeFiles); both are kept.
 //
 // Output schema: sid  session  run  roi  region_type  [covariates]  [metrics as cols]
-def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
+//
+// ch_cov_metas: metas carrying the participants.tsv covariates. Volume CSVs have no covariate
+// columns, so a sample whose rows are all volumes takes its covariates from there.
+def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_cov_metas = channel.empty()) {
 
     def output_file_path = "${storeDir}/${name}"
     def cov_set          = covariate_cols as Set
     // Covers both old format (sample, roi) and new module format (sid, session, run, roi)
     def FIXED_COLS       = ["sample", "sid", "session", "run", "roi", "region_type"] as Set
 
+    // Wrapped in maps so combine() does not spread the two lists into one tuple
+    def ch_cov_lookup = ch_cov_metas
+        .map { m -> [[m.id, m.session ?: "", m.run ?: ""].findAll { x -> x }.join("_"),
+                     covariate_cols.collectEntries { c -> [(c): m[c] != null ? m[c].toString() : ""] }] }
+        .toList()
+        .map { pairs -> [cov: pairs.collectEntries { p -> [(p[0]): p[1]] }] }
+
     return ch_files
         .collect()
-        .map { encoded_list ->
+        .map { encoded -> [files: encoded] }
+        .combine(ch_cov_lookup)
+        .map { files_item, cov_item ->
+            def encoded_list = files_item.files
+            def cov_lookup   = cov_item.cov
 
             def subjects    = new LinkedHashSet<String>()
             def all_metrics = new LinkedHashSet<String>()
@@ -1295,6 +1312,9 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = []) {
                         if (!data.containsKey(sample))     data[sample]     = [:]
                         if (!cov_data.containsKey(sample)) cov_data[sample] = [:]
                         subjects.add(sample)
+                        cov_lookup.getOrDefault(sample, [:]).each { cov, value ->
+                            if (!cov_data[sample][cov]) cov_data[sample][cov] = value
+                        }
 
                         if (type == "VOLS_WM_bundle")       wm_bundles.add(roi)
                         else if (type == "VOLS_GM_region")  gm_regions.add(roi)

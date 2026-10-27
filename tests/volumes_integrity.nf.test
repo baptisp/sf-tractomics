@@ -1,0 +1,94 @@
+// Known-answer integrity test of the volume files, run for real (not stubbed) with
+// volume_source = 'freesurfer', so no segmentation runs and no license is needed.
+//
+// Five samples, each with its own synthetic aparc+aseg whose counts encode the sample
+// (sample i: Left-Hippocampus 1000+i, Left-Lateral-Ventricle 2000+i, ctx-lh-precuneus 3000+i
+// voxels of 1 mm3), and its own age in participants.tsv (60+i):
+//   1 sub-INTA ses-01   2 sub-INTA ses-02          (one subject, two sessions)
+//   3 sub-INTB ses-01 run-1   4 sub-INTB ses-01 run-2   (two runs, two segmentations)
+//   5 sub-INTC without session
+// Every row of every volume file and of the combined TSV must carry its own sample's values:
+// a value landing in another subject's, session's or run's row fails the test.
+nextflow_pipeline {
+
+    name "Test pipeline volume integrity"
+    script "../main.nf"
+    tag "pipeline"
+    tag "pipeline_volumes"
+
+    test("subject volumes are not mixed between subjects, sessions and runs") {
+
+        config "./volumes_integrity/nextflow.config"
+
+        when {
+            params {
+                def d = "${projectDir}/tests/volumes_integrity"
+                def samples = [["INTA", "01", 0], ["INTA", "02", 0], ["INTB", "01", 1], ["INTB", "01", 2], ["INTC", "", 0]]
+                def config = samples.collect { sub, ses, run -> [
+                    subject: sub, session: ses, run: run,
+                    t1: "${d}/dummy.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
+                    aparc_aseg: "${d}/${sub}_${ses ?: 'nos'}_r${run}_aparc.nii.gz",
+                    TotalReadoutTime: 0.062, DWIPhaseEncodingDir: "y", rev_DWIPhaseEncodingDir: "",
+                    rev_dwi: "", rev_bval: "", rev_bvec: "", topup: "", rev_topup: "", wmparc: ""
+                ] }
+                def cfg = new File("${outputDir}/bids_struct.json")
+                cfg.parentFile.mkdirs()
+                cfg.text = groovy.json.JsonOutput.toJson(config)
+
+                outdir                     = "$outputDir/out"
+                input                      = null   // the test profile sets one; bids_config replaces it
+                bids_config                = cfg.absolutePath
+                participants_tsv           = "${d}/participants.tsv"
+                run_gm_volumes             = true
+                run_csf_volumes            = true
+                run_csf_comparison_volumes = true
+                run_merge_all_stats        = true
+                volume_source              = "freesurfer"
+            }
+        }
+
+        then {
+            def samples = [
+                [sid: "sub-INTA", session: "ses-01", run: "",      i: 1],
+                [sid: "sub-INTA", session: "ses-02", run: "",      i: 2],
+                [sid: "sub-INTB", session: "ses-01", run: "run-1", i: 3],
+                [sid: "sub-INTB", session: "ses-01", run: "run-2", i: 4],
+                [sid: "sub-INTC", session: "",       run: "",      i: 5]
+            ]
+            def expected = { i -> ["Left-Hippocampus": 1000 + i, "Left-Lateral-Ventricle": 2000 + i, "ctx-lh-precuneus": 3000 + i] }
+            def read = { f, sep -> def ls = path(f).readLines(); def h = ls[0].split(sep, -1).toList()
+                         ls[1..-1].collect { l -> [h, l.split(sep, -1).toList()].transpose().collectEntries() } }
+            def out = "$outputDir/out/metrics"
+            def files = [
+                [f: "${out}/space-native_atlas-iit-gm_desc-roi_volumes.csv", n: 84],
+                [f: "${out}/space-native_atlas-freesurfer-csf_desc-roi_volumes.csv", n: 9],
+                [f: "${out}/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv", n: 32]
+            ]
+            assert workflow.success
+            files.each { spec ->
+                def rows = read(spec.f, ",")
+                samples.each { s ->
+                    def mine = rows.findAll { r -> r.sid == s.sid && r.session == s.session && r.run == s.run }
+                    assert mine.size() == spec.n : "${spec.f}: ${s} has ${mine.size()} rows, expected ${spec.n}"
+                    assert mine*.roi.unique().size() == spec.n : "${spec.f}: duplicated regions for ${s}"
+                    expected(s.i).each { roi, v ->
+                        def r = mine.find { x -> x.roi == roi }
+                        if (r) assert (r.volume_mm3 as double) == v : "${spec.f}: ${s} ${roi} = ${r.volume_mm3}, expected ${v}"
+                    }
+                    assert mine.every { r -> r.volume_source == "freesurfer" }
+                }
+                assert rows.size() == samples.size() * spec.n : "${spec.f}: unexpected extra rows"
+            }
+            def combined = read("${out}/space-native_all-regions_desc-roi_combined.tsv", "\t")
+            samples.each { s ->
+                def mine = combined.findAll { r -> r.sid == s.sid && r.session == s.session && r.run == s.run }
+                assert mine.size() == 84 + 9 : "combined: ${s} has ${mine.size()} rows"
+                assert mine.every { r -> r.age == "${60 + s.i}" } : "combined: covariates of ${s} are not its own"
+                expected(s.i).each { roi, v ->
+                    def r = mine.find { x -> x.roi == roi }
+                    if (r) assert (r.volume_mm3 as double) == v : "combined: ${s} ${roi} = ${r.volume_mm3}, expected ${v}"
+                }
+            }
+        }
+    }
+}

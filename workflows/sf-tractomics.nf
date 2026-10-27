@@ -284,6 +284,10 @@ workflow SF_TRACTOMICS {
     if ( (do_wm_metrics || do_wm_volumes || do_gm_metrics || do_gm_atlas_volumes) && !params.run_atlas_roimetrics ) {
         error "IIT atlas metrics/volumes (WM or GM) require run_atlas_roimetrics = true."
     }
+    if ( params.run_atlas_roimetrics && !(do_wm_metrics || do_wm_volumes || do_gm_metrics || do_gm_atlas_volumes) ) {
+        log.warn "run_atlas_roimetrics = true but no IIT atlas output is requested, so nothing is computed with it. " +
+                 "Enable run_wm_metrics, run_gm_metrics, run_wm_volumes or run_gm_volumes (or run_roi_metrics / run_roi_volumes)."
+    }
 
     // ATLAS_ROIMETRICS is driven by two independent axes rather than per-tissue flags:
     // which ROI representation to warp and analyse, and what to compute on it. WM bundles
@@ -357,15 +361,23 @@ workflow SF_TRACTOMICS {
             }
             // The raw T1 is segmented, not TRACTOFLOW.out.t1_native: brain extraction removes the
             // extra-cerebral CSF (intracranial volume too small) and any BET error trims cortex.
+            // A T1 shared by several DWI runs of a session appears once per run: segment each
+            // distinct T1 once (~26 GB, minutes per scan) and give its result to every run.
+            ch_t1_unique = ch_t1
+                .map { meta, t1 -> [t1.toString(), meta, t1] }
+                .groupTuple()
+                .map { _path, metas, t1s -> [metas[0], metas, t1s[0]] }
             SYNTHSEG_VOLUMES(
-                ch_t1
-                    .map { meta, t1 -> [meta, t1, []] }
+                ch_t1_unique
+                    .map { meta, _metas, t1 -> [meta, t1, []] }
                     .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
             )
             ch_versions = ch_versions.mix(SYNTHSEG_VOLUMES.out.versions.first())
 
-            ch_subject_seg = SYNTHSEG_VOLUMES.out.aparc_aseg
-                .join(SYNTHSEG_VOLUMES.out.volume)
+            ch_subject_seg = ch_t1_unique
+                .map { meta, metas, _t1 -> [meta, metas] }
+                .join(SYNTHSEG_VOLUMES.out.aparc_aseg.join(SYNTHSEG_VOLUMES.out.volume))
+                .flatMap { _meta, metas, seg, seg_volumes -> metas.collect { m -> [m, seg, seg_volumes] } }
         }
         else {
             // Native-space aparc+aseg given as input (samplesheet or BIDS FreeSurfer derivatives),
@@ -373,6 +385,18 @@ workflow SF_TRACTOMICS {
             ch_subject_seg = ch_aparc_aseg
                 .filter { it -> it[1] }
                 .map { meta, aparc_aseg -> [meta, aparc_aseg, []] }
+
+            // Without its aparc+aseg a sample would just be missing from the volume files.
+            ch_t1
+                .join(ch_aparc_aseg.filter { it -> it[1] }, remainder: true)
+                .filter { _meta, _t1, aparc_aseg -> !aparc_aseg }
+                .map { meta, _t1, _aparc_aseg -> [meta.id, meta.session].findAll { x -> x }.join("_") }
+                .unique()
+                .collect()
+                .subscribe { samples ->
+                    log.warn "volume_source = 'freesurfer' but ${samples.size()} sample(s) have no aparc+aseg input " +
+                             "(e.g. ${samples.take(3).join(', ')}): they get no GM/CSF/comparison volumes."
+                }
         }
 
         def subjectVolumesInput = { lut_path ->
@@ -930,20 +954,33 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
 
     def output_file_path = "${storeDir}/${name}"
 
-    // Join on (id, session), not on the whole meta: volumes from the subject's T1 segmentation
-    // carry the T1 meta, which lacks the covariates and DWI run the stats meta carries.
-    def bySession = { meta, f -> [[meta.id, meta.session ?: ""], f] }
+    // Pair on (id, session, run), not on the whole meta: subject-segmentation volumes carry the
+    // T1 meta, which lacks the covariates the stats meta carries. An absent run is run 1. When no
+    // volume CSV has the stats' run (SAMSEG keeps one T1 per session), the session's CSV is used:
+    // it measures the same session.
+    def runKey = { r ->
+        def bare = (r ?: "").toString().replaceFirst(/^run-/, "").replaceFirst(/^0+/, "")
+        bare ?: "1"
+    }
+    def bySession = { meta, f -> [[meta.id, meta.session ?: ""], runKey.call(meta.run), toAbsFile(f.toString()).absolutePath] }
     return ch_stats_files
         .map(bySession)
-        .join(ch_volumes.map(bySession))
-        .map { _key, stats_file, volumes_file ->
+        .combine(ch_volumes.map(bySession), by: 0)
+        .map { key, stats_run, stats_file, vol_run, vol_file -> [[key, stats_run, stats_file], vol_run, vol_file] }
+        .groupTuple()
+        .map { stats_key, vol_runs, vol_files ->
+            def i = vol_runs.indexOf(stats_key[1])
+            [stats_key[2], vol_files[i >= 0 ? i : 0]]
+        }
+        .map { stats_file, volumes_file ->
             // Encode both paths as a single string BEFORE collect so no Path objects
             // cross the collect boundary (Nextflow channel serialisation corrupts them).
             def sf = toAbsFile(stats_file.toString()).absolutePath
             def vf = toAbsFile(volumes_file.toString()).absolutePath
             "${sf}:::${vf}"
         }
-        .collect()
+        // Sorted, so the row order does not depend on which task finished first
+        .collect(sort: true)
         .map { encoded_pairs ->
             def header_written = false
             def all_columns = new LinkedHashSet()
@@ -1013,10 +1050,12 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                     header_written = true
                 }
 
+                def stats_rois = [] as Set
                 stats_lines[1..-1].each { line ->
                     if (!line.trim()) return
                     def vals = line.split('\t', -1)
                     def roi  = stats_idx.containsKey("roi") ? vals[stats_idx["roi"]] : ""
+                    stats_rois << roi
                     def rt   = regionType instanceof Map ? regionType.getOrDefault(roi, "") : (regionType ?: "")
                     def vd   = vol_map.getOrDefault(roi, ["", "", "", ""])
                     def row  = all_columns.collect { col ->
@@ -1028,6 +1067,27 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                         stats_idx.containsKey(col) ? (stats_idx[col] < vals.size() ? vals[stats_idx[col]] : '') : ''
                     }
                     fw.write(row.join('\t') + '\n')
+                }
+
+                // Subject segmentations can have regions the atlas stats lack (SAMSEG cortex totals
+                // instead of the IIT Desikan parcels): keep them as volume-only rows rather than
+                // dropping them. Atlas volumes keep the previous output unchanged.
+                if (volumeSource != null && volumeSource != "atlas") {
+                    def first = stats_lines[1].split('\t', -1)
+                    vol_map.findAll { roi, _vd -> !(roi in stats_rois) }.each { roi, vd ->
+                        def rt  = regionType instanceof Map ? regionType.getOrDefault(roi, "") : (regionType ?: "")
+                        def row = all_columns.collect { col ->
+                            if (col in ["sid", "session", "run"]) return stats_idx.containsKey(col) ? first[stats_idx[col]] : ''
+                            if (col == "roi")           return roi
+                            if (col == "region_type")   return rt
+                            if (col == "volume_voxels") return vd[0]
+                            if (col == "volume_mm3")    return vd[1]
+                            if (col == "volume_source") return vd[2]
+                            if (col == "icv_mm3")       return vd[3]
+                            ''
+                        }
+                        fw.write(row.join('\t') + '\n')
+                    }
                 }
             }
 

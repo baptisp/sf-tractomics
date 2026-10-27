@@ -1,0 +1,67 @@
+// Stub runs of the subject-segmentation volume branches (SynthSeg, SAMSEG longitudinal) through the
+// whole pipeline: they check the wiring and the output files, not the volumes (stubs write no data).
+nextflow_pipeline {
+
+    options "-stub-run"
+
+    name "Test pipeline volumes"
+    script "../main.nf"
+    tag "pipeline"
+    tag "pipeline_volumes"
+
+    test("-profile test - volume_source synthseg") {
+
+        when {
+            params {
+                outdir             = "$outputDir"
+                run_gm_volumes     = true
+                run_csf_volumes    = true
+                run_csf_comparison_volumes = true
+                run_merge_all_stats = true
+                volume_source      = "synthseg"
+                freesurfer_license = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: false).collect { f -> f.toString() }
+            assertAll(
+                { assert workflow.success },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("SYNTHSEG_VOLUMES") }.size() == 1 },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("SAMSEG_LONG_VOLUMES") }.isEmpty() },
+                { assert "sub-test-1/anat/sub-test-1_desc-synthseg_dseg.nii.gz" in files },
+                { assert "sub-test-1/dwi/sub-test-1_atlas-iit-gm_desc-roi_volumes.csv" in files },
+                { assert "sub-test-1/dwi/sub-test-1_atlas-freesurfer-csf_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv" in files },
+                // atlas volume processes must not run when the subject's segmentation is used
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("ATLAS_CSF_ROIMETRICS") }.isEmpty() }
+            )
+        }
+    }
+
+    test("-profile test - run_longitudinal_volumes") {
+
+        when {
+            params {
+                outdir             = "$outputDir"
+                run_gm_volumes     = true
+                run_csf_volumes    = true
+                run_longitudinal_volumes = true
+                freesurfer_license = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: false).collect { f -> f.toString() }
+            assertAll(
+                { assert workflow.success },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("SAMSEG_LONG_VOLUMES") }.size() == 1 },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("SYNTHSEG_VOLUMES") }.isEmpty() },
+                { assert "sub-test-1/anat/sub-test-1_desc-samseglong_dseg.nii.gz" in files },
+                { assert "sub-test-1/dwi/sub-test-1_atlas-iit-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_atlas-freesurfer-csf_desc-roi_volumes.csv" in files }
+            )
+        }
+    }
+}

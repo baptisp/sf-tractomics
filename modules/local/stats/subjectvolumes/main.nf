@@ -25,6 +25,9 @@ process STATS_SUBJECTVOLUMES {
     def prefix        = task.ext.prefix ?: "${meta.id}"
     def suffix        = task.ext.first_suffix ? "${task.ext.first_suffix}_volumes" : "volumes"
     def volume_source = task.ext.volume_source ?: "subject"
+    // Labels the segmenter cannot produce (SynthSeg has no choroid plexus): written with empty
+    // volumes, so they read as "not measured" instead of a measured 0.
+    def missing_json  = groovy.json.JsonOutput.toJson((task.ext.missing_labels ?: []).collect { l -> l as int })
     def subject_id    = meta.id ?: ""
     def session_id    = meta.session ?: ""
     def run_id        = meta.run ?: ""
@@ -51,11 +54,16 @@ icv = ""
 vol_csv = "${synthseg_volumes}"
 if vol_csv and os.path.isfile(vol_csv):
     with open(vol_csv) as f:
-        row = next(csv.DictReader(f))
+        row = next(csv.DictReader(f), {})
     for key, value in row.items():
         if key and key.strip().lower() == "total intracranial":
-            icv = f"{float(value):.4f}"
+            try:
+                icv = f"{float(value):.4f}"
+            except (TypeError, ValueError):
+                print(f"WARNING: unreadable intracranial volume {value!r} in {vol_csv}; icv_mm3 left empty")
             break
+
+missing = set(${missing_json})
 
 counts = np.bincount(data_int[data_int >= 0].ravel())
 
@@ -63,6 +71,9 @@ with open("${prefix}_${suffix}.csv", "w") as out:
     out.write("sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3\\n")
     for label_id, label_name in sorted(lut.items(), key=lambda x: int(x[0])):
         label = int(label_id)
+        if label in missing:
+            out.write(f"${subject_id},${session_id},${run_id},{label_name},,,${volume_source},{icv}\\n")
+            continue
         count = int(counts[label]) if label < counts.size else 0
         out.write(f"${subject_id},${session_id},${run_id},{label_name},{count},"
                   f"{count * vox_vol:.4f},${volume_source},{icv}\\n")

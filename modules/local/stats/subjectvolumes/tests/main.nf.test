@@ -69,4 +69,34 @@ nextflow_process {
             assert lines[4] == "sub-01,,1,ctx-lh-precuneus,8,24.0000,synthseg,"
         }
     }
+
+    test("subject volumes - unsupported labels are empty, unreadable ICV does not crash") {
+
+        config "./nextflow_missing.config"
+
+        when {
+            process {
+                """
+                input[0] = [
+                    [ id:'sub-01', session:'ses-01' ],
+                    file("${moduleDir}/tests/data/labelmap.nii.gz", checkIfExists: true),
+                    file("${moduleDir}/tests/data/lut.json", checkIfExists: true),
+                    file("${moduleDir}/tests/data/synthseg_volumes_bad_icv.csv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            // label 4 is present in the image but declared unsupported: empty, not its 10 voxels
+            assert path(process.out.volumes[0][1]).readLines() == [
+                "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3",
+                "sub-01,ses-01,,Left-Lateral-Ventricle,,,synthseg,",
+                "sub-01,ses-01,,Left-Hippocampus,27,81.0000,synthseg,",
+                "sub-01,ses-01,,Left-choroid-plexus,,,synthseg,",
+                "sub-01,ses-01,,ctx-lh-precuneus,8,24.0000,synthseg,"
+            ]
+        }
+    }
 }

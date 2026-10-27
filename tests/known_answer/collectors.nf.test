@@ -1,0 +1,75 @@
+// Known-answer tests of the CSV collectors (workflows/sf-tractomics.nf) on hand-made files
+// (tests/known_answer/collectors). Each value encodes its sample, so a value in the wrong row,
+// a dropped row or a duplicated row fails the test.
+nextflow_workflow {
+
+    name "Known-answer tests of the CSV collectors"
+    script "./collectors/main.nf"
+    workflow "COLLECTORS_KNOWN_ANSWER"
+    tag "known_answer"
+
+    test("stats + volumes, global volumes and combined TSV") {
+        when {
+            workflow {
+                """
+                input[0] = "${projectDir}/tests/known_answer/collectors"
+                input[1] = "${outputDir}/collected"
+                """
+            }
+        }
+        then {
+            assert workflow.success
+            def out = "${outputDir}/collected"
+            def lines = { name -> path("${out}/${name}").readLines() }
+
+            // A: each run gets its own volumes despite the arrival order; rows sorted by file
+            assert lines("A_runs.tsv") == [
+                "sid\tsession\trun\troi\tregion_type\tage\tfa\tvolume_voxels\tvolume_mm3\tvolume_source\ticv_mm3",
+                "sub-01\tses-01\t1\tLeft-Hippocampus\tGM_region\t70\t0.31\t100\t100.0000\tsynthseg\t1000",
+                "sub-01\tses-01\t1\tctx-lh-precuneus\tGM_region\t70\t0.21\t50\t50.0000\tsynthseg\t1000",
+                "sub-01\tses-01\t2\tLeft-Hippocampus\tGM_region\t70\t0.32\t200\t200.0000\tsynthseg\t2000",
+                "sub-01\tses-01\t2\tctx-lh-precuneus\tGM_region\t70\t0.22\t60\t60.0000\tsynthseg\t2000",
+                "sub-02\tses-01\t1\tLeft-Hippocampus\tGM_region\t55\t0.41\t300\t300.0000\tsynthseg\t3000",
+                "sub-02\tses-01\t1\tctx-lh-precuneus\tGM_region\t55\t0.51\t70\t70.0000\tsynthseg\t3000"
+            ]
+
+            // B: both runs take the session's volumes; the cortex total is kept as a volume-only
+            // row; sub-02 has no volume file (failed segmentation) but keeps its stats rows
+            assert lines("B_session.tsv") == [
+                "sid\tsession\trun\troi\tregion_type\tage\tfa\tvolume_voxels\tvolume_mm3\tvolume_source\ticv_mm3",
+                "sub-01\tses-01\t1\tLeft-Hippocampus\tGM_region\t70\t0.31\t900\t900.0000\tsamseg_long\t9000",
+                "sub-01\tses-01\t1\tctx-lh-precuneus\tGM_region\t70\t0.21\t\t\t\t",
+                "sub-01\tses-01\t1\tLeft-Cerebral-Cortex\tGM_region\t\t\t9999\t9999.0000\tsamseg_long\t9000",
+                "sub-01\tses-01\t2\tLeft-Hippocampus\tGM_region\t70\t0.32\t900\t900.0000\tsamseg_long\t9000",
+                "sub-01\tses-01\t2\tctx-lh-precuneus\tGM_region\t70\t0.22\t\t\t\t",
+                "sub-01\tses-01\t2\tLeft-Cerebral-Cortex\tGM_region\t\t\t9999\t9999.0000\tsamseg_long\t9000",
+                "sub-02\tses-01\t1\tLeft-Hippocampus\tGM_region\t55\t0.41\t\t\t\t",
+                "sub-02\tses-01\t1\tctx-lh-precuneus\tGM_region\t55\t0.51\t\t\t\t"
+            ]
+
+            // C: legacy header read, missing columns filled, rows sorted by subject
+            assert lines("C_volumes.csv") == [
+                "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3",
+                "sub-01,ses-01,1,Left-Lateral-Ventricle,11,11.0000,atlas,",
+                "sub-02,ses-01,1,Left-Lateral-Ventricle,22,22.0000,atlas,"
+            ]
+
+            // D: one row per subject x ROI, covariates and values of that subject only
+            def rows = lines("D_combined.tsv")
+            def h = rows[0].split("\t", -1).toList()
+            def recs = rows[1..-1].collect { l -> [h, l.split("\t", -1).toList()].transpose().collectEntries() }
+            def get = { sid, run, roi -> def m = recs.findAll { r -> r.sid == sid && r.run == run && r.roi == roi }
+                        assert m.size() == 1 : "D: ${sid} ${run} ${roi} appears ${m.size()} times"; m[0] }
+            assert recs.size() == 2 + 6 + 2
+            assert get("sub-01", "1", "AF_L").fa == "0.45" && get("sub-02", "1", "AF_L").fa == "0.55"
+            assert get("sub-01", "2", "Left-Hippocampus").volume_mm3 == "200.0000"
+            assert get("sub-02", "1", "Left-Hippocampus").volume_mm3 == "300.0000"
+            assert get("sub-02", "1", "ctx-lh-precuneus").fa == "0.51"
+            assert get("sub-01", "1", "Left-Lateral-Ventricle").volume_mm3 == "11.0000"
+            assert get("sub-02", "1", "Left-Lateral-Ventricle").volume_mm3 == "22.0000"
+            assert recs.every { r -> r.age == (r.sid == "sub-01" ? "70" : "55") } : "D: a row carries another subject's covariate"
+            assert get("sub-01", "1", "AF_L").region_type == "WM_bundle"
+            assert get("sub-01", "1", "Left-Lateral-Ventricle").region_type == "CSF_region"
+        }
+    }
+}

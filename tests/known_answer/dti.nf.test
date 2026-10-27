@@ -1,0 +1,45 @@
+// Known-answer test of the DTI fit (RECONST_DTIMETRICS) on a noise-free signal simulated from known
+// tensors (tests/known_answer/dti): x < 3 has eigenvalues (1.7, 0.3, 0.3) um2/ms -> FA 0.799022,
+// MD 0.766667, AD 1.7, RD 0.3 um2/ms; x >= 3 is isotropic 0.9 um2/ms -> FA 0, MD = AD = RD = 0.9.
+// The b=2000 shell is scaled by 1.3 (non-Gaussian): the values are only exact when the fit uses
+// b <= 1500, as the pipeline intends.
+nextflow_process {
+
+    name "Known-answer test of the DTI fit"
+    script "../../modules/nf-neuro/reconst/dtimetrics/main.nf"
+    process "RECONST_DTIMETRICS"
+    config "./dti.config"
+    tag "known_answer"
+
+    test("DTI metrics match the simulated tensors") {
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer/dti"
+                input[0] = [ [id:'sub-01'], file("\${d}/dwi.nii.gz"), file("\${d}/dwi.bval"), file("\${d}/dwi.bvec"), file("\${d}/mask.nii.gz") ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            def root = new File(".").canonicalPath
+            def maps = ["fa", "md", "ad", "rd"].collectEntries { m -> [(m): file(process.out."${m}"[0][1])] }
+            def py = "import nibabel as nib, numpy as np\n" +
+                     maps.collect { m, f -> "${m} = np.asarray(nib.load('${f}').dataobj)" }.join("\n") + "\n" +
+                     "for name, sl in (('aniso', np.s_[:3]), ('iso', np.s_[3:])):\n" +
+                     "    print(name, ' '.join(f'{k}={float(v[sl].mean()):.6g}/{float(v[sl].std()):.2g}' for k, v in (('fa', fa), ('md', md), ('ad', ad), ('rd', rd))))"
+            def dirs = maps.values()*.parent.unique().collect { p -> ["-v", "${p}:${p}"] }.flatten()
+            def p = (["docker", "run", "--rm"] + dirs + ["community.wave.seqera.io/library/nibabel_numpy:4148b92a8cbc6976", "python3", "-c", py]).execute()
+            p.waitFor()
+            def out = p.text
+            def val = { region, metric -> (out.readLines().find { l -> l.startsWith(region) } =~ /${metric}=([^\/]+)\//)[0][1] as double }
+            def close = { a, b, tol -> Math.abs(a - b) <= tol }
+            assert close(val("aniso", "fa"), 0.7990222, 1e-3) : out
+            assert close(val("aniso", "md"), 0.766667e-3, 1e-6) : out
+            assert close(val("aniso", "ad"), 1.7e-3, 2e-6) : out
+            assert close(val("aniso", "rd"), 0.3e-3, 1e-6) : out
+            assert close(val("iso", "fa"), 0.0, 1e-3) : out
+            assert close(val("iso", "md"), 0.9e-3, 1e-6) : out
+        }
+    }
+}

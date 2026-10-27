@@ -966,22 +966,30 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
         bare ?: "1"
     }
     def bySession = { meta, f -> [[meta.id, meta.session ?: ""], runKey.call(meta.run), toAbsFile(f.toString()).absolutePath] }
-    return ch_stats_files
-        .map(bySession)
+    def ch_stats_keyed = ch_stats_files.map(bySession)
+    def ch_paired = ch_stats_keyed
         .combine(ch_volumes.map(bySession), by: 0)
         .map { key, stats_run, stats_file, vol_run, vol_file -> [[key, stats_run, stats_file], vol_run, vol_file] }
         .groupTuple()
         .map { stats_key, vol_runs, vol_files ->
             def i = vol_runs.indexOf(stats_key[1])
-            [stats_key[2], vol_files[i >= 0 ? i : 0]]
+            // Paths encoded as one string BEFORE collect so no Path objects cross the
+            // collect boundary (Nextflow channel serialisation corrupts them).
+            "${stats_key[2]}:::${vol_files[i >= 0 ? i : 0]}"
         }
-        .map { stats_file, volumes_file ->
-            // Encode both paths as a single string BEFORE collect so no Path objects
-            // cross the collect boundary (Nextflow channel serialisation corrupts them).
-            def sf = toAbsFile(stats_file.toString()).absolutePath
-            def vf = toAbsFile(volumes_file.toString()).absolutePath
-            "${sf}:::${vf}"
-        }
+    // A sample with stats but no volume CSV (e.g. its segmentation failed and was ignored) keeps
+    // its stats rows, with empty volume columns, instead of silently disappearing.
+    def ch_vol_sessions = ch_volumes
+        .map { meta, _f -> [meta.id, meta.session ?: ""] }
+        .unique()
+        .toList()
+        .map { keys -> [sessions: keys] }
+    def ch_unpaired = ch_stats_keyed
+        .combine(ch_vol_sessions)
+        .filter { key, _run, _stats_file, vols -> !(key in vols.sessions) }
+        .map { _key, _run, stats_file, _vols -> "${stats_file}:::" }
+    return ch_paired
+        .mix(ch_unpaired)
         // Sorted, so the row order does not depend on which task finished first
         .collect(sort: true)
         .map { encoded_pairs ->
@@ -1020,7 +1028,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             encoded_pairs.each { encoded ->
                 def parts    = encoded.toString().split(':::')
                 def stats_f  = new File(parts[0])
-                def vols_f   = new File(parts[1])
+                def vols_f   = parts.size() > 1 && parts[1] ? new File(parts[1]) : null
 
                 def stats_lines = stats_f.readLines()
                 if (stats_lines.size() < 2) return
@@ -1029,7 +1037,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                 def stats_idx  = stats_cols.withIndex().collectEntries { c, i -> [c, i] }
 
                 def vol_map = [:]
-                def vol_lines = vols_f.readLines()
+                def vol_lines = vols_f ? vols_f.readLines() : []
                 if (vol_lines.size() >= 2) {
                     def vol_cols = vol_lines[0].split(',').toList()
                     def roi_col  = vol_cols.find { it in ["roi", "region", "bundle"] }

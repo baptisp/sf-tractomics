@@ -9,6 +9,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `--run_longitudinal_volumes` (default `false`): FreeSurfer SAMSEG longitudinal segmentation of all sessions of a subject for GM, CSF/ventricle and comparison volumes, written to the same files with `volume_source = samseg_long`. When volumes are requested on subjects with several sessions and the option is off, a startup warning says it is not activated.
 - `--volume_source` (`atlas` | `synthseg` | `freesurfer`) to compute GM, CSF/ventricle and comparison volumes from the subject's own segmentation in native T1 space instead of a warped template. Same output files, plus `volume_source` and `icv_mm3` columns. A warning recommends a longitudinal method when subjects have several sessions. The atlas-only version is tagged `v1.0dev-atlas-volumes`.
 - GM Desikan parcellation ROI metrics pipeline using IIT Atlas v5.0 (`--run_gm_metrics`, `--run_gm_volumes`).
 - CSF/ventricle ROI metrics pipeline using FreeSurfer `cvs_avg35_inMNI152` atlas (`--run_csf_metrics`, `--run_csf_volumes`).

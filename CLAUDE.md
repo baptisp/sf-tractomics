@@ -23,7 +23,9 @@ assets/freesurfer_csf_lut.json              FreeSurfer CSF label LUT (ventricles
 assets/freesurfer_comparison_lut.json       FreeSurfer LUT for GM/WM/ventricles comparison output
 assets/freesurfer_gm_lut.json               FreeSurfer ids → IIT GM region names (subject-segmentation GM volumes)
 modules/local/stats/subjectvolumes/         Volumes of a subject segmentation (+ volume_source, icv_mm3)
-conf/modules/stats_subjectvolumes.config    SynthSeg + subject volume config (volume_source != atlas)
+conf/modules/stats_subjectvolumes.config    SynthSeg/SAMSEG + subject volume config (volume_source != atlas)
+modules/local/segmentation/samseglong/      SAMSEG longitudinal segmentation of all sessions of a subject
+assets/freesurfer_gm_samseg_lut.json        GM LUT for SAMSEG (subcortical + cerebral cortex totals)
 ```
 
 ## Global ext.prefix convention
@@ -178,8 +180,17 @@ plexus label (31/63): those rows are 0.
 
 Global volume CSVs are written by `collectVolumeFiles` (not `collectFile`) and always carry
 `volume_source` and `icv_mm3`; `collectStatsFilesWithVolumes` adds them when given a `volumeSource`
-(not for WM, whose TSV feeds HARMONIZATION). Cross-sectional only: a startup `log.warn` fires when a
-subject has several sessions and recommends a longitudinal method (`recon-all -long`, SIENA).
+(not for WM, whose TSV feeds HARMONIZATION).
+
+`params.run_longitudinal_volumes` (default false) sets `volume_source = "samseg_long"`, overriding
+`params.volume_source`: `ch_t1` is grouped per subject (one T1 per session, first run, sessions in
+name order) into `SAMSEG_LONG_VOLUMES` (`modules/local/segmentation/samseglong`:
+`mri_robust_template` LTAs + `run_samseg_long --tp-to-base-transform`, so no resampling), whose
+per-session files `<id_session[_run]>__samseg_{seg.nii.gz,icv.csv}` are mapped back to session metas
+by name with `flatMap`. GM uses `assets/freesurfer_gm_samseg_lut.json` (cortex totals, no Desikan
+parcels). When any volumes are requested, subjects have several sessions and the option is false,
+a startup `log.warn` says `run_longitudinal_volumes` is not activated. The flag is checked with
+`== true`: a CLI value arrives as a string and `"false" as boolean` is true.
 
 ## Important params
 
@@ -196,6 +207,7 @@ subject has several sessions and recommends a longitudinal method (`recon-all -l
 | `run_gm_volumes` | false | GM Desikan region volumes only |
 | `run_csf_volumes` | false | CSF/ventricle region volumes only |
 | `volume_source` | `'atlas'` | GM/CSF/comparison volumes from `atlas`, `synthseg` or `freesurfer` (see above) |
+| `run_longitudinal_volumes` | false | SAMSEG longitudinal GM/CSF/comparison volumes; overrides `volume_source` |
 | `run_merge_all_stats` | false | Produce `metrics/space-native_all-regions_desc-roi_combined.tsv` — wide format with ROIs as columns |
 | `tractometry_covariates` | `'site,age,sex,handedness,disease'` | Comma-separated covariate column names embedded in stats TSVs via `ext.meta_columns` and used by `collectUnifiedFiles` to separate covariates from data columns |
 | `use_binary_masks` | false | Use binary masks instead of TDI-weighted for WM extraction |

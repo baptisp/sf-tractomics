@@ -1,0 +1,72 @@
+// Stub tests: SAMSEG itself takes ~10 min and the FreeSurfer license, so these check the
+// session bookkeeping only. One task per subject must produce one labelmap and one ICV table per
+// session, named <id>_<session>[_<run>]__samseg_* so the workflow maps them back to sessions.
+nextflow_process {
+
+    name "Test Process SEGMENTATION_SAMSEGLONG"
+    script "../main.nf"
+    process "SEGMENTATION_SAMSEGLONG"
+
+    tag "modules"
+    tag "modules_local"
+    tag "segmentation/samseglong"
+
+    test("samseg long - three sessions - stub") {
+
+        options "-stub-run"
+
+        when {
+            process {
+                """
+                def t1 = file("${moduleDir}/../../stats/subjectvolumes/tests/data/labelmap.nii.gz", checkIfExists: true)
+                input[0] = [
+                    [ id:'sub-01' ],
+                    [
+                        [ id:'sub-01', session:'ses-01', run:'' ],
+                        [ id:'sub-01', session:'ses-02', run:'run-2' ],
+                        [ id:'sub-01', session:'ses-03' ]
+                    ],
+                    [ t1, t1, t1 ],
+                    t1
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def out = process.out.seg[0]
+            assert out[1].size() == 3
+            assert out[2].collect { f -> file(f).name }.sort() == [
+                "sub-01_ses-01__samseg_seg.nii.gz",
+                "sub-01_ses-02_run-2__samseg_seg.nii.gz",
+                "sub-01_ses-03__samseg_seg.nii.gz"
+            ]
+            assert out[3].collect { f -> file(f).name }.sort() == [
+                "sub-01_ses-01__samseg_icv.csv",
+                "sub-01_ses-02_run-2__samseg_icv.csv",
+                "sub-01_ses-03__samseg_icv.csv"
+            ]
+        }
+    }
+
+    test("samseg long - single session falls back to one output - stub") {
+
+        options "-stub-run"
+
+        when {
+            process {
+                """
+                def t1 = file("${moduleDir}/../../stats/subjectvolumes/tests/data/labelmap.nii.gz", checkIfExists: true)
+                input[0] = [ [ id:'sub-02' ], [ [ id:'sub-02', session:'ses-01' ] ], [ t1 ], t1 ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert file(process.out.seg[0][2]).name == "sub-02_ses-01__samseg_seg.nii.gz"
+            assert path(process.out.seg[0][3]).readLines() == ["subject,total intracranial", "sub-02_ses-01,0"]
+        }
+    }
+}

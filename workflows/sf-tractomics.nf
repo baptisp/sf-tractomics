@@ -19,6 +19,7 @@ include { BUNDLE_SEG             } from '../subworkflows/nf-neuro/bundle_seg/mai
 include { ATLAS_ROIMETRICS       } from '../subworkflows/nf-neuro/atlas_roimetrics/main'
 include { ATLAS_CSF_ROIMETRICS   } from '../subworkflows/nf-neuro/atlas_csf_roimetrics/main'
 include { SEGMENTATION_SYNTHSEG as SYNTHSEG_VOLUMES } from '../modules/nf-neuro/segmentation/synthseg/main'
+include { SEGMENTATION_SAMSEGLONG as SAMSEG_LONG_VOLUMES } from '../modules/local/segmentation/samseglong/main'
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_GM_VOLUMES         } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_CSF_VOLUMES        } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../modules/local/stats/subjectvolumes/main'
@@ -266,6 +267,15 @@ workflow SF_TRACTOMICS {
     if ( !(volume_source in ["atlas", "synthseg", "freesurfer"]) ) {
         error "volume_source must be 'atlas', 'synthseg' or 'freesurfer', but got '${volume_source}'."
     }
+    // run_longitudinal_volumes segments all sessions of a subject jointly (SAMSEG longitudinal)
+    // and takes precedence over volume_source for the GM, CSF and comparison volumes.
+    def do_longitudinal = params.run_longitudinal_volumes == true
+    if ( do_longitudinal ) {
+        if ( volume_source != "atlas" ) {
+            log.info "run_longitudinal_volumes = true: volume_source = '${volume_source}' is replaced by SAMSEG longitudinal."
+        }
+        volume_source = "samseg_long"
+    }
     def subject_volumes = volume_source != "atlas"
     def do_gm_atlas_volumes  = do_gm_volumes  && !subject_volumes
     def do_csf_atlas_volumes = do_csf_volumes && !subject_volumes
@@ -305,7 +315,43 @@ workflow SF_TRACTOMICS {
     ch_cmp_volumes = channel.empty()
 
     if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes) ) {
-        if ( volume_source == "synthseg" ) {
+        if ( volume_source == "samseg_long" ) {
+            if ( !params.freesurfer_license ) {
+                error "run_longitudinal_volumes = true requires params.freesurfer_license (SAMSEG runs from the FreeSurfer container)."
+            }
+            // One task per subject with one T1 per session (the first run when a session has
+            // several), sessions in name order. The raw T1 is used, as for SynthSeg.
+            ch_t1_by_subject = ch_t1
+                .map { meta, t1 -> [meta.id, meta, t1] }
+                .groupTuple()
+                .map { id, metas, t1s ->
+                    def per_session = [metas, t1s].transpose()
+                        .groupBy { pair -> pair[0].session ?: "" }
+                        .collect { _ses, pairs -> pairs.sort { pair -> pair[0].run ?: "" }[0] }
+                        .sort { pair -> pair[0].session ?: "" }
+                    [[id: id], per_session.collect { pair -> pair[0] }, per_session.collect { pair -> pair[1] }]
+                }
+            SAMSEG_LONG_VOLUMES(
+                ch_t1_by_subject.combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
+            )
+            ch_versions = ch_versions.mix(SAMSEG_LONG_VOLUMES.out.versions.first())
+
+            // Back to one item per session: files are named <id_session[_run]>__samseg_*.
+            ch_subject_seg = SAMSEG_LONG_VOLUMES.out.seg
+                .flatMap { _meta, session_metas, segs, icvs ->
+                    def seg_list = segs instanceof List ? segs : [segs]
+                    def icv_list = icvs instanceof List ? icvs : [icvs]
+                    session_metas.collect { m ->
+                        def prefix = [m.id, m.session, m.run].findAll { x -> x }.join("_")
+                        [
+                            m,
+                            seg_list.find { f -> f.name == "${prefix}__samseg_seg.nii.gz" },
+                            icv_list.find { f -> f.name == "${prefix}__samseg_icv.csv" }
+                        ]
+                    }
+                }
+        }
+        else if ( volume_source == "synthseg" ) {
             if ( !params.freesurfer_license ) {
                 error "volume_source = 'synthseg' requires params.freesurfer_license (SynthSeg runs from the FreeSurfer container)."
             }
@@ -336,7 +382,10 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_gm_volumes ) {
-            STATS_SUBJECT_GM_VOLUMES(subjectVolumesInput.call("${projectDir}/assets/freesurfer_gm_lut.json"))
+            // SAMSEG has no Desikan parcels: its GM file holds the cortex totals instead of 68
+            // parcels that would all read 0.
+            def gm_lut = volume_source == "samseg_long" ? "freesurfer_gm_samseg_lut.json" : "freesurfer_gm_lut.json"
+            STATS_SUBJECT_GM_VOLUMES(subjectVolumesInput.call("${projectDir}/assets/${gm_lut}"))
             ch_versions = ch_versions.mix(STATS_SUBJECT_GM_VOLUMES.out.versions.first())
             ch_gm_volumes = STATS_SUBJECT_GM_VOLUMES.out.volumes
         }
@@ -350,10 +399,12 @@ workflow SF_TRACTOMICS {
             ch_versions = ch_versions.mix(STATS_SUBJECT_COMPARISON_VOLUMES.out.versions.first())
             ch_cmp_volumes = STATS_SUBJECT_COMPARISON_VOLUMES.out.volumes
         }
+    }
 
-        // These volumes are cross-sectional: each session is segmented on its own. On repeated
-        // sessions the segmentation noise is of the order of yearly atrophy, so warn when the
-        // input is longitudinal.
+    // Volumes are requested on longitudinal data without the longitudinal option: each session
+    // is then measured on its own (or from a warped atlas), and that session-to-session noise is
+    // of the order of yearly atrophy.
+    if ( (do_wm_volumes || do_gm_volumes || do_csf_volumes || do_cmp_volumes) && !do_longitudinal ) {
         ch_t1
             .map { meta, _t1 -> [meta.id, meta.session ?: ""] }
             .unique()
@@ -362,10 +413,11 @@ workflow SF_TRACTOMICS {
             .map { id, _sessions -> id }
             .collect()
             .subscribe { ids ->
-                log.warn "volume_source = '${volume_source}' gives cross-sectional volumes, but ${ids.size()} subject(s) " +
-                         "have several sessions (e.g. ${ids.take(3).join(', ')}). To measure atrophy over time, " +
-                         "implement a longitudinal method (FreeSurfer 'recon-all -long', or SIENA for whole-brain change): " +
-                         "independent segmentations add session-to-session noise comparable to yearly atrophy. See docs/usage.md."
+                log.warn "Longitudinal data detected: ${ids.size()} subject(s) have several sessions " +
+                         "(e.g. ${ids.take(3).join(', ')}), but run_longitudinal_volumes is not activated (false). " +
+                         "Volumes are computed for each session independently (volume_source = '${volume_source}'), " +
+                         "which adds session-to-session noise comparable to yearly atrophy. " +
+                         "Set run_longitudinal_volumes = true to measure atrophy over time. See docs/usage.md."
             }
     }
 

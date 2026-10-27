@@ -91,7 +91,8 @@ Reuses the warped FreeSurfer atlas to extract metrics across GM subcortical stru
 The GM, CSF and comparison volume files above are filled according to `--volume_source`:
 
 - `atlas` (default): voxel count of the warped template in DWI space. The volumes reflect the registration and are not suited to measuring atrophy.
-- `synthseg` / `freesurfer`: voxel count of the subject's own segmentation in native T1 space. The files keep their names, region names and columns, and add `volume_source` and `icv_mm3` (intracranial volume, `synthseg` only).
+- `synthseg` / `freesurfer`: voxel count of the subject's own segmentation in native T1 space.
+- `samseg_long` (`--run_longitudinal_volumes`): voxel count of the SAMSEG longitudinal segmentation, all sessions of a subject segmented jointly. The GM file holds cortex totals (`Left/Right-Cerebral-Cortex`) instead of the Desikan parcels. Per session: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`. The files keep their names, region names and columns, and add `volume_source` and `icv_mm3` (intracranial volume, `synthseg` only).
 
 The global volume files (`metrics/...desc-roi_volumes.csv`) always carry `volume_source` and `icv_mm3`.
 

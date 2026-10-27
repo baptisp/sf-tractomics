@@ -1127,6 +1127,12 @@
                     "help_text": "'atlas' counts the voxels of a template warped onto the subject B0, so its volumes reflect the registration and are not suited to measuring atrophy. 'synthseg' and 'freesurfer' count the subject's own segmentation in native T1 space and write the same output files, with extra volume_source and icv_mm3 columns (icv_mm3 is only available with 'synthseg'). WM bundle volumes are always atlas-based. Volumes are cross-sectional: for several sessions per subject, a longitudinal method is recommended.",
                     "enum": ["atlas", "synthseg", "freesurfer"],
                     "default": "atlas"
+                },
+                "run_longitudinal_volumes": {
+                    "type": "boolean",
+                    "description": "Segment all sessions of each subject jointly with FreeSurfer SAMSEG longitudinal, to measure atrophy over time. Overrides volume_source for GM, CSF and comparison volumes.",
+                    "help_text": "Sessions are rigidly aligned with mri_robust_template and segmented jointly (run_samseg_long), which removes most of the session-to-session noise of independent segmentations. Volumes are counted in each session's native T1 space and written to the same files, with volume_source = 'samseg_long'. SAMSEG has no Desikan cortical parcels: the GM file holds Left/Right-Cerebral-Cortex totals instead. Requires freesurfer_license. When false and subjects have several sessions, the pipeline warns that this option is not activated.",
+                    "default": false
                 }
             }
         },

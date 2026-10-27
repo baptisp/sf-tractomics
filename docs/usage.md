@@ -138,7 +138,35 @@ SynthSeg segments the raw T1, not the brain-extracted one, so the CSF outside th
 GM or CSF diffusion metrics still use the warped atlases. Volumes from the subject segmentation are joined to them by region name.
 
 > [!WARNING]
-> These volumes are **cross-sectional**: each session is segmented on its own. When a subject has several sessions, the session-to-session segmentation noise (roughly 1-3%) is of the order of yearly atrophy. The pipeline warns at startup when it sees several sessions for a subject. For longitudinal analyses, implement a longitudinal method instead: the FreeSurfer longitudinal stream (`recon-all -base` / `recon-all -long`) for regional volumes, or SIENA for whole-brain change.
+> These volumes are **cross-sectional**: each session is segmented on its own. When a subject has several sessions, the session-to-session segmentation noise is of the order of yearly atrophy. When volumes are requested and a subject has several sessions, the pipeline warns at startup that `--run_longitudinal_volumes` is not activated.
+
+### Longitudinal volumes (atrophy over time)
+
+`--run_longitudinal_volumes` (default `false`) segments all sessions of each subject **jointly** with FreeSurfer SAMSEG longitudinal (`run_samseg_long`, Cerri et al. 2023):
+
+1. The raw T1 of every session (the first run when a session has several) is resampled to 1 mm isotropic, so sessions acquired with different voxel sizes can be processed together, then rigidly aligned to the subject's median template with `mri_robust_template`. SAMSEG reads the transforms, so no session is resampled a second time.
+2. `run_samseg_long` segments all sessions against a subject-specific latent atlas, which removes most of the noise that independent segmentations add on top of the real change.
+3. Each session's labels are counted in that session's T1 space (1 mm grid) and written to the usual GM, CSF and comparison volume files, with `volume_source = samseg_long` and `icv_mm3` (SAMSEG sbTIV).
+
+SAMSEG's atlas is a prior only: every label is fitted to the subject's own intensities, so the volumes measure the subject's WM, GM and ventricles, not a deformed template.
+
+```groovy
+params {
+    run_gm_volumes             = true
+    run_csf_volumes            = true
+    run_csf_comparison_volumes = true
+    run_longitudinal_volumes   = true
+    freesurfer_license         = '/path/to/license.txt'
+}
+```
+
+- The option overrides `--volume_source` for the GM, CSF and comparison volumes. WM bundle volumes stay atlas-based.
+- SAMSEG has no Desikan cortical parcels: the GM file holds `Left-Cerebral-Cortex` and `Right-Cerebral-Cortex` totals instead of the 68 `ctx-*` regions. When GM diffusion metrics are enabled too, those two rows have no IIT GM metric to join to and appear only in the volumes file.
+- A subject with a single session is segmented with cross-sectional `run_samseg`.
+- One task per subject: measured at about 10 minutes and 8 GB for two sessions, and 42 minutes and 16 GB for six. The config requests 24 GB.
+- Absolute volumes differ between methods (SAMSEG, SynthSeg, FreeSurfer): never mix sources within one atrophy analysis.
+- A scanner or protocol change during follow-up shifts volumes on its own, and no segmentation method removes that bias. Record the scanner per session (the BIDS JSON `ManufacturersModelName`) and model it as a covariate in the statistics.
+- Per-session outputs: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`.
 
 ### Merging all stats and volumes
 

@@ -24,34 +24,43 @@ nextflow_workflow {
 
             // A: each run gets its own volumes despite the arrival order; rows sorted by file
             assert lines("A_runs.tsv") == [
-                "sid\tsession\trun\troi\tregion_type\tage\tfa\tvolume_voxels\tvolume_mm3\tvolume_source\ticv_mm3",
-                "sub-01\tses-01\t1\tLeft-Hippocampus\tGM_region\t70\t0.31\t100\t100.0000\tsynthseg\t1000",
-                "sub-01\tses-01\t1\tctx-lh-precuneus\tGM_region\t70\t0.21\t50\t50.0000\tsynthseg\t1000",
-                "sub-01\tses-01\t2\tLeft-Hippocampus\tGM_region\t70\t0.32\t200\t200.0000\tsynthseg\t2000",
-                "sub-01\tses-01\t2\tctx-lh-precuneus\tGM_region\t70\t0.22\t60\t60.0000\tsynthseg\t2000",
-                "sub-02\tses-01\t1\tLeft-Hippocampus\tGM_region\t55\t0.41\t300\t300.0000\tsynthseg\t3000",
-                "sub-02\tses-01\t1\tctx-lh-precuneus\tGM_region\t55\t0.51\t70\t70.0000\tsynthseg\t3000"
+                "sid\tsession\trun\troi\tregion_type\tage\tfa\tvolume_voxels\tvolume_mm3\tvolume_source\ticv_mm3\tqc_score\tqc_flags\tscanner\tduplicate_of",
+                "sub-01\tses-01\t1\tLeft-Hippocampus\tGM_region\t70\t0.31\t100\t100.0000\tsynthseg\t1000\t\t\t\t",
+                "sub-01\tses-01\t1\tctx-lh-precuneus\tGM_region\t70\t0.21\t50\t50.0000\tsynthseg\t1000\t\t\t\t",
+                "sub-01\tses-01\t2\tLeft-Hippocampus\tGM_region\t70\t0.32\t200\t200.0000\tsynthseg\t2000\t\t\t\t",
+                "sub-01\tses-01\t2\tctx-lh-precuneus\tGM_region\t70\t0.22\t60\t60.0000\tsynthseg\t2000\t\t\t\t",
+                "sub-02\tses-01\t1\tLeft-Hippocampus\tGM_region\t55\t0.41\t300\t300.0000\tsynthseg\t3000\t\t\t\t",
+                "sub-02\tses-01\t1\tctx-lh-precuneus\tGM_region\t55\t0.51\t70\t70.0000\tsynthseg\t3000\t\t\t\t"
             ]
 
             // B: both runs take the session's volumes; the cortex total is kept as a volume-only
             // row; sub-02 has no volume file (failed segmentation) but keeps its stats rows
             assert lines("B_session.tsv") == [
-                "sid\tsession\trun\troi\tregion_type\tage\tfa\tvolume_voxels\tvolume_mm3\tvolume_source\ticv_mm3",
-                "sub-01\tses-01\t1\tLeft-Hippocampus\tGM_region\t70\t0.31\t900\t900.0000\tsamseg_long\t9000",
-                "sub-01\tses-01\t1\tctx-lh-precuneus\tGM_region\t70\t0.21\t\t\t\t",
-                "sub-01\tses-01\t1\tLeft-Cerebral-Cortex\tGM_region\t\t\t9999\t9999.0000\tsamseg_long\t9000",
-                "sub-01\tses-01\t2\tLeft-Hippocampus\tGM_region\t70\t0.32\t900\t900.0000\tsamseg_long\t9000",
-                "sub-01\tses-01\t2\tctx-lh-precuneus\tGM_region\t70\t0.22\t\t\t\t",
-                "sub-01\tses-01\t2\tLeft-Cerebral-Cortex\tGM_region\t\t\t9999\t9999.0000\tsamseg_long\t9000",
-                "sub-02\tses-01\t1\tLeft-Hippocampus\tGM_region\t55\t0.41\t\t\t\t",
-                "sub-02\tses-01\t1\tctx-lh-precuneus\tGM_region\t55\t0.51\t\t\t\t"
+                "sid\tsession\trun\troi\tregion_type\tage\tfa\tvolume_voxels\tvolume_mm3\tvolume_source\ticv_mm3\tqc_score\tqc_flags\tscanner\tduplicate_of",
+                "sub-01\tses-01\t1\tLeft-Hippocampus\tGM_region\t70\t0.31\t900\t900.0000\tsamseg_long\t9000\t\t\t\t",
+                "sub-01\tses-01\t1\tctx-lh-precuneus\tGM_region\t70\t0.21\t\t\t\t\t\t\t\t",
+                "sub-01\tses-01\t1\tLeft-Cerebral-Cortex\tGM_region\t\t\t9999\t9999.0000\tsamseg_long\t9000\t\t\t\t",
+                "sub-01\tses-01\t2\tLeft-Hippocampus\tGM_region\t70\t0.32\t900\t900.0000\tsamseg_long\t9000\t\t\t\t",
+                "sub-01\tses-01\t2\tctx-lh-precuneus\tGM_region\t70\t0.22\t\t\t\t\t\t\t\t",
+                "sub-01\tses-01\t2\tLeft-Cerebral-Cortex\tGM_region\t\t\t9999\t9999.0000\tsamseg_long\t9000\t\t\t\t",
+                "sub-02\tses-01\t1\tLeft-Hippocampus\tGM_region\t55\t0.41\t\t\t\t\t\t\t\t",
+                "sub-02\tses-01\t1\tctx-lh-precuneus\tGM_region\t55\t0.51\t\t\t\t\t\t\t\t"
             ]
 
             // C: legacy header read, missing columns filled, rows sorted by subject
             assert lines("C_volumes.csv") == [
-                "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3",
-                "sub-01,ses-01,1,Left-Lateral-Ventricle,11,11.0000,atlas,",
-                "sub-02,ses-01,1,Left-Lateral-Ventricle,22,22.0000,atlas,"
+                "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,qc_score,qc_flags,scanner,duplicate_of,pipeline_revision",
+                "sub-01,ses-01,1,Left-Lateral-Ventricle,11,11.0000,atlas,,,,,,",
+                "sub-02,ses-01,1,Left-Lateral-Ventricle,22,22.0000,atlas,,,,,,"
+            ]
+
+            // E: only the session off the subject's median ICV by more than 3% is flagged; flags
+            // already set are kept; revision written on every row
+            assert lines("E_drift.csv") == [
+                "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,qc_score,qc_flags,scanner,duplicate_of,pipeline_revision",
+                "sub-03,ses-01,1,Left-Hippocampus,4000,4000.0000,synthseg,1500000.0000,0.8000,,Siemens TrioTim 3T,,test-rev",
+                "sub-03,ses-02,1,Left-Hippocampus,3990,3990.0000,synthseg,1510000.0000,0.6000,qc_low,Siemens TrioTim 3T,,test-rev",
+                "sub-03,ses-03,1,Left-Hippocampus,4200,4200.0000,synthseg,1600000.0000,0.8000,icv_drift,Siemens Prisma 3T,,test-rev"
             ]
 
             // D: one row per subject x ROI, covariates and values of that subject only

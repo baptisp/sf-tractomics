@@ -191,6 +191,15 @@ by name with `flatMap`. GM uses `assets/freesurfer_gm_samseg_lut.json` (cortex t
 parcels). When any volumes are requested, subjects have several sessions and the option is false,
 a startup `log.warn` says `run_longitudinal_volumes` is not activated.
 
+Volume QC: `annotateT1s` (workflows/sf-tractomics.nf) adds `meta.scanner` (BIDS sidecar) and
+`meta.duplicate_of` (byte-identical T1 of another sample, hashed only among same-size files) to
+`ch_t1_vol`; STATS_SUBJECTVOLUMES writes `qc_score`, `qc_flags`, `scanner`, `duplicate_of`;
+`collectVolumeFiles` adds the `icv_drift` flag (needs all sessions) and `pipeline_revision`.
+`checkVolumeCoverage` fails the run when a session has no volumes of a requested type (report in
+`metrics/volumes_missing_samples.txt`) unless `allow_missing_volumes`. Label warps use
+GenericLabel (MultiLabel alters volumes even under identity; tests/known_answer). Run convention
+everywhere: bare run number, absent = 1.
+
 `collectStatsFilesWithVolumes` pairs stats and volumes on `(id, session, run)` (absent run = run 1),
 falling back to the session's CSV (SAMSEG has one per session), and keeps subject-segmentation ROIs
 missing from the atlas stats as volume-only rows. SynthSeg runs once per distinct T1 file and its

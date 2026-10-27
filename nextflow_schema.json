@@ -1128,6 +1128,24 @@
                     "enum": ["atlas", "synthseg", "freesurfer"],
                     "default": "atlas"
                 },
+                "volume_qc_threshold": {
+                    "type": "number",
+                    "description": "SynthSeg QC score (lowest structure-group score) below which a scan is flagged 'qc_low' in the qc_flags column.",
+                    "help_text": "SynthSeg's authors suggest about 0.65 as the level below which a segmentation is likely to have failed.",
+                    "default": 0.65
+                },
+                "volume_icv_drift": {
+                    "type": "number",
+                    "description": "Fraction by which a session's intracranial volume may differ from its subject's median before the session is flagged 'icv_drift'.",
+                    "help_text": "The intracranial volume is constant in adults, so a drift points to a failed segmentation or a scanner change.",
+                    "default": 0.03
+                },
+                "allow_missing_volumes": {
+                    "type": "boolean",
+                    "description": "Accept volume files in which some sessions are missing. When false (default), the run fails if any session has no volumes.",
+                    "help_text": "Missing sessions are always listed in metrics/volumes_missing_samples.txt.",
+                    "default": false
+                },
                 "run_longitudinal_volumes": {
                     "type": "boolean",
                     "description": "Segment all sessions of each subject jointly with FreeSurfer SAMSEG longitudinal, to measure atrophy over time. Overrides volume_source for GM, CSF and comparison volumes.",
@@ -1204,7 +1222,7 @@
                 "run_csf_comparison_roimetrics": {
                     "type": "boolean",
                     "description": "Extract FA/MD/RD/AD/AFD for GM subcortical structures, WM regions, and ventricles from the FreeSurfer atlas. Outputs go to comparison/ subdirectories.",
-                    "help_text": "Uses assets/freesurfer_comparison_lut.json by default (32 regions: GM subcortical bilateral + WM + ventricles). Reuses the warped atlas from the CSF pipeline.",
+                    "help_text": "Uses assets/freesurfer_comparison_lut.json by default (33 regions: GM subcortical bilateral + WM + WM-hypointensities + ventricles). Reuses the warped atlas from the CSF pipeline.",
                     "default": false
                 },
                 "run_csf_comparison_volumes": {
@@ -1215,7 +1233,7 @@
                 "atlas_csf_comparison_lut": {
                     "type": "string",
                     "description": "Path to a custom JSON LUT for the comparison extraction. If null, uses bundled assets/freesurfer_comparison_lut.json.",
-                    "help_text": "JSON format: {\"10\": \"Left-Thalamus\", ...}. Default covers 32 regions: GM subcortical bilateral, WM structures, and all CSF/ventricle labels."
+                    "help_text": "JSON format: {\"10\": \"Left-Thalamus\", ...}. Default covers 33 regions: GM subcortical bilateral, WM structures, WM-hypointensities (lesions) and all CSF/ventricle labels."
                 },
                 "run_merge_all_stats": {
                     "type": "boolean",

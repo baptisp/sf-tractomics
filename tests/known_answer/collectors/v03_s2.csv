@@ -1,0 +1,2 @@
+sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,qc_score,qc_flags,scanner,duplicate_of
+sub-03,ses-02,1,Left-Hippocampus,3990,3990.0000,synthseg,1510000.0000,0.6000,qc_low,Siemens TrioTim 3T,

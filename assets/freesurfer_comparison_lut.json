@@ -1,9 +1,9 @@
 {
-    "2":  "Left-Cerebral-White-Matter",
-    "4":  "Left-Lateral-Ventricle",
-    "5":  "Left-Inf-Lat-Vent",
-    "7":  "Left-Cerebellum-White-Matter",
-    "8":  "Left-Cerebellum-Cortex",
+    "2": "Left-Cerebral-White-Matter",
+    "4": "Left-Lateral-Ventricle",
+    "5": "Left-Inf-Lat-Vent",
+    "7": "Left-Cerebellum-White-Matter",
+    "8": "Left-Cerebellum-Cortex",
     "10": "Left-Thalamus",
     "11": "Left-Caudate",
     "12": "Left-Putamen",
@@ -30,5 +30,6 @@
     "54": "Right-Amygdala",
     "58": "Right-Accumbens-area",
     "60": "Right-VentralDC",
-    "63": "Right-choroid-plexus"
+    "63": "Right-choroid-plexus",
+    "77": "WM-hypointensities"
 }

@@ -7,6 +7,8 @@
 //   1 sub-INTA ses-01   2 sub-INTA ses-02          (one subject, two sessions)
 //   3 sub-INTB ses-01 run-1   4 sub-INTB ses-01 run-2   (two runs, two segmentations)
 //   5 sub-INTC without session
+// Each T1 has its own BIDS sidecar (sub-INTA ses-02 on a Prisma, the others on a TrioTim), and
+// the T1 of sub-INTB run-2 is a byte-identical copy of run-1's, as in OASIS-3.
 // Every row of every volume file and of the combined TSV must carry its own sample's values:
 // a value landing in another subject's, session's or run's row fails the test. The run column
 // follows the stats convention: bare number, absent run = 1.
@@ -27,7 +29,7 @@ nextflow_pipeline {
                 def samples = [["INTA", "01", 0], ["INTA", "02", 0], ["INTB", "01", 1], ["INTB", "01", 2], ["INTC", "", 0]]
                 def config = samples.collect { sub, ses, run -> [
                     subject: sub, session: ses, run: run,
-                    t1: "${d}/dummy.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
+                    t1: "${d}/t1_${sub}_${ses ?: 'nos'}_r${run}.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
                     aparc_aseg: "${d}/${sub}_${ses ?: 'nos'}_r${run}_aparc.nii.gz",
                     TotalReadoutTime: 0.062, DWIPhaseEncodingDir: "y", rev_DWIPhaseEncodingDir: "",
                     rev_dwi: "", rev_bval: "", rev_bvec: "", topup: "", rev_topup: "", wmparc: ""
@@ -63,7 +65,7 @@ nextflow_pipeline {
             def files = [
                 [f: "${out}/space-native_atlas-iit-gm_desc-roi_volumes.csv", n: 84],
                 [f: "${out}/space-native_atlas-freesurfer-csf_desc-roi_volumes.csv", n: 9],
-                [f: "${out}/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv", n: 32]
+                [f: "${out}/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv", n: 33]
             ]
             assert workflow.success
             files.each { spec ->
@@ -77,6 +79,11 @@ nextflow_pipeline {
                         if (r) assert (r.volume_mm3 as double) == v : "${spec.f}: ${s} ${roi} = ${r.volume_mm3}, expected ${v}"
                     }
                     assert mine.every { r -> r.volume_source == "freesurfer" }
+                    assert mine.every { r -> r.scanner == (s.sid == "sub-INTA" && s.session == "ses-02" ? "Siemens Prisma 3T" : "Siemens TrioTim 3T") }
+                    def dup = s.sid == "sub-INTB" && s.run == "2"
+                    assert mine.every { r -> r.duplicate_of == (dup ? "sub-INTB_ses-01_run-1" : "") } : "${spec.f}: duplicate_of of ${s}"
+                    assert mine.every { r -> r.qc_flags.split(";").contains("duplicate") == dup } : "${spec.f}: duplicate flag of ${s}"
+                    assert mine.every { r -> r.pipeline_revision } : "${spec.f}: no pipeline_revision"
                 }
                 assert rows.size() == samples.size() * spec.n : "${spec.f}: unexpected extra rows"
             }
@@ -90,6 +97,75 @@ nextflow_pipeline {
                     if (r) assert (r.volume_mm3 as double) == v : "combined: ${s} ${roi} = ${r.volume_mm3}, expected ${v}"
                 }
             }
+        }
+    }
+
+    test("a session without segmentation fails the run, and is listed") {
+
+        config "./volumes_integrity/nextflow.config"
+
+        when {
+            params {
+                def d = "${projectDir}/tests/volumes_integrity"
+                def samples = [["INTA", "01", 0], ["INTC", "", 0]]
+                def config = samples.collect { sub, ses, run -> [
+                    subject: sub, session: ses, run: run,
+                    t1: "${d}/t1_${sub}_${ses ?: 'nos'}_r${run}.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
+                    // sub-INTC has no segmentation
+                    aparc_aseg: sub == "INTC" ? "" : "${d}/${sub}_${ses ?: 'nos'}_r${run}_aparc.nii.gz",
+                    TotalReadoutTime: 0.062, DWIPhaseEncodingDir: "y", rev_DWIPhaseEncodingDir: "",
+                    rev_dwi: "", rev_bval: "", rev_bvec: "", topup: "", rev_topup: "", wmparc: ""
+                ] }
+                def cfg = new File("${outputDir}/bids_struct.json")
+                cfg.parentFile.mkdirs()
+                cfg.text = groovy.json.JsonOutput.toJson(config)
+                outdir          = "$outputDir/out"
+                input           = null
+                bids_config     = cfg.absolutePath
+                run_gm_volumes  = true
+                volume_source   = "freesurfer"
+            }
+        }
+
+        then {
+            assert !workflow.success
+            assert workflow.stdout.any { l -> l.contains("no GM volumes") } || workflow.stderr.any { l -> l.contains("no GM volumes") }
+            assert path("$outputDir/out/metrics/volumes_missing_samples.txt").readLines() == ["GM\tsub-INTC"]
+        }
+    }
+
+    test("allow_missing_volumes accepts the incomplete files, still listing the session") {
+
+        config "./volumes_integrity/nextflow.config"
+
+        when {
+            params {
+                def d = "${projectDir}/tests/volumes_integrity"
+                def samples = [["INTA", "01", 0], ["INTC", "", 0]]
+                def config = samples.collect { sub, ses, run -> [
+                    subject: sub, session: ses, run: run,
+                    t1: "${d}/t1_${sub}_${ses ?: 'nos'}_r${run}.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
+                    aparc_aseg: sub == "INTC" ? "" : "${d}/${sub}_${ses ?: 'nos'}_r${run}_aparc.nii.gz",
+                    TotalReadoutTime: 0.062, DWIPhaseEncodingDir: "y", rev_DWIPhaseEncodingDir: "",
+                    rev_dwi: "", rev_bval: "", rev_bvec: "", topup: "", rev_topup: "", wmparc: ""
+                ] }
+                def cfg = new File("${outputDir}/bids_struct.json")
+                cfg.parentFile.mkdirs()
+                cfg.text = groovy.json.JsonOutput.toJson(config)
+                outdir                = "$outputDir/out"
+                input                 = null
+                bids_config           = cfg.absolutePath
+                run_gm_volumes        = true
+                volume_source         = "freesurfer"
+                allow_missing_volumes = true
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert path("$outputDir/out/metrics/volumes_missing_samples.txt").readLines() == ["GM\tsub-INTC"]
+            def rows = path("$outputDir/out/metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv").readLines()
+            assert rows.size() == 1 + 84 && rows[1..-1].every { r -> r.startsWith("sub-INTA,ses-01,1,") }
         }
     }
 }

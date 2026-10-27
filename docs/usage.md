@@ -168,6 +168,26 @@ params {
 - A scanner or protocol change during follow-up shifts volumes on its own, and no segmentation method removes that bias. Record the scanner per session (the BIDS JSON `ManufacturersModelName`) and model it as a covariate in the statistics.
 - Per-session outputs: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`.
 
+### Volume quality control
+
+Volumes from the subject's own segmentation (`synthseg`, `freesurfer`, longitudinal SAMSEG) carry columns that make bad or non-independent samples visible instead of silently entering the statistics:
+
+| Column | Content |
+|---|---|
+| `qc_score` | Lowest SynthSeg QC score over its structure groups (SynthSeg only) |
+| `qc_flags` | `;`-separated reasons not to trust the sample, empty when none: `qc_low` (QC score below `--volume_qc_threshold`, default 0.65), `icv_missing`, `icv_implausible` (outside 0.9 to 2.3 L), `icv_drift` (ICV off its subject's median by more than `--volume_icv_drift`, default 3%: ICV is constant in adults, so this points to a failed segmentation or a scanner change), `empty:<regions>` (regions with no voxel), `duplicate` |
+| `scanner` | Manufacturer, model and field strength from the T1's BIDS sidecar JSON |
+| `duplicate_of` | The sample whose T1 is byte-identical to this one (e.g. a `run-02` copied from `run-01` during conversion): not an independent measurement |
+| `pipeline_revision` | Git commit (or version) of the code that produced the file, in the global CSVs: never mix files of different revisions |
+
+At startup the pipeline also warns when T1s are duplicates and when a subject was scanned on several scanners: a scanner change shifts volumes by itself, so use `scanner` as a covariate.
+
+**Missing sessions fail the run.** Every input session must have volumes of every requested type. Sessions without them (failed or ignored task, missing input) are listed in `metrics/volumes_missing_samples.txt` and the run fails, unless `--allow_missing_volumes true`.
+
+**Lesions.** SAMSEG and FreeSurfer give white-matter hypointensities (lesions) their own label, reported as `WM-hypointensities` in the comparison files. That tissue is not in the white-matter rows: in cohorts with growing lesions, add it back to WM, or lesion growth reads as WM atrophy. SynthSeg has no lesion label (the row is empty) and may mislabel lesions as grey matter or ventricle: prefer SAMSEG or FreeSurfer for such cohorts.
+
+No flag proves a segmentation right: review flagged samples, and visually check outliers.
+
 ### Merging all stats and volumes
 
 To merge all available data (metrics TSVs and/or volume CSVs) across WM, GM, and CSF region types into a single file:

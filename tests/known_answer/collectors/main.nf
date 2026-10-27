@@ -26,6 +26,11 @@ workflow COLLECTORS_KNOWN_ANSWER {
     c = collectVolumeFiles(channel.of(
         [[id: 'sub-02', session: 'ses-01'], f.call('v02_atlas_csf.csv')],
         [[id: 'sub-01', session: 'ses-01'], f.call('v01_atlas_csf_legacy.csv')]), "C_volumes.csv", outdir, "atlas")
+    // E: ICV drift across sessions of one subject (median 1 510 000; ses-03 is 6% off)
+    e = collectVolumeFiles(channel.of(
+        [[id: 'sub-03', session: 'ses-03'], f.call('v03_s3.csv')],
+        [[id: 'sub-03', session: 'ses-01'], f.call('v03_s1.csv')],
+        [[id: 'sub-03', session: 'ses-02'], f.call('v03_s2.csv')]), "E_drift.csv", outdir, "synthseg", 0.03, "test-rev")
     // D: combined TSV from WM stats, GM stats+volumes (A) and CSF volumes only (C)
     d = collectUnifiedFiles(
         channel.of("STATS_WM_bundle:::${f.call('wm_all.tsv')}")
@@ -39,4 +44,5 @@ workflow COLLECTORS_KNOWN_ANSWER {
     b = b
     c = c
     d = d
+    e = e
 }

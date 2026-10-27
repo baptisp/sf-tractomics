@@ -1,0 +1,2 @@
+sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,qc_score,qc_flags,scanner,duplicate_of
+sub-03,ses-03,1,Left-Hippocampus,4200,4200.0000,synthseg,1600000.0000,0.8000,,Siemens Prisma 3T,

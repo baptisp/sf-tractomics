@@ -1,0 +1,47 @@
+// Options reach the steps they control: stub runs of the whole pipeline, checking which tasks run.
+nextflow_pipeline {
+
+    options "-stub-run"
+
+    name "Test pipeline options"
+    script "../main.nf"
+    tag "pipeline"
+    tag "pipeline_options"
+
+    test("run_t1_resampling = false skips the T1 resampling") {
+
+        when {
+            params {
+                outdir            = "$outputDir"
+                run_t1_resampling = false
+            }
+        }
+
+        then {
+            assertAll(
+                { assert workflow.success },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("PREPROC_T1:IMAGE_RESAMPLE") }.isEmpty() },
+                // Every option the workflow passes to TractoFlow must be one it knows
+                { assert !new File("${launchDir}/meta/nextflow.log").text.contains("Unknown option") }
+            )
+        }
+    }
+
+    test("run_t1_resampling = true resamples the T1") {
+
+        when {
+            params {
+                outdir            = "$outputDir"
+                run_t1_resampling = true
+            }
+        }
+
+        then {
+            assertAll(
+                { assert workflow.success },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("PREPROC_T1:IMAGE_RESAMPLE") }.size() == 1 },
+                { assert !new File("${launchDir}/meta/nextflow.log").text.contains("Unknown option") }
+            )
+        }
+    }
+}

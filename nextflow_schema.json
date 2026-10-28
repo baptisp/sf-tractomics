@@ -381,9 +381,9 @@
                 },
                 "run_t1_resampling": {
                     "type": "boolean",
-                    "default": true,
-                    "description": "Run resample T1.",
-                    "help_text": "Run resample T1."
+                    "default": false,
+                    "description": "Resample the T1 to `t1_resolution` before registration.",
+                    "help_text": "Off by default: earlier versions never applied it (the option did not reach TractoFlow), so leaving it off keeps results identical to previous runs."
                 },
                 "t1_resolution": {
                     "type": "number",

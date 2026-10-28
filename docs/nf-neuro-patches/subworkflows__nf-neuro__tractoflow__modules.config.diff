@@ -1,0 +1,76 @@
+--- upstream d50587b7/subworkflows/nf-neuro/tractoflow/modules.config
++++ sf-tractomics/subworkflows/nf-neuro/tractoflow/modules.config
+@@ -35,27 +35,11 @@
+         ext.readout                                 = 0.062 //FIXME : this is subject bound, pass through meta ?
+     }
+ 
+-    withName: "TRACTOFLOW:PREPROC_DWI:IMAGE_POWDERAVERAGE" {
+-        ext.b0_thr = params.b0_max_threshold
+-    }
+-    withName: "TRACTOFLOW:PREPROC_DWI:CROPDWI" {
+-        ext.output_bbox = true
+-        ext.first_suffix = "dwi"
+-    }
+-    withName: "TRACTOFLOW:PREPROC_DWI:CROPMASK" {
+-        ext.first_suffix = "mask"
+-    }
+-    withName: "TRACTOFLOW:PREPROC_DWI:CONVERT" {
+-        ext.first_suffix = "mask"
+-        ext.datatype = "uint8"
+-    }
+-
+     withName: "TRACTOFLOW:PREPROC_DWI:BETCROP_FSLBETCROP" {
+         ext.bet_f   = 0.16
+         ext.b0_thr  = params.b0_max_threshold
+         ext.crop    = true
+         ext.dilate  = false
+-        ext.keep_dwi_with_skull = params.dwi_keep_skull
+     }
+ 
+     withName: "TRACTOFLOW:PREPROC_DWI:N4_DWI" {
+@@ -92,12 +76,6 @@
+         ext.first_suffix    = "t1"
+     }
+ 
+-    withName: "TRACTOFLOW:IMAGE:MATH" {
+-        ext.operation = "multiplication"
+-        ext.data_type   = "float32"
+-        ext.suffix = "fa_masked"
+-    }
+-
+     //withName: "TRACTOFLOW:T1_REGISTRATION:REGISTER_ANATTODWI" {
+         // Nothing to do !
+     //}
+@@ -111,19 +89,11 @@
+     //}
+ 
+     /* MODULES CONFIGURATION */
+-
+-    withName: "TRACTOFLOW:CONVERT4D_*" {
+-        ext.strides = "-1 2 3 4"
+-    }
+-
+-    withName: "TRACTOFLOW:CONVERT3D_*" {
+-        ext.strides = "-1 2 3"
+-    }
+ 
+     withName: "TRACTOFLOW:TRANSFORM_WMPARC" {
+         ext.dimensionality  = 3
+         ext.image_type      = 0
+-        ext.interpolation   = "MultiLabel"
++        ext.interpolation   = "GenericLabel"   // exact for labels; MultiLabel alters volumes (see TRANSFORM_APARC_ASEG)
+         ext.output_dtype    = "short"
+         ext.default_val     = 0
+     }
+@@ -131,7 +101,10 @@
+     withName: "TRACTOFLOW:TRANSFORM_APARC_ASEG" {
+         ext.dimensionality  = 3
+         ext.image_type      = 0
+-        ext.interpolation   = "MultiLabel"
++        // GenericLabel, not MultiLabel: MultiLabel votes over a smoothed neighbourhood and alters
++        // label volumes even under an identity transform (FreeSurfer atlas: Left-Inf-Lat-Vent 49 -> 14
++        // voxels, 3rd-Ventricle -10%). GenericLabel reproduces the labels exactly. See tests/known_answer.
++        ext.interpolation   = "GenericLabel"
+         ext.output_dtype    = "short"
+         ext.default_val     = 0
+     }

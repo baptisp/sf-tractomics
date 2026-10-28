@@ -1,0 +1,25 @@
+--- upstream f2d66a70/modules/nf-neuro/segmentation/synthseg/main.nf
++++ sf-tractomics/modules/nf-neuro/segmentation/synthseg/main.nf
+@@ -40,9 +40,11 @@
+     """
+     export OMP_NUM_THREADS=${task.ext.single_thread ? 1 : task.cpus}
+ 
+-    cp $fs_license \$FREESURFER_HOME/license.txt
++    # FS_LICENSE instead of copying into \$FREESURFER_HOME, which is read-only when the
++    # container runs as the host user (docker profile: -u \$(id -u):\$(id -g)).
++    export FS_LICENSE=\$(realpath $fs_license)
+ 
+-    mri_synthseg --i $image --o seg.nii.gz --threads $nthreads --post posteriors.nii.gz $gpu $robust $fast $ct $output_resample $output_volume $output_qc_score $crop
++    mri_synthseg --i $image --o seg.nii.gz --threads $nthreads --post posteriors.nii.gz $gpu $gm_parc $robust $fast $ct $output_resample $output_volume $output_qc_score $crop
+ 
+     if [[ -n "$gm_parc" ]];
+     then
+@@ -128,8 +130,6 @@
+     mri_convert -i ${prefix}__mask_gm.nii.gz --out_data_type uchar -o ${prefix}__mask_gm.nii.gz
+     mri_convert -i ${prefix}__mask_csf.nii.gz --out_data_type uchar -o ${prefix}__mask_csf.nii.gz
+ 
+-    rm \$FREESURFER_HOME/license.txt
+-
+     cat <<-END_VERSIONS > versions.yml
+     "${task.process}":
+         Freesurfer: \$(mri_convert -version | grep "freesurfer" | sed -E 's/.* ([0-9.]+).*/\\1/')

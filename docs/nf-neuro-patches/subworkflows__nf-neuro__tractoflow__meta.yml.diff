@@ -1,0 +1,11 @@
+--- upstream d50587b7/subworkflows/nf-neuro/tractoflow/meta.yml
++++ sf-tractomics/subworkflows/nf-neuro/tractoflow/meta.yml
+@@ -586,7 +586,7 @@
+           type: boolean
+           description: If 'true', the N4 bias field correction will be performed using the N4BiasFieldCorrection method from ANTs.
+           default: true
+-        preproc_t1_run_resample:
++        preproc_t1_run_resampling:
+           type: boolean
+           description: If 'true', the anatomical image will be resampled using the resample method from DIPY.
+           default: true

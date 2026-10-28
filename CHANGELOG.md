@@ -25,6 +25,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Fixed`
 
+- `--run_t1_resampling` never reached TractoFlow: its option list and its code used different names, so the T1 was never resampled whatever the setting. Fixed; the default is now `false`, which keeps results identical to previous runs.
 - Nextflow 26 compatibility: fixed dynamic `errorStrategy` closures, `_` placeholder variables in `preproc_t1`, and groovy import in `atlas_iit`.
 
 ### `Dependencies`

@@ -202,6 +202,46 @@ volume option. As a ratio of two volumes of one segmentation, it does not depend
 It inherits the noise of the small inferior lateral ventricle, and, like the volumes, it must not be
 compared across segmentation methods.
 
+### Diffusion metrics in the subject's own regions
+
+`--run_subject_roi_metrics true` averages every diffusion metric map in the subject's own GM regions
+(the 84 regions of the GM files with SynthSeg or FreeSurfer, 18 with SAMSEG), instead of the IIT
+atlas regions warped from a template. In an atrophied brain the warped atlas region takes in
+fluid, which raises its MD whatever the tissue does; the subject's regions follow the tissue.
+
+The segmentation goes to diffusion space through TractoFlow's T1-to-DWI transform. Partial volume
+happens at the resolution of the acquired DWI (2 to 2.7 mm in OASIS-3 and ADNI), not of the 1 mm
+grid the maps are resampled to, so each acquired voxel gets the fraction of it that lies in each
+region, and each metric is averaged with these fractions as weights. A voxel 20% inside the
+hippocampus counts 0.2. This reduces partial volume but does not remove it, so keep the volume
+in the analysis. `--subject_roi_min_fraction 0.75` uses instead the voxels at least 75% inside,
+unweighted, for a sensitivity analysis: cleaner values, but an atrophied region keeps fewer voxels.
+The effective size of every region (sum of fractions) is written next to the metrics.
+
+Needs `--volume_source synthseg` or `freesurfer`, or `--run_longitudinal_volumes true`. The atlas
+GM metrics are still computed when requested, in their own files.
+
+Cortical regions are 2 to 3 mm thick, about one DWI voxel, so their values are dominated by partial
+volume: treat them as exploratory, and prefer the deep structures (hippocampus, amygdala, thalamus).
+The values depend on the DWI resolution: harmonise across sites and report the voxel size.
+Without reverse phase-encoding, TractoFlow's `topup` is skipped and only the registration
+compensates the susceptibility distortion of the temporal lobe: check the registration there.
+
+### Cortical thickness
+
+`--run_cortical_thickness true` runs FreeSurfer `recon-all` (7.4.1) on each distinct raw T1 and
+reports, for the 68 Desikan cortex regions (`ctx-lh-*`, `ctx-rh-*`, the names of the GM files),
+the mean and standard deviation of thickness, the surface area, the grey matter volume and the
+number of vertices, read from FreeSurfer's `?h.aparc.stats`. It needs `--freesurfer_license` and
+no other option. `recon-all` takes about 7 hours per scan, so plan it as a cluster job.
+
+`recon-all` is the reference used by UK Biobank, ADNI and ENIGMA. It expects T1s of about 1 mm;
+thickness from coarser voxels is biased, so inputs with a voxel side above 1.2 mm are flagged
+`coarse_t1` in `qc_flags`. Regions with a mean thickness outside 1 to 4.5 mm, the usual sign of a
+surface failure (temporal pole and entorhinal cortex first), are flagged `implausible:<regions>`.
+Review flagged scans in the published FreeSurfer folder. Thickness is not normalised by head
+size; the scanner must be a covariate, as for volumes.
+
 ### Merging all stats and volumes
 
 To merge all available data (metrics TSVs and/or volume CSVs) across WM, GM, and CSF region types into a single file:

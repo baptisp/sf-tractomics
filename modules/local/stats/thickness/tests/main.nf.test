@@ -1,0 +1,92 @@
+// Known-answer tests on the stats of FreeSurfer's sample subject bert (FreeSurfer 7.4.1,
+// subjects/bert/stats/{lh,rh}.aparc.stats), whose values are read here directly from the files:
+//   lh bankssts    1270 vertices, area 852, volume 2487, thickness 2.862 +/- 0.449
+//   lh entorhinal   609 vertices, area 401, volume 1582, thickness 3.041 +/- 0.679
+//   rh entorhinal   533 vertices, area 345, volume 1677, thickness 3.237 +/- 0.657
+//   rh insula      4170 vertices, area 2767, volume 8103, thickness 2.992 +/- 0.723
+// bert__recon_all/mri/orig/001.mgz has 1 mm voxels. coarse__recon_all holds the same stats with
+// lh entorhinal thickness set to 0.512 mm and a 1 x 1 x 2 mm input T1, so both QC flags fire.
+nextflow_process {
+
+    name "Test Process STATS_THICKNESS"
+    script "../main.nf"
+    process "STATS_THICKNESS"
+
+    tag "modules"
+    tag "modules_local"
+    tag "stats/thickness"
+
+    test("thickness - bert: every Desikan region once, values read exactly") {
+
+        when {
+            process {
+                """
+                input[0] = [
+                    [ id:'sub-01', session:'ses-01' ],
+                    file("${moduleDir}/tests/data/bert__recon_all", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def lines = path(process.out.thickness[0][1]).readLines()
+            assert path(process.out.thickness[0][1]).fileName.toString() == "sub-01_ses-01_thickness.csv"
+            assert lines[0] == "sid,session,run,roi,thickness_mm,thickness_std_mm,surface_area_mm2,gm_volume_mm3,num_vertices,thickness_method,qc_flags"
+            def rows = lines[1..-1]
+            assert rows.size() == 68
+            assert rows.collect { l -> l.split(",", -1)[3] }.unique().size() == 68
+            assert "sub-01,ses-01,1,ctx-lh-bankssts,2.862,0.449,852,2487,1270,recon-all," in rows
+            assert "sub-01,ses-01,1,ctx-lh-entorhinal,3.041,0.679,401,1582,609,recon-all," in rows
+            assert "sub-01,ses-01,1,ctx-rh-entorhinal,3.237,0.657,345,1677,533,recon-all," in rows
+            assert "sub-01,ses-01,1,ctx-rh-insula,2.992,0.723,2767,8103,4170,recon-all," in rows
+            // The 68 names are the cortex names of the GM LUT
+            def lut = new groovy.json.JsonSlurper().parse(new File("${projectDir}/assets/freesurfer_gm_lut.json"))
+            assert rows.collect { l -> l.split(",", -1)[3] }.sort() == lut.values().findAll { n -> n.startsWith("ctx-") }.sort()
+        }
+    }
+
+    test("thickness - coarse input T1 and implausible region are flagged") {
+
+        when {
+            process {
+                """
+                input[0] = [
+                    [ id:'sub-02', session:'', run:'run-2' ],
+                    file("${moduleDir}/tests/data/coarse__recon_all", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def rows = path(process.out.thickness[0][1]).readLines()[1..-1]
+            assert rows.every { l -> l.endsWith(",recon-all,coarse_t1;implausible:ctx-lh-entorhinal") }
+            assert rows.every { l -> l.startsWith("sub-02,,2,") }
+            assert "sub-02,,2,ctx-lh-entorhinal,0.512,0.679,401,1582,609,recon-all,coarse_t1;implausible:ctx-lh-entorhinal" in rows
+        }
+    }
+
+    test("thickness - stub") {
+
+        options "-stub-run"
+
+        when {
+            process {
+                """
+                input[0] = [
+                    [ id:'sub-01', session:'ses-01' ],
+                    file("${moduleDir}/tests/data/bert__recon_all", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert path(process.out.thickness[0][1]).readLines().size() == 1
+        }
+    }
+}

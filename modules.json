@@ -275,6 +275,11 @@
                         "git_sha": "31193a9ea0839d2ce29898504812ffdb515b67dc",
                         "installed_by": ["anatomical_segmentation"]
                     },
+                    "segmentation/fsreconall": {
+                        "branch": "main",
+                        "git_sha": "f2d66a70673d3002965ab9fbd648db7b5b9d4a34",
+                        "installed_by": ["modules"]
+                    },
                     "segmentation/synthseg": {
                         "branch": "main",
                         "git_sha": "f2d66a70673d3002965ab9fbd648db7b5b9d4a34",

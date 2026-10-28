@@ -31,6 +31,7 @@ nextflow_pipeline {
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("SAMSEG_LONG_VOLUMES") }.isEmpty() },
                 // Off by default
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_HOC") }.isEmpty() },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("RECONALL_THICKNESS") }.isEmpty() },
                 { assert "sub-test-1/anat/sub-test-1_desc-synthseg_dseg.nii.gz" in files },
                 { assert "sub-test-1/dwi/sub-test-1_atlas-iit-gm_desc-roi_volumes.csv" in files },
                 { assert "sub-test-1/dwi/sub-test-1_atlas-freesurfer-csf_desc-roi_volumes.csv" in files },

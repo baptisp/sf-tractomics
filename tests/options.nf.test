@@ -8,6 +8,13 @@ nextflow_pipeline {
     tag "pipeline"
     tag "pipeline_options"
 
+    // Text of every task script under a work directory
+    def commandScripts = { dir ->
+        def found = []
+        new File(dir).eachFileRecurse(groovy.io.FileType.FILES) { f -> if (f.name == ".command.sh") found << f.text }
+        found
+    }
+
     test("run_t1_resampling = false skips the T1 resampling") {
 
         when {
@@ -83,6 +90,97 @@ nextflow_pipeline {
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_SUBJECT_") }.isEmpty() },
                 { assert "sub-test-1/anat/sub-test-1_desc-hoc.csv" in files },
                 { assert "metrics/space-native_desc-hoc.csv" in files }
+            )
+        }
+    }
+
+    test("run_cortical_thickness = true without a FreeSurfer licence stops with a clear message") {
+
+        when {
+            params {
+                outdir                 = "$outputDir"
+                run_cortical_thickness = true
+                freesurfer_license     = null
+            }
+        }
+
+        then {
+            assertAll(
+                { assert !workflow.success },
+                { assert new File("${launchDir}/meta/nextflow.log").text.contains("run_cortical_thickness = true requires params.freesurfer_license") }
+            )
+        }
+    }
+
+    test("run_cortical_thickness = true runs recon-all once per T1 and writes the thickness files") {
+
+        when {
+            params {
+                outdir                 = "$outputDir"
+                run_cortical_thickness = true
+                freesurfer_license     = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: true).collect { f -> f.toString() }
+            assertAll(
+                { assert workflow.success },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("RECONALL_THICKNESS") }.size() == 1 },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_THICKNESS") }.size() == 1 },
+                // Thickness alone needs no subject segmentation
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("SYNTHSEG_VOLUMES") }.isEmpty() },
+                { assert "sub-test-1/anat/sub-test-1_desc-thickness.csv" in files },
+                { assert "sub-test-1/anat/freesurfer/sub-test-1" in files },
+                { assert "metrics/space-native_desc-cortical-thickness.csv" in files }
+            )
+        }
+    }
+
+    test("run_subject_roi_metrics = true without a subject segmentation stops with a clear message") {
+
+        when {
+            params {
+                outdir                  = "$outputDir"
+                run_subject_roi_metrics = true
+            }
+        }
+
+        then {
+            assertAll(
+                { assert !workflow.success },
+                { assert new File("${launchDir}/meta/nextflow.log").text.contains("run_subject_roi_metrics = true needs the subject's own segmentation") }
+            )
+        }
+    }
+
+    test("run_subject_roi_metrics = true with SynthSeg writes the subject-region metric files") {
+
+        when {
+            params {
+                outdir                   = "$outputDir"
+                run_subject_roi_metrics  = true
+                subject_roi_min_fraction = 0.75
+                volume_source            = "synthseg"
+                freesurfer_license       = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: false).collect { f -> f.toString() }
+            def fractions = workflow.trace.tasks().findAll { t -> t.name.contains("SUBJECT_ROI_FRACTIONS") }
+            assertAll(
+                { assert workflow.success },
+                { assert fractions.size() == 1 },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_SUBJECT_ROI_METRICS") }.size() == 1 },
+                // The threshold reaches the module (its stub records the settings it received)
+                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: supersampling 4 min_fraction 0.75") } == 1 },
+                { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_desc-roi_stats.tsv" in files },
+                { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_label-std_desc-roi_stats.tsv" in files },
+                { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_desc-roi_fractions.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_desc-roi_fractions.csv" in files },
+                // The atlas GM files are unchanged and separate
+                { assert !files.any { f -> f.contains("_fraction.nii.gz") } }
             )
         }
     }

@@ -1146,6 +1146,25 @@
                     "help_text": "Missing sessions are always listed in metrics/volumes_missing_samples.txt.",
                     "default": false
                 },
+                "run_cortical_thickness": {
+                    "type": "boolean",
+                    "description": "Compute cortical thickness per Desikan region with FreeSurfer recon-all on the raw T1.",
+                    "help_text": "About 7 hours per scan. Needs freesurfer_license. Per sample: <id>/<session>/anat/*_desc-thickness.csv and the FreeSurfer subject folder in anat/freesurfer/; all samples: metrics/space-native_desc-cortical-thickness.csv. recon-all expects about 1 mm voxels: coarser inputs are flagged coarse_t1.",
+                    "default": false
+                },
+                "run_subject_roi_metrics": {
+                    "type": "boolean",
+                    "description": "Compute diffusion metrics in the subject's own GM regions (the 84 GM regions of SynthSeg/FreeSurfer, 18 with SAMSEG), weighted by the fraction of each acquired DWI voxel inside the region.",
+                    "help_text": "Needs volume_source = 'synthseg' or 'freesurfer', or run_longitudinal_volumes = true. Per sample: dwi/*_seg-<source>_desc-roi_stats.tsv and dwi/*_seg-<source>_desc-roi_fractions.csv (effective size of each region); all samples: metrics/space-native_seg-<source>_label-mean_desc-roi_stats.tsv and metrics/space-native_seg-<source>_desc-roi_fractions.csv. Cortical regions are only a few DWI voxels thick: treat them as exploratory.",
+                    "default": false
+                },
+                "subject_roi_min_fraction": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "0 (default): fraction-weighted means over every voxel touching the region. Above 0: unweighted means over the voxels at least that much inside the region (e.g. 0.75), for sensitivity analyses.",
+                    "default": 0
+                },
                 "run_hoc": {
                     "type": "boolean",
                     "description": "Compute the hippocampal occupancy score (hippocampus / (hippocampus + inferior lateral ventricle)), left, right and bilateral.",

@@ -24,6 +24,10 @@ include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_GM_VOLUMES         } from '../mo
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_CSF_VOLUMES        } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_HOC              } from '../modules/local/stats/hoc/main'
+include { SEGMENTATION_FSRECONALL as RECONALL_THICKNESS } from '../modules/nf-neuro/segmentation/fsreconall/main'
+include { STATS_THICKNESS        } from '../modules/local/stats/thickness/main'
+include { IMAGE_LABELFRACTION as SUBJECT_ROI_FRACTIONS } from '../modules/local/image/labelfraction/main'
+include { STATS_METRICSINROI as STATS_SUBJECT_ROI_METRICS } from '../modules/nf-neuro/stats/metricsinroi/main'
 include { TRACTOMETRY            } from '../subworkflows/nf-neuro/tractometry/main'
 include { REGISTRATION_ANTSAPPLYTRANSFORMS as REGISTRATION_METRICS_TO_ORIG } from '../modules/nf-neuro/registration/antsapplytransforms/main'
 include { REGISTRATION_TRACTOGRAM as REGISTRATION_TRACTOGRAM_TO_ORIG } from '../modules/nf-neuro/registration/tractogram/main'
@@ -280,6 +284,16 @@ workflow SF_TRACTOMICS {
     def subject_volumes = volume_source != "atlas"
     // Hippocampal occupancy score, counted on the subject's own segmentation
     def do_hoc = params.run_hoc == true
+    def do_thickness = params.run_cortical_thickness == true
+    // Diffusion metrics in the subject's own GM regions, weighted by voxel fraction
+    def do_subject_metrics = params.run_subject_roi_metrics == true
+    if ( do_subject_metrics && !subject_volumes ) {
+        error "run_subject_roi_metrics = true needs the subject's own segmentation: set volume_source to 'synthseg' " +
+              "or 'freesurfer', or run_longitudinal_volumes = true."
+    }
+    if ( do_thickness && !params.freesurfer_license ) {
+        error "run_cortical_thickness = true requires params.freesurfer_license (recon-all runs from the FreeSurfer container)."
+    }
     if ( do_hoc && !subject_volumes ) {
         error "run_hoc = true needs the subject's own segmentation: set volume_source to 'synthseg' or " +
               "'freesurfer', or run_longitudinal_volumes = true."
@@ -329,6 +343,7 @@ workflow SF_TRACTOMICS {
     ch_csf_volumes = channel.empty()
     ch_cmp_volumes = channel.empty()
     ch_hoc         = channel.empty()
+    ch_subject_roi_stats = channel.empty()
 
     // Every T1 annotated once: scanner (BIDS sidecar) and duplicates (same voxel data). Used by the
     // volume branches and by the warnings below.
@@ -336,7 +351,7 @@ workflow SF_TRACTOMICS {
     ch_t1_vol       = ch_t1_annotated.map { _orig, meta, t1 -> [meta, t1] }
     ch_t1_annotated.toList().subscribe { items -> warnT1Annotations(items) }
 
-    if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes || do_hoc) ) {
+    if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes || do_hoc || do_subject_metrics) ) {
         if ( volume_source == "samseg_long" ) {
             if ( !params.freesurfer_license ) {
                 error "run_longitudinal_volumes = true requires params.freesurfer_license (SAMSEG runs from the FreeSurfer container)."
@@ -380,14 +395,8 @@ workflow SF_TRACTOMICS {
             }
             // The raw T1 is segmented, not TRACTOFLOW.out.t1_native: brain extraction removes the
             // extra-cerebral CSF (intracranial volume too small) and any BET error trims cortex.
-            // A T1 shared by several DWI runs of a session appears once per run: segment each
-            // distinct T1 once (~26 GB, minutes per scan) and give its result to every run.
-            // The key keeps subject and session, so a T1 file reused across subjects (copy,
-            // symlink, config typo) can never hand one subject's volumes to another.
-            ch_t1_unique = ch_t1_vol
-                .map { meta, t1 -> [[meta.id, meta.session ?: "", t1.toString()], meta, t1] }
-                .groupTuple()
-                .map { _key, metas, t1s -> [metas[0], metas, t1s[0]] }
+            // Segment each distinct T1 once (~26 GB, minutes per scan), see distinctT1s
+            ch_t1_unique = distinctT1s(ch_t1_vol)
             SYNTHSEG_VOLUMES(
                 ch_t1_unique
                     .map { meta, _metas, t1 -> [meta, t1, []] }
@@ -449,16 +458,63 @@ workflow SF_TRACTOMICS {
             STATS_HOC(ch_subject_seg.map { meta, seg, _seg_volumes, _qc -> [meta, seg] })
             ch_versions = ch_versions.mix(STATS_HOC.out.versions.first())
             ch_hoc = STATS_HOC.out.hoc
-            ch_hoc
-                .map { _meta, csv -> csv }
-                .collectFile(
-                    storeDir: "${params.outdir}/metrics/",
-                    name: "space-native_desc-hoc.csv",
-                    skip: 1,
-                    keepHeader: true,
-                    sort: { csv -> csv.name }
-                )
+            collectSampleCsvs(ch_hoc, "space-native_desc-hoc.csv", "${params.outdir}/metrics/")
         }
+        if ( do_subject_metrics ) {
+            // The segmentation is in native T1 space. Its labels go to diffusion space through
+            // TractoFlow's T1-to-DWI transform, as fractions of the acquired DWI voxels (the raw DWI
+            // grid), so each metric is averaged with every voxel weighted by how much of it lies in
+            // the region (see IMAGE_LABELFRACTION). The GM LUT gives the region names of the GM files.
+            def subject_lut = volume_source == "samseg_long" ? "freesurfer_gm_samseg_lut.json" : "freesurfer_gm_lut.json"
+            def ch_seg_tractoflow_meta = ch_subject_seg
+                .map { meta, seg, _seg_volumes, _qc -> [meta, seg] }
+                .join(ch_t1_annotated.map { orig, meta, _t1 -> [meta, orig] })
+                .map { _meta, seg, orig -> [orig, seg] }
+            SUBJECT_ROI_FRACTIONS(
+                ch_seg_tractoflow_meta
+                    .join(ch_dwi_bval_bvec.map { meta, dwi, _bval, _bvec -> [meta, dwi] })
+                    .join(TRACTOFLOW.out.dti_fa)
+                    .join(TRACTOFLOW.out.anatomical_to_diffusion)
+                    .combine(channel.fromPath("${projectDir}/assets/${subject_lut}", checkIfExists: true))
+            )
+            ch_versions = ch_versions.mix(SUBJECT_ROI_FRACTIONS.out.versions.first())
+            STATS_SUBJECT_ROI_METRICS(
+                mergeCovariatesIntoMeta(
+                    ch_input_metrics
+                        .join(SUBJECT_ROI_FRACTIONS.out.fractions)
+                        .map { meta, metrics, fractions -> [meta, metrics, fractions, []] },
+                    ch_covariates)
+            )
+            ch_versions = ch_versions.mix(STATS_SUBJECT_ROI_METRICS.out.versions.first())
+            ch_subject_roi_stats = STATS_SUBJECT_ROI_METRICS.out.stats_mean
+            def seg_name = volume_source == "samseg_long" ? "samseg" : volume_source
+            collectStatsFiles(ch_subject_roi_stats, "space-native_seg-${seg_name}_label-mean_desc-roi_stats.tsv",
+                              "${params.outdir}/metrics/", "GM_subject")
+            collectSampleCsvs(SUBJECT_ROI_FRACTIONS.out.sums, "space-native_seg-${seg_name}_desc-roi_fractions.csv",
+                              "${params.outdir}/metrics/")
+        }
+    }
+
+    // Cortical thickness per Desikan region, from FreeSurfer recon-all on the raw T1
+    ch_thickness = channel.empty()
+    if ( do_thickness ) {
+        // recon-all takes hours per scan: run each distinct T1 once, share it with every run
+        def ch_t1_recon = distinctT1s(ch_t1_vol)
+        RECONALL_THICKNESS(
+            ch_t1_recon
+                .map { meta, _metas, t1 -> [meta, t1] }
+                .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
+        )
+        ch_versions = ch_versions.mix(RECONALL_THICKNESS.out.versions.first())
+        STATS_THICKNESS(
+            ch_t1_recon
+                .map { meta, metas, _t1 -> [meta, metas] }
+                .join(RECONALL_THICKNESS.out.recon_all_out_folder)
+                .flatMap { _meta, metas, recon_all -> metas.collect { m -> [m, recon_all] } }
+        )
+        ch_versions = ch_versions.mix(STATS_THICKNESS.out.versions.first())
+        ch_thickness = STATS_THICKNESS.out.thickness
+        collectSampleCsvs(ch_thickness, "space-native_desc-cortical-thickness.csv", "${params.outdir}/metrics/")
     }
 
     // Volumes are requested on longitudinal data without the longitudinal option: each session
@@ -675,7 +731,9 @@ workflow SF_TRACTOMICS {
      ["GM", do_gm_volumes ? ch_gm_volumes : null],
      ["CSF", do_csf_volumes ? ch_csf_volumes : null],
      ["comparison", do_cmp_volumes ? ch_cmp_volumes : null],
-     ["HOC", do_hoc ? ch_hoc : null]].findAll { entry -> entry[1] != null }.each { entry ->
+     ["HOC", do_hoc ? ch_hoc : null],
+     ["cortical thickness", do_thickness ? ch_thickness : null],
+     ["subject-region metrics", do_subject_metrics ? ch_subject_roi_stats : null]].findAll { entry -> entry[1] != null }.each { entry ->
         checkVolumeCoverage(entry[0], entry[1], ch_expected_sessions, "${params.outdir}/metrics", params.allow_missing_volumes == true)
     }
 
@@ -923,6 +981,33 @@ def gitRevision(dir) {
     }
 }
 
+// Order of per-sample files in the global files: by file name, which starts with sid, session and
+// run, so rows follow the samples whatever the task finishing order or work directory names.
+// Accepts paths and the "<path>:::<path>" pairs of collectStatsFilesWithVolumes.
+def bySampleFileName(a, b) {
+    def name = { x -> new File(x.toString().split(':::')[0]).name }
+    return name.call(a) <=> name.call(b) ?: a.toString() <=> b.toString()
+}
+
+// One item per distinct T1 file of a session: [first meta, every meta sharing it, t1]. A T1 shared
+// by several DWI runs is processed once and its result given to every run. The key keeps subject
+// and session, so a T1 file reused across subjects (copy, symlink, config typo) can never hand one
+// subject's result to another.
+def distinctT1s(ch_t1) {
+    return ch_t1
+        .map { meta, t1 -> [[meta.id, meta.session ?: "", t1.toString()], meta, t1] }
+        .groupTuple()
+        .map { _key, metas, t1s -> [metas[0], metas, t1s[0]] }
+}
+
+// Concatenate per-sample CSVs that share one header into <dir>/<name>, in file name order
+// (sid, session, run), so the global file is the same from run to run.
+def collectSampleCsvs(ch_csvs, String name, String dir) {
+    return ch_csvs
+        .map { _meta, csv -> csv }
+        .collectFile(storeDir: dir, name: name, skip: 1, keepHeader: true, sort: { csv -> csv.name })
+}
+
 // Sample key used by the volume checks: subject, session, bare run number (absent run = 1)
 def volumeSampleKey(meta) {
     return [meta.id, meta.session ?: "", (meta.run ?: "run-1").toString().replaceFirst(/^run-/, "")]
@@ -1118,7 +1203,7 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
             // the collect boundary (Nextflow channel serialisation corrupts Path objects).
             toAbsFile(stats_file.toString()).absolutePath
         }
-        .collect()
+        .collect(sort: { a, b -> bySampleFileName(a, b) })
         .map { path_strings ->
             def header_written = false
             def all_columns = new LinkedHashSet()
@@ -1226,8 +1311,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
         .map { _key, _run, stats_file, _vols -> "${stats_file}:::" }
     return ch_paired
         .mix(ch_unpaired)
-        // Sorted, so the row order does not depend on which task finished first
-        .collect(sort: true)
+        .collect(sort: { a, b -> bySampleFileName(a, b) })
         .map { encoded_pairs ->
             def header_written = false
             def all_columns = new LinkedHashSet()

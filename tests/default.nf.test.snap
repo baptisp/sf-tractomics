@@ -139,6 +139,7 @@
                 "sub-test-1/dwi/bundles/sub-test-1_space-MNI152Lin_tract-ArcuateFasciculus_hemi-left_track-sdstream_tractogram.trk",
                 "sub-test-1/dwi/bundles/sub-test-1_space-orig_tract-ArcuateFasciculus_hemi-left_track-sdstream_tractogram.trk",
                 "sub-test-1/dwi/sub-test-1_atlas-iit-wm_desc-roi_stats.tsv",
+                "sub-test-1/dwi/sub-test-1_atlas-iit-wm_label-std_desc-roi_stats.tsv",
                 "sub-test-1/dwi/sub-test-1_desc-brain_mask.nii.gz",
                 "sub-test-1/dwi/sub-test-1_desc-ensemble_tractogram.trk",
                 "sub-test-1/dwi/sub-test-1_desc-local_tractogram.trk",
@@ -219,7 +220,7 @@
                 "sub-test-1/xfm/sub-test-1_from-dwi_to-T1w_mode-image_desc-warp_xfm.nii.gz"
             ]
         ],
-        "timestamp": "2026-10-26T22:25:48.637408939",
+        "timestamp": "2026-10-28T16:09:49.040071338",
         "meta": {
             "nf-test": "0.9.5",
             "nextflow": "26.04.4"

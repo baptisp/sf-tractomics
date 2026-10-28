@@ -106,8 +106,8 @@ is reused.
 - Per-sample file: `*_desc-thickness.csv` with `sid, session, run, roi, thickness_mm,
   thickness_std_mm, surface_area_mm2, gm_volume_mm3`, roi = the 68 Desikan `ctx-lh-*` /
   `ctx-rh-*` names used in the GM files, read from `lh.aparc.stats` and `rh.aparc.stats`.
-- Global file: `metrics/space-native_desc-cortical-thickness.csv`, and thickness columns in the
-  combined TSV when enabled. The FreeSurfer subject folder is published for visual QC.
+- Global file: `metrics/space-native_desc-cortical-thickness.csv`. Not added to the combined TSV
+  for now (its own file, as for HOC). The FreeSurfer subject folder is published for visual QC.
 - Run time: about 7 h per scan on one CPU (Henschel 2020 benchmark), a cluster job.
 
 **Voxel size.** `recon-all` expects about 1 mm isotropic. Thicker voxels bias thickness. The
@@ -154,8 +154,9 @@ cleaner but sample AD and HC differently.
   such as 0.75 keeps only voxels at least that much inside the region, unweighted).
 - Per-sample file: `*_seg-synthseg_desc-roi_stats.tsv` (`seg-samseg`, `seg-freesurfer`), same
   layout as the GM file plus `n_voxels_effective`.
-- Global file: `metrics/space-native_seg-synthseg_label-mean_desc-roi_stats.tsv`; in the combined
-  TSV with `region_type = GM_subject`, never mixed with the atlas rows.
+- Global file: `metrics/space-native_seg-synthseg_label-mean_desc-roi_stats.tsv`
+  (`region_type = GM_subject`). Not in the combined TSV: it keys rows by region name, so these rows
+  would merge with the atlas GM rows of the same names.
 
 ### 3b. Cortex: surface sampling (needs section 2)
 
@@ -207,8 +208,8 @@ nf-neuro as a module with its own tests; code tied to sf-tractomics files and op
 | Piece | Where | Why |
 |---|---|---|
 | `recon-all` | existing nf-neuro `segmentation/fsreconall`, installed into sf-tractomics | Already exists. It runs single-threaded (about 7 h); an upstream change to pass `ext.args` (e.g. `-parallel -openmp N`) is worth proposing. |
-| Parse `aparc.stats` / `aseg.stats` to a TSV | new nf-neuro module, e.g. `stats/fsstats` | Generic: every pipeline using `recon-all` needs it. Output in the same layout as `stats/metricsinroi`. |
-| Label fraction maps on a target grid | new nf-neuro module, e.g. `image/labelfraction` | Generic: per-label partial-volume fractions of a label image on any reference grid, through any ANTs transform. Its output feeds the existing `stats/metricsinroi` in weighted mask mode. |
+| Parse `aparc.stats` to a CSV | `modules/local/stats/thickness` (changed from the first plan) | nf-neuro tables use a `sample` column while sf-tractomics keys on `sid, session, run`; an nf-neuro version would need an extra conversion step. Can move upstream once the conventions are aligned. |
+| Label fraction maps on a target grid | `modules/local/image/labelfraction`, in nf-neuro layout (changed from the first plan) | Generic, so a good nf-neuro candidate, but an nf-neuro module needs tests on the nf-neuro test data: a separate contribution. Fractions are computed on the acquisition grid (the raw DWI), not on the 1 mm grid of the maps, because partial volume happens at the acquired resolution. |
 | Weighted metrics in regions | existing nf-neuro `stats/metricsinroi` (mask mode) | Already does weighted means; check that it reports the sum of weights, or add it upstream. |
 | Diffusion on the cortical surface (3b) | new nf-neuro module, later | Generic (`bbregister` + `mri_vol2surf` + per-region average). |
 | HOC | `modules/local/` | Reads the pipeline's own subject volume CSV. |

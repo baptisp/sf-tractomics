@@ -1,0 +1,50 @@
+// Known-answer test of diffusion metrics in the subject's own regions, from label fractions to the
+// global file. Grids and labels are those of modules/local/image/labelfraction/tests/data: the
+// hippocampus fills acquisition voxel (1,1,1) (weight 1, target x 2-3) and half of (2,1,1)
+// (weight 0.5, target x 4-5); the inferior lateral ventricle a quarter of (3,3,3) (x 6-7).
+// Sample i has d = 0.01 i: FA 0.4+d on x 2-3, 0.8+d on x 4-5, 3.0 elsewhere; MD 1+d, 2+d, 0.
+//   hippocampus FA = (8 (0.4+d) + 4 (0.8+d)) / 12 = 0.533333 + d      (unweighted: 0.6 + d)
+//   hippocampus MD = (8 (1+d) + 4 (2+d)) / 12     = 1.333333 + d
+//   ventricle   FA = 3.0, MD = 0
+nextflow_workflow {
+
+    name "Known-answer test of subject-region diffusion metrics"
+    script "./subject_roi/main.nf"
+    workflow "SUBJECT_ROI_KNOWN_ANSWER"
+    config "./subject_roi/nextflow.config"
+    tag "known_answer"
+
+    test("fraction-weighted means per region land in each sample's own rows, in sample order") {
+        when {
+            workflow {
+                """
+                input[0] = "${projectDir}/tests/known_answer/subject_roi"
+                input[1] = "${projectDir}/modules/local/image/labelfraction/tests/data"
+                input[2] = "${outputDir}/collected"
+                """
+            }
+        }
+        then {
+            assert workflow.success
+            def lines = path("${outputDir}/collected/subject_roi.tsv").readLines()
+            def header = lines[0].split("\t", -1).toList()
+            assert header[0..4] == ["sid", "session", "run", "roi", "region_type"]
+            def rows = lines[1..-1].collect { l -> [header, l.split("\t", -1).toList()].transpose().collectEntries() }
+            def close = { a, b -> Math.abs((a as double) - b) < 1e-4 }
+            def samples = [["sub-01", "ses-01", "1", 0.01], ["sub-01", "ses-02", "2", 0.02], ["sub-02", "ses-01", "1", 0.03]]
+            assert rows.size() == 2 * samples.size()
+            // Sorted by sample, whatever the arrival order
+            assert rows.collect { r -> [r.sid, r.session, r.run] }.unique() == samples.collect { s -> s[0..2] }
+            samples.each { s ->
+                def mine = rows.findAll { r -> [r.sid, r.session, r.run] == s[0..2] }
+                def hippo = mine.find { r -> r.roi == "Left-Hippocampus" }
+                def vent = mine.find { r -> r.roi == "Left-Inf-Lat-Vent" }
+                assert mine*.roi.sort() == ["Left-Hippocampus", "Left-Inf-Lat-Vent"]
+                assert mine.every { r -> r.region_type == "GM_subject" }
+                assert close(hippo.fa, 0.533333 + s[3]) : "${s}: hippocampus FA ${hippo.fa}"
+                assert close(hippo.md, 1.333333 + s[3]) : "${s}: hippocampus MD ${hippo.md}"
+                assert close(vent.fa, 3.0) && close(vent.md, 0.0)
+            }
+        }
+    }
+}

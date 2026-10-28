@@ -102,6 +102,24 @@ With `synthseg`, the segmentation itself is published per subject:
 - `anat/<subject>_desc-synthseg_volumes.csv` — SynthSeg's own soft volumes, including total intracranial
 - `anat/<subject>_desc-synthseg_qc.csv` — SynthSeg QC scores
 
+## Diffusion metrics in the subject's own regions
+
+With `--run_subject_roi_metrics true` (`<seg>` = `synthseg`, `freesurfer` or `samseg`):
+
+- `dwi/<subject>_seg-<seg>_desc-roi_stats.tsv` — fraction-weighted mean of each metric per region, same layout as the GM file (`sid, session, run, roi, covariates..., metrics...`); `dwi/<subject>_seg-<seg>_label-std_desc-roi_stats.tsv` holds the standard deviations
+- `dwi/<subject>_seg-<seg>_desc-roi_fractions.csv` — effective size of each region: `acq_voxels` (sum of the voxel fractions) and `volume_mm3`
+- `metrics/space-native_seg-<seg>_label-mean_desc-roi_stats.tsv` and `metrics/space-native_seg-<seg>_desc-roi_fractions.csv` — all samples merged, `region_type = GM_subject`
+
+These rows are not added to the combined TSV, which keys rows by region name: they would merge with the atlas GM rows of the same names.
+
+## Cortical thickness
+
+With `--run_cortical_thickness true`:
+
+- `anat/freesurfer/<subject>/` — the FreeSurfer `recon-all` subject folder (surfaces, labels, stats), for visual checks
+- `anat/<subject>_desc-thickness.csv` — one row per Desikan region: `sid, session, run, roi, thickness_mm, thickness_std_mm, surface_area_mm2, gm_volume_mm3, num_vertices, thickness_method, qc_flags`
+- `metrics/space-native_desc-cortical-thickness.csv` — all samples merged
+
 ## Hippocampal occupancy score
 
 With `--run_hoc true`:

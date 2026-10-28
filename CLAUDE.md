@@ -26,6 +26,8 @@ modules/local/stats/subjectvolumes/         Volumes of a subject segmentation (+
 conf/modules/stats_subjectvolumes.config    SynthSeg/SAMSEG + subject volume config (volume_source != atlas)
 modules/local/segmentation/samseglong/      SAMSEG longitudinal segmentation of all sessions of a subject
 modules/local/stats/hoc/                    Hippocampal occupancy score from the subject segmentation (run_hoc)
+modules/local/stats/thickness/              Desikan thickness table from a recon-all folder (run_cortical_thickness)
+modules/local/image/labelfraction/          Per-region fractions of the acquired DWI voxels (run_subject_roi_metrics)
 docs/nf-neuro-patches/                      Diffs of every vendored nf-neuro file changed here (make_patches.py)
 assets/freesurfer_gm_samseg_lut.json        GM LUT for SAMSEG (subcortical + cerebral cortex totals)
 ```
@@ -224,6 +226,9 @@ result is fanned out to every DWI run sharing it. The flag is checked with
 | `run_csf_volumes` | false | CSF/ventricle region volumes only |
 | `volume_source` | `'atlas'` | GM/CSF/comparison volumes from `atlas`, `synthseg` or `freesurfer` (see above) |
 | `run_longitudinal_volumes` | false | SAMSEG longitudinal GM/CSF/comparison volumes; overrides `volume_source` |
+| `run_subject_roi_metrics` | false | SUBJECT_ROI_FRACTIONS (labels to acquisition-grid fractions) then STATS_SUBJECT_ROI_METRICS (weighted means); own files, not in the combined TSV |
+| `subject_roi_min_fraction` | 0 | > 0: binary masks of voxels at least that much inside, unweighted |
+| `run_cortical_thickness` | false | recon-all (RECONALL_THICKNESS) per distinct T1, then STATS_THICKNESS; needs `freesurfer_license` |
 | `run_hoc` | false | Hippocampal occupancy score (STATS_HOC on `ch_subject_seg`); needs a subject segmentation |
 | `run_merge_all_stats` | false | Produce `metrics/space-native_all-regions_desc-roi_combined.tsv` — wide format with ROIs as columns |
 | `tractometry_covariates` | `'site,age,sex,handedness,disease'` | Comma-separated covariate column names embedded in stats TSVs via `ext.meta_columns` and used by `collectUnifiedFiles` to separate covariates from data columns |

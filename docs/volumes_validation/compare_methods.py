@@ -7,7 +7,7 @@ is 0 by construction.
 Follow-up (3 or more sessions per subject): noise = SD of the residuals around each subject's
 straight-line trend, in % of the subject's mean, and the median yearly change (% per year) per
 group. The group is the diagnosis at the subject's first session in the run, read from the
-participants file (HC = healthy, anything else = AD/MCI). Session times come from --days-regex
+participants file (HC = healthy, any other diagnosis = impaired, no diagnosis = left out). Session times come from --days-regex
 (OASIS-3 sessions are named d<days>).
 
 Usage (nibabel and numpy are needed):
@@ -129,13 +129,15 @@ def main():
         if args.participants:
             with open(args.participants) as f:
                 for r in csv.DictReader(f, delimiter="\t"):
-                    groups[r["participant_id"], r["session"]] = "healthy" if r.get("disease") == "HC" else "AD/MCI"
+                    dx = (r.get("disease") or "").strip()
+                    if dx:
+                        groups[r["participant_id"], r["session"]] = "healthy" if dx == "HC" else "impaired"
         results = [followup(d, groups, args.days_regex) for d in args.followup]
         print(f"\nFOLLOW-UP: {len(results[0][0]['Intracranial volume'])} subjects")
-        print(f"{'structure':30s}{'noise %':>16s}{'healthy %/year':>20s}{'AD/MCI %/year':>20s}  (SAMSEG / SynthSeg)")
+        print(f"{'structure':30s}{'noise %':>16s}{'healthy %/year':>20s}{'impaired %/year':>20s}  (SAMSEG / SynthSeg)")
         for g in STRUCTURES:
             na, nb = (np.median(r[0][g]) for r in results)
-            rates = [[np.median(r[1][g][grp]) if r[1][g][grp] else np.nan for r in results] for grp in ("healthy", "AD/MCI")]
+            rates = [[np.median(r[1][g][grp]) if r[1][g][grp] else np.nan for r in results] for grp in ("healthy", "impaired")]
             print(f"{g:30s}{na:8.2f} /{nb:6.2f}" + "".join(f"{x:+11.2f} /{y:+7.2f}" for x, y in rates))
 
 

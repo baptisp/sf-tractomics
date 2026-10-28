@@ -45,8 +45,9 @@ that:
   Any difference between the two volumes is measurement error. Reported as the median
   |difference| in % of the pair mean. 4 more pairs were run but excluded: their two files hold the
   same voxels (the same acquisition exported twice), so their difference is 0 by construction.
-- **Follow-up.** 8 subjects (4 healthy, 2 MCI, 2 AD) with 3 sessions over 3 to 8 years on the same
-  scanner. Noise is the scatter around each subject's straight-line trend, in % of the subject's
+- **Follow-up.** 8 subjects with 3 sessions over 3 to 8 years on the same scanner: 4 healthy and
+  4 cognitively impaired at their first session (2 MCI, 1 AD, 1 other dementia, from the
+  `participants.tsv` diagnoses, which are uncertain: see Limits). Noise is the scatter around each subject's straight-line trend, in % of the subject's
   mean. The slope gives a yearly rate of change.
 
 All 4 pipeline runs finished with no failure. Every SynthSeg QC score was 0.66 or above, and no
@@ -75,7 +76,7 @@ Thalamus and intracranial volume favour SAMSEG on repeat scans and are about equ
 
 Median % change per year, SAMSEG / SynthSeg.
 
-| Structure | Healthy (n=4) | AD/MCI (n=4) |
+| Structure | Healthy (n=4) | Impaired (n=4) |
 |---|---|---|
 | Hippocampus | -0.33 / -0.40 | -0.95 / -1.08 |
 | Lateral ventricles | +3.22 / +4.91 | +1.98 / +2.71 |
@@ -87,8 +88,8 @@ Median % change per year, SAMSEG / SynthSeg.
 | Intracranial volume | -0.02 / -0.10 | -0.09 / -0.22 |
 
 Both methods find the expected direction of change: ventricles grow and tissue shrinks. The
-hippocampus shrinks about three times faster in AD/MCI than in healthy subjects with both methods,
-the clearest disease signal in this sample.
+hippocampus shrinks about three times faster in the impaired group than in healthy subjects with
+both methods, the clearest disease signal in this sample.
 
 With 4 subjects per group, these rates show plausibility only; they are not effect sizes. For
 example, the lateral ventricles grow faster in the healthy group here, which would need a larger
@@ -122,8 +123,9 @@ neither has a clear advantage there.
    ICV, ICV drifting across sessions (over 3%), empty regions and duplicates. A clean flag is not
    proof of a correct segmentation, so inspect outliers visually.
 6. **Add white-matter lesions back to white matter where lesions grow.** SAMSEG and FreeSurfer
-   report `WM-hypointensities` as their own region. In one MCI subject they grew 34%. Left out,
-   that growth looks like white-matter loss.
+   report `WM-hypointensities` as their own region. In the SAMSEG follow-up, lesion volume grew in
+   every subject, healthy ones included: by 34% to 204% over 3 to 8 years (from 0.4 to 8 mL).
+   Left out, that growth looks like white-matter loss.
 7. **Normalise by intracranial volume** from the `icv_mm3` column. It is the most stable measure
    here (repeat error 0.1 to 0.4%).
 
@@ -211,7 +213,10 @@ are excluded automatically.
   follow-up noise is itself noisy.
 - These tests measure precision, not accuracy. Which method is closest to true anatomy would need
   a reference such as manual tracing.
-- Diagnoses change between sessions in OASIS-3 (one subject goes from AD to HC to MCI), so the
-  groups use the diagnosis at each subject's first session in the run.
+- The diagnoses come from `participants.tsv`, built by matching each MRI session to the nearest
+  clinical visit, and some of them are doubtful: 3 of the 4 impaired subjects are later labelled
+  healthy (other dementia, then HC, then MCI; MCI, then vascular dementia, then HC; MCI, MCI, then
+  HC). The groups use the diagnosis at each subject's first session in the run, and no result here
+  depends on more than the healthy or impaired split; check the labels before reusing these groups.
 - SAMSEG resamples every session to 1 mm, and SynthSeg works at 1 mm internally, so neither result
   says anything about sub-millimetre detail.

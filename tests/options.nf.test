@@ -44,4 +44,46 @@ nextflow_pipeline {
             )
         }
     }
+
+    test("run_hoc = true without a subject segmentation stops with a clear message") {
+
+        when {
+            params {
+                outdir  = "$outputDir"
+                run_hoc = true
+            }
+        }
+
+        then {
+            assertAll(
+                { assert !workflow.success },
+                { assert new File("${launchDir}/meta/nextflow.log").text.contains("run_hoc = true needs the subject's own segmentation") }
+            )
+        }
+    }
+
+    test("run_hoc = true with SynthSeg writes the HOC files; off by default") {
+
+        when {
+            params {
+                outdir             = "$outputDir"
+                run_hoc            = true
+                volume_source      = "synthseg"
+                freesurfer_license = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: false).collect { f -> f.toString() }
+            assertAll(
+                { assert workflow.success },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_HOC") }.size() == 1 },
+                // HOC alone still runs the segmentation, but no volume statistics
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("SYNTHSEG_VOLUMES") }.size() == 1 },
+                { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_SUBJECT_") }.isEmpty() },
+                { assert "sub-test-1/anat/sub-test-1_desc-hoc.csv" in files },
+                { assert "metrics/space-native_desc-hoc.csv" in files }
+            )
+        }
+    }
 }

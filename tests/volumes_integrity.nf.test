@@ -2,8 +2,9 @@
 // volume_source = 'freesurfer', so no segmentation runs and no license is needed.
 //
 // Five samples, each with its own synthetic aparc+aseg whose counts encode the sample
-// (sample i: Left-Hippocampus 1000+i, Left-Lateral-Ventricle 2000+i, ctx-lh-precuneus 3000+i
-// voxels of 1 mm3), and its own age in participants.tsv (60+i):
+// (sample i: Left-Hippocampus 1000+i, Left-Inf-Lat-Vent 100+i, Left-Lateral-Ventricle 2000+i,
+// ctx-lh-precuneus 3000+i voxels of 1 mm3, so a left and bilateral HOC of
+// (1000+i) / (1100+2i)), and its own age in participants.tsv (60+i):
 //   1 sub-INTA ses-01   2 sub-INTA ses-02          (one subject, two sessions)
 //   3 sub-INTB ses-01 run-1   4 sub-INTB ses-01 run-2   (two runs, two segmentations)
 //   5 sub-INTC without session
@@ -48,6 +49,7 @@ nextflow_pipeline {
                 run_csf_comparison_volumes = true
                 run_merge_all_stats        = true
                 volume_source              = "freesurfer"
+                run_hoc                    = true
             }
         }
 
@@ -59,7 +61,7 @@ nextflow_pipeline {
                 [sid: "sub-INTB", session: "ses-01", run: "2", i: 4],
                 [sid: "sub-INTC", session: "",       run: "1", i: 5]
             ]
-            def expected = { i -> ["Left-Hippocampus": 1000 + i, "Left-Lateral-Ventricle": 2000 + i, "ctx-lh-precuneus": 3000 + i] }
+            def expected = { i -> ["Left-Hippocampus": 1000 + i, "Left-Inf-Lat-Vent": 100 + i, "Left-Lateral-Ventricle": 2000 + i, "ctx-lh-precuneus": 3000 + i] }
             def read = { f, sep -> def ls = path(f).readLines(); def h = ls[0].split(sep, -1).toList()
                          ls[1..-1].collect { l -> [h, l.split(sep, -1).toList()].transpose().collectEntries() } }
             def out = "$outputDir/out/metrics"
@@ -87,6 +89,19 @@ nextflow_pipeline {
                     assert mine.every { r -> r.pipeline_revision } : "${spec.f}: no pipeline_revision"
                 }
                 assert rows.size() == samples.size() * spec.n : "${spec.f}: unexpected extra rows"
+            }
+            def hoc = read("${out}/space-native_desc-hoc.csv", ",")
+            assert hoc.size() == samples.size() * 3 : "HOC: ${hoc.size()} rows, expected ${samples.size() * 3}"
+            samples.each { s ->
+                def mine = hoc.findAll { r -> r.sid == s.sid && r.session == s.session && r.run == s.run }
+                def left = String.format(Locale.ROOT, "%.6f", (1000 + s.i) / (1100.0 + 2 * s.i))
+                assert mine*.roi == ["Left", "Right", "Bilateral"] : "HOC: rows of ${s}"
+                assert mine*.hoc == [left, "", left] : "HOC: ${s} = ${mine*.hoc}, expected ${left}"
+                assert (mine[0].hippocampus_mm3 as double) == 1000 + s.i && (mine[0].inf_lat_vent_mm3 as double) == 100 + s.i
+                assert mine.every { r -> r.volume_source == "freesurfer" }
+                def prefix = [s.sid, s.session, s.run == "1" && s.sid != "sub-INTB" ? "" : "run-${s.run}"].findAll { x -> x }.join("_")
+                def dir = s.session ? "${s.sid}/${s.session}" : s.sid
+                assert path("$outputDir/out/${dir}/anat/${prefix}_desc-hoc.csv").exists() : "HOC: no per-sample file for ${s}"
             }
             def combined = read("${out}/space-native_all-regions_desc-roi_combined.tsv", "\t")
             samples.each { s ->

@@ -1146,6 +1146,12 @@
                     "help_text": "Missing sessions are always listed in metrics/volumes_missing_samples.txt.",
                     "default": false
                 },
+                "run_hoc": {
+                    "type": "boolean",
+                    "description": "Compute the hippocampal occupancy score (hippocampus / (hippocampus + inferior lateral ventricle)), left, right and bilateral.",
+                    "help_text": "Counted on the subject's own segmentation, so it needs volume_source = 'synthseg' or 'freesurfer', or run_longitudinal_volumes = true. Per sample: <id>/<session>/anat/*_desc-hoc.csv; all samples: metrics/space-native_desc-hoc.csv.",
+                    "default": false
+                },
                 "run_longitudinal_volumes": {
                     "type": "boolean",
                     "description": "Segment all sessions of each subject jointly with FreeSurfer SAMSEG longitudinal, to measure atrophy over time. Overrides volume_source for GM, CSF and comparison volumes.",

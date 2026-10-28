@@ -9,6 +9,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `--run_hoc` (default `false`): hippocampal occupancy score (hippocampus / (hippocampus + inferior lateral ventricle)), left, right and bilateral, from the subject's own segmentation, in `anat/*_desc-hoc.csv` and `metrics/space-native_desc-hoc.csv`.
 - Volume quality control: `qc_score`, `qc_flags` (`qc_low`, `icv_missing`, `icv_implausible`, `icv_drift`, `empty:<regions>`, `duplicate`), `scanner`, `duplicate_of` and `pipeline_revision` columns; warnings for duplicate T1s (same voxel data, even when header or compression differ) and subjects scanned on several scanners; the run fails when a session has no volumes unless `--allow_missing_volumes` (`--volume_qc_threshold`, `--volume_icv_drift`). `WM-hypointensities` row in the comparison files.
 - Label warps use `GenericLabel` instead of `MultiLabel`, which altered label volumes even under an identity transform.
 - `--run_longitudinal_volumes` (default `false`): FreeSurfer SAMSEG longitudinal segmentation of all sessions of a subject for GM, CSF/ventricle and comparison volumes, written to the same files with `volume_source = samseg_long`. When volumes are requested on subjects with several sessions and the option is off, a startup warning says it is not activated.

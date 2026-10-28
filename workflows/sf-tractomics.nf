@@ -23,6 +23,7 @@ include { SEGMENTATION_SAMSEGLONG as SAMSEG_LONG_VOLUMES } from '../modules/loca
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_GM_VOLUMES         } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_CSF_VOLUMES        } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../modules/local/stats/subjectvolumes/main'
+include { STATS_HOC              } from '../modules/local/stats/hoc/main'
 include { TRACTOMETRY            } from '../subworkflows/nf-neuro/tractometry/main'
 include { REGISTRATION_ANTSAPPLYTRANSFORMS as REGISTRATION_METRICS_TO_ORIG } from '../modules/nf-neuro/registration/antsapplytransforms/main'
 include { REGISTRATION_TRACTOGRAM as REGISTRATION_TRACTOGRAM_TO_ORIG } from '../modules/nf-neuro/registration/tractogram/main'
@@ -277,6 +278,12 @@ workflow SF_TRACTOMICS {
         volume_source = "samseg_long"
     }
     def subject_volumes = volume_source != "atlas"
+    // Hippocampal occupancy score, counted on the subject's own segmentation
+    def do_hoc = params.run_hoc == true
+    if ( do_hoc && !subject_volumes ) {
+        error "run_hoc = true needs the subject's own segmentation: set volume_source to 'synthseg' or " +
+              "'freesurfer', or run_longitudinal_volumes = true."
+    }
     // Code revision written into the volume CSVs, so results of different versions are never mixed
     // unknowingly: the git commit when run from a repository, else the pipeline version.
     def pipeline_revision = workflow.commitId ?: gitRevision(projectDir) ?: workflow.manifest.version
@@ -321,6 +328,7 @@ workflow SF_TRACTOMICS {
     ch_gm_volumes  = channel.empty()
     ch_csf_volumes = channel.empty()
     ch_cmp_volumes = channel.empty()
+    ch_hoc         = channel.empty()
 
     // Every T1 annotated once: scanner (BIDS sidecar) and duplicates (same voxel data). Used by the
     // volume branches and by the warnings below.
@@ -328,7 +336,7 @@ workflow SF_TRACTOMICS {
     ch_t1_vol       = ch_t1_annotated.map { _orig, meta, t1 -> [meta, t1] }
     ch_t1_annotated.toList().subscribe { items -> warnT1Annotations(items) }
 
-    if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes) ) {
+    if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes || do_hoc) ) {
         if ( volume_source == "samseg_long" ) {
             if ( !params.freesurfer_license ) {
                 error "run_longitudinal_volumes = true requires params.freesurfer_license (SAMSEG runs from the FreeSurfer container)."
@@ -436,6 +444,20 @@ workflow SF_TRACTOMICS {
             STATS_SUBJECT_COMPARISON_VOLUMES(subjectVolumesInput.call(params.atlas_csf_comparison_lut ?: "${projectDir}/assets/freesurfer_comparison_lut.json"))
             ch_versions = ch_versions.mix(STATS_SUBJECT_COMPARISON_VOLUMES.out.versions.first())
             ch_cmp_volumes = STATS_SUBJECT_COMPARISON_VOLUMES.out.volumes
+        }
+        if ( do_hoc ) {
+            STATS_HOC(ch_subject_seg.map { meta, seg, _seg_volumes, _qc -> [meta, seg] })
+            ch_versions = ch_versions.mix(STATS_HOC.out.versions.first())
+            ch_hoc = STATS_HOC.out.hoc
+            ch_hoc
+                .map { _meta, csv -> csv }
+                .collectFile(
+                    storeDir: "${params.outdir}/metrics/",
+                    name: "space-native_desc-hoc.csv",
+                    skip: 1,
+                    keepHeader: true,
+                    sort: { csv -> csv.name }
+                )
         }
     }
 
@@ -652,7 +674,8 @@ workflow SF_TRACTOMICS {
     [["WM bundle", do_wm_volumes ? ch_wm_volumes : null],
      ["GM", do_gm_volumes ? ch_gm_volumes : null],
      ["CSF", do_csf_volumes ? ch_csf_volumes : null],
-     ["comparison", do_cmp_volumes ? ch_cmp_volumes : null]].findAll { entry -> entry[1] != null }.each { entry ->
+     ["comparison", do_cmp_volumes ? ch_cmp_volumes : null],
+     ["HOC", do_hoc ? ch_hoc : null]].findAll { entry -> entry[1] != null }.each { entry ->
         checkVolumeCoverage(entry[0], entry[1], ch_expected_sessions, "${params.outdir}/metrics", params.allow_missing_volumes == true)
     }
 

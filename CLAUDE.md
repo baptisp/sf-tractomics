@@ -25,6 +25,8 @@ assets/freesurfer_gm_lut.json               FreeSurfer ids → IIT GM region nam
 modules/local/stats/subjectvolumes/         Volumes of a subject segmentation (+ volume_source, icv_mm3)
 conf/modules/stats_subjectvolumes.config    SynthSeg/SAMSEG + subject volume config (volume_source != atlas)
 modules/local/segmentation/samseglong/      SAMSEG longitudinal segmentation of all sessions of a subject
+modules/local/stats/hoc/                    Hippocampal occupancy score from the subject segmentation (run_hoc)
+docs/nf-neuro-patches/                      Diffs of every vendored nf-neuro file changed here (make_patches.py)
 assets/freesurfer_gm_samseg_lut.json        GM LUT for SAMSEG (subcortical + cerebral cortex totals)
 ```
 
@@ -222,6 +224,7 @@ result is fanned out to every DWI run sharing it. The flag is checked with
 | `run_csf_volumes` | false | CSF/ventricle region volumes only |
 | `volume_source` | `'atlas'` | GM/CSF/comparison volumes from `atlas`, `synthseg` or `freesurfer` (see above) |
 | `run_longitudinal_volumes` | false | SAMSEG longitudinal GM/CSF/comparison volumes; overrides `volume_source` |
+| `run_hoc` | false | Hippocampal occupancy score (STATS_HOC on `ch_subject_seg`); needs a subject segmentation |
 | `run_merge_all_stats` | false | Produce `metrics/space-native_all-regions_desc-roi_combined.tsv` — wide format with ROIs as columns |
 | `tractometry_covariates` | `'site,age,sex,handedness,disease'` | Comma-separated covariate column names embedded in stats TSVs via `ext.meta_columns` and used by `collectUnifiedFiles` to separate covariates from data columns |
 | `use_binary_masks` | false | Use binary masks instead of TDI-weighted for WM extraction |

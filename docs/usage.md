@@ -188,6 +188,20 @@ At startup the pipeline also warns when T1s are duplicates and when a subject wa
 
 No flag proves a segmentation right: review flagged samples, and visually check outliers.
 
+### Hippocampal occupancy score
+
+`--run_hoc true` computes the hippocampal occupancy score (Heister et al. 2011, Neurology):
+hippocampus / (hippocampus + inferior lateral ventricle), for the left and right hemispheres and
+bilaterally (both hippocampi over both sums). It captures hippocampal shrinkage together with the
+enlargement of the temporal horn next to it, and depends less on head size than the hippocampal
+volume.
+
+It is counted on the subject's own segmentation, so it needs `--volume_source synthseg` or
+`freesurfer`, or `--run_longitudinal_volumes true`; the run stops otherwise. It needs no other
+volume option. As a ratio of two volumes of one segmentation, it does not depend on the voxel size.
+It inherits the noise of the small inferior lateral ventricle, and, like the volumes, it must not be
+compared across segmentation methods.
+
 ### Merging all stats and volumes
 
 To merge all available data (metrics TSVs and/or volume CSVs) across WM, GM, and CSF region types into a single file:

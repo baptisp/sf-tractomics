@@ -102,6 +102,13 @@ With `synthseg`, the segmentation itself is published per subject:
 - `anat/<subject>_desc-synthseg_volumes.csv` — SynthSeg's own soft volumes, including total intracranial
 - `anat/<subject>_desc-synthseg_qc.csv` — SynthSeg QC scores
 
+## Hippocampal occupancy score
+
+With `--run_hoc true`:
+
+- `anat/<subject>_desc-hoc.csv` — one row per `roi` (`Left`, `Right`, `Bilateral`): `sid, session, run, roi, hoc, hippocampus_mm3, inf_lat_vent_mm3, volume_source`. `hoc` is empty when the segmentation has neither structure.
+- `metrics/space-native_desc-hoc.csv` — all samples merged
+
 ## Merged output (metrics and/or volumes)
 
 Enabled by `--run_merge_all_stats`.

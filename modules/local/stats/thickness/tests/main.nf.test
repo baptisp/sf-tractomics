@@ -6,6 +6,8 @@
 //   rh insula      4170 vertices, area 2767, volume 8103, thickness 2.992 +/- 0.723
 // bert__recon_all/mri/orig/001.mgz has 1 mm voxels. coarse__recon_all holds the same stats with
 // lh entorhinal thickness set to 0.512 mm and a 1 x 1 x 2 mm input T1, so both QC flags fire.
+// edge__recon_all holds bert's stats with a 1.2 x 1.055 x 1.055 mm input (OASIS-3 Biograph MPRAGE),
+// whose 1.2 is stored as 1.2000000476837158: within the 1.2 mm limit, so not flagged.
 nextflow_process {
 
     name "Test Process STATS_THICKNESS"
@@ -66,6 +68,27 @@ nextflow_process {
             assert rows.every { l -> l.endsWith(",recon-all,coarse_t1;implausible:ctx-lh-entorhinal") }
             assert rows.every { l -> l.startsWith("sub-02,,2,") }
             assert "sub-02,,2,ctx-lh-entorhinal,0.512,0.679,401,1582,609,recon-all,coarse_t1;implausible:ctx-lh-entorhinal" in rows
+        }
+    }
+
+    test("thickness - a 1.2 mm voxel side, stored in single precision, is not flagged") {
+
+        when {
+            process {
+                """
+                input[0] = [
+                    [ id:'sub-03', session:'ses-01' ],
+                    file("${moduleDir}/tests/data/edge__recon_all", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def rows = path(process.out.thickness[0][1]).readLines()[1..-1]
+            assert rows.size() == 68
+            assert rows.every { l -> l.endsWith(",recon-all,") }
         }
     }
 

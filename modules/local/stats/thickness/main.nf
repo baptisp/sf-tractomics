@@ -6,7 +6,7 @@
 //   sid,session,run,roi,thickness_mm,thickness_std_mm,surface_area_mm2,gm_volume_mm3,num_vertices,
 //   thickness_method,qc_flags
 // qc_flags (separated by ';', empty = no reason found): coarse_t1 (an input voxel side above
-// ext.max_voxel_mm, 1.2 mm by default: recon-all expects about 1 mm), implausible:<regions>
+// ext.max_voxel_mm, 1.2 mm by default, as in ADNI's MPRAGE: recon-all expects about 1 mm), implausible:<regions>
 // (mean thickness outside ext.min_thickness_mm .. ext.max_thickness_mm, 1 to 4.5 mm by default,
 // the usual sign of a surface failure). Thickness is not normalised by head size.
 process STATS_THICKNESS {
@@ -62,7 +62,8 @@ for hemi in ("lh", "rh"):
 # Voxel size of the input T1 as recon-all received it
 flags = []
 orig = sorted(glob.glob(os.path.join("${recon_all}", "mri", "orig", "0*.mgz")))
-if orig and max(float(z) for z in nib.load(orig[0]).header.get_zooms()[:3]) > ${max_voxel}:
+# Voxel sizes are stored in single precision (1.2 reads 1.2000000476837158): compare with a tolerance
+if orig and max(float(z) for z in nib.load(orig[0]).header.get_zooms()[:3]) > ${max_voxel} + 1e-3:
     flags.append("coarse_t1")
 implausible = [roi for roi, v in rows if not ${min_thickness} <= float(v["ThickAvg"]) <= ${max_thickness}]
 if implausible:

@@ -28,6 +28,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Fixed`
 
+- Parameters set in a `-c` config file or in a profile (`test`, `iit_tractometry`, `legacy`, `full_pipeline`, `skip_preproc`) did not reach the module settings (`ext.*`): `conf/modules/*.config` copied them while `nextflow.config` was read, before those values were applied, so steps silently used the defaults (for example `max_dti_shell_value` 1200 instead of the value set). The module settings now read the parameters when each task runs. `outdir`, `publish_dir_mode` and `clean_output` still have to be given on the command line or in a `-params-file`.
 - The per-sample WM, GM, CSF and comparison stats tables were published under one name for both the mean and the std table, so either could overwrite the other. The std table is now `*_label-std_desc-roi_stats.tsv`; the mean keeps its name.
 - Global stats and stats+volumes files list samples in sid / session / run order; they followed work directory names before.
 - `--run_t1_resampling` never reached TractoFlow: its option list and its code used different names, so the T1 was never resampled whatever the setting. Fixed; the default is now `false`, which keeps results identical to previous runs.

@@ -184,4 +184,26 @@ nextflow_pipeline {
             )
         }
     }
+
+    test("parameters set in a -c config file reach the steps") {
+
+        // Loaded with -c, after nextflow.config: the module settings must still see these values
+        config "./params_in_config.config"
+
+        when {
+            params {
+                outdir                  = "$outputDir"
+                run_subject_roi_metrics = true
+                volume_source           = "synthseg"
+                freesurfer_license      = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            assertAll(
+                { assert workflow.success },
+                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: supersampling 4 min_fraction 0.6") } == 1 }
+            )
+        }
+    }
 }

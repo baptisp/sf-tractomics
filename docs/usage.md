@@ -16,6 +16,12 @@ nextflow run scilus/sf-tractomics \
 
 The pipeline accepts a BIDS-compatible samplesheet CSV as input.
 
+Parameters can be given on the command line, in a `-params-file` (YAML or JSON), in a profile or
+in a `-c` config file (`params { ... }`); every step sees the final value. The exceptions are
+`outdir`, `publish_dir_mode` and `clean_output`: Nextflow reads them while it loads
+`nextflow.config`, before any `-c` file, so give them on the command line or in a `-params-file`
+(an `outdir` set only in a `-c` file sends the run reports to `./null`).
+
 ## ROI metrics
 
 ### Master switches

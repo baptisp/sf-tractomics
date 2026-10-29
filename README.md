@@ -92,6 +92,25 @@ value recomputed independently (FreeSurfer's `mri_vol2surf` for the surface valu
 that the pipeline computes what it claims, not that the values separate diagnoses: their
 diagnostic value has to be established on a cohort.
 
+Not yet run on real data (covered by stub or synthetic tests only), to check before relying on them:
+
+- Subjects with several sessions or runs: one `recon-all` shared by the runs of a T1, and SAMSEG
+  longitudinal combined with `--run_subject_roi_metrics`.
+- `--volume_source freesurfer` (the subject's own `aparc+aseg`) for HOC and the subject-region
+  metrics; only SynthSeg was run.
+- Multi-shell data (e.g. OASIS-3 Vida), where free water is reliable and NODDI valid; the 4
+  subjects are single-shell b = 1000.
+- Data with a reverse phase-encoding scan, so `topup` runs before the label transfer and the
+  surface sampling.
+- Clusters (Slurm, Singularity/Apptainer); the checks ran locally with Docker.
+- Profiles `legacy`, `full_pipeline`, `skip_preproc` and `test` now apply their parameters to the
+  module settings, which they silently did not before (see the changelog): runs made with them
+  before this fix can differ from new ones.
+- Runs made before this fix with parameters in a `-c` config file used the defaults for the
+  module settings (e.g. `max_dti_shell_value` 1200): look for the value in their `.command.sh`
+  files (`grep -l "v<=1200" work/*/*/.command.sh`) before reusing their results. Single-shell
+  b = 1000 data is not affected by that one.
+
 ## Credits
 
 scilus/sf-tractomics is a port by @AlexVCaron of tractoflow, originally written by @GuillaumeTh.

@@ -164,9 +164,15 @@ The accepted cortical method samples each metric on the FreeSurfer surface at mi
 (`bbregister` b0-to-T1, `mri_vol2surf` at half the white-to-pial distance, surface smoothing),
 then averages per Desikan region. A volume-based mean over the cortex labels is not used: at 2 mm
 almost no cortical voxel is mostly cortex.
-- Option: `run_cortical_diffusion` (false), requires `run_cortical_thickness`.
-- Per-sample file: `*_desc-cortex-midthickness_stats.tsv`, same layout as the GM file.
-- This is implemented after 2 and 3a, and only if 3a shows the pipeline gives sensible values.
+- Implemented as `run_cortical_surface_metrics` (false), module `modules/local/stats/surfacemetrics`.
+  It runs `recon-all` itself (shared with `run_cortical_thickness` when both are on).
+- Differences from the studies above: the maps reach T1 space through TractoFlow's DWI-to-T1
+  transform (the one every other output uses) instead of a separate `bbregister`; mid-thickness is
+  the average of the white and pial vertices (as the HCP mid-thickness surface) instead of
+  FreeSurfer's `--projfrac 0.5` along the white normal; there is no surface smoothing, since region
+  means do not need it. Vertices outside the DWI brain mask are left out and counted (`n_vertices`).
+- Per-sample files: `dwi/*_surf-freesurfer_desc-roi_stats.tsv` and `*_label-std_*`, same layout as
+  the GM file; all samples: `metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv`.
 
 ### Metrics and their limits
 - DTI metrics (FA, MD, RD, AD) are valid on both datasets.
@@ -182,6 +188,18 @@ undistorted b0 made from the T1, then used by topup. It is not in nf-neuro or Tr
 it is a separate step after this plan. Meanwhile, every subject gets a QC image (labels over FA and
 b0), and registration accuracy in the temporal lobe is checked on a few subjects before results
 are interpreted.
+
+Checked on 4 OASIS-3 subjects (Biograph mMR, b = 1000, no reverse phase-encoding; only 1 of the
+1742 OASIS-3 DWI sessions has an AP + PA pair, while 1090 have a GRE field map that the pipeline
+does not use): TractoFlow's SyN T1-to-DWI transform against its affine part alone, to move the
+subject's labels. SyN put the WM labels on higher FA (mean 0.31 to 0.35 against 0.28 to 0.31) and
+the cortex and deep GM labels on less free water (cortex 0.27 to 0.35 against 0.30 to 0.39; deep
+GM 0.06 to 0.15 against 0.12 to 0.21) in all 4 subjects. In DWI space it makes the cortex 16 to
+21% larger and the WM 8 to 14% smaller than on the T1 (frontal and temporal poles up to +88%),
+because the GM/WM border it finds on the 2 mm FA sits inside the T1 white matter; the volumes
+still come from the T1. SyN stays the transform for every subject-region and surface output. With
+a reverse phase-encoding scan, topup removes most of the distortion before the registration, and
+SyN only has residuals left to absorb.
 
 ### Voxel size
 These metrics depend on the DWI voxel size. OASIS-3 (2 mm) and ADNI2 (2.7 mm) give different
@@ -211,7 +229,7 @@ nf-neuro as a module with its own tests; code tied to sf-tractomics files and op
 | Parse `aparc.stats` to a CSV | `modules/local/stats/thickness` (changed from the first plan) | nf-neuro tables use a `sample` column while sf-tractomics keys on `sid, session, run`; an nf-neuro version would need an extra conversion step. Can move upstream once the conventions are aligned. |
 | Label fraction maps on a target grid | `modules/local/image/labelfraction`, in nf-neuro layout (changed from the first plan) | Generic, so a good nf-neuro candidate, but an nf-neuro module needs tests on the nf-neuro test data: a separate contribution. Fractions are computed on the acquisition grid (the raw DWI), not on the 1 mm grid of the maps, because partial volume happens at the acquired resolution. |
 | Weighted metrics in regions | existing nf-neuro `stats/metricsinroi` (mask mode) | Already does weighted means; check that it reports the sum of weights, or add it upstream. |
-| Diffusion on the cortical surface (3b) | new nf-neuro module, later | Generic (`bbregister` + `mri_vol2surf` + per-region average). |
+| Diffusion on the cortical surface (3b) | `modules/local/stats/surfacemetrics` (changed from the first plan) | Takes the pipeline's own DWI-to-T1 transform and writes the pipeline's stats layout; an nf-neuro version would take a generic transform and a `sample` column. |
 | HOC | `modules/local/` | Reads the pipeline's own subject volume CSV. |
 | Options, collectors, combined TSV | `workflows/sf-tractomics.nf` | Pipeline-specific. |
 

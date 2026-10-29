@@ -248,6 +248,22 @@ surface failure (temporal pole and entorhinal cortex first), are flagged `implau
 Review flagged scans in the published FreeSurfer folder. Thickness is not normalised by head
 size; the scanner must be a covariate, as for volumes.
 
+### Diffusion metrics on the cortical surface
+
+`--run_cortical_surface_metrics true` samples every diffusion metric map on the FreeSurfer
+surfaces, halfway between the white and the pial surfaces, and averages it over the vertices of
+each Desikan region, as the cortical MD studies in Alzheimer's disease do. It runs `recon-all`
+like `--run_cortical_thickness` (once per distinct T1, shared when both options are on) and
+needs `--freesurfer_license`, but no subject segmentation.
+
+The maps and the DWI brain mask go to T1 space through TractoFlow's DWI-to-T1 transform (linear
+interpolation); vertices outside the mask are left out, and `n_vertices` gives how many remain.
+Mid-thickness is the point farthest from both CSF and white matter, so these values are less
+contaminated than the voxel means over the cortical labels of `--run_subject_roi_metrics`, but a
+2 mm diffusion voxel still reaches past both borders of a 2.5 mm cortex: keep the cortical
+thickness in the analysis, and harmonise across sites. The sampling depth is
+`ext.projfrac` of `STATS_SURFACEMETRICS` (0.5; 0 is the white surface, 1 the pial surface).
+
 ### Merging all stats and volumes
 
 To merge all available data (metrics TSVs and/or volume CSVs) across WM, GM, and CSF region types into a single file:

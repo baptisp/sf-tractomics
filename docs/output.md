@@ -120,6 +120,16 @@ With `--run_cortical_thickness true`:
 - `anat/<subject>_desc-thickness.csv` — one row per Desikan region: `sid, session, run, roi, thickness_mm, thickness_std_mm, surface_area_mm2, gm_volume_mm3, num_vertices, thickness_method, qc_flags`
 - `metrics/space-native_desc-cortical-thickness.csv` — all samples merged
 
+## Diffusion metrics on the cortical surface
+
+With `--run_cortical_surface_metrics true`:
+
+- `dwi/<subject>_surf-freesurfer_desc-roi_stats.tsv` — mean of each metric over the vertices of each Desikan region, sampled at mid-thickness: `sid, session, run, roi, covariates..., metrics..., n_vertices`; `dwi/<subject>_surf-freesurfer_label-std_desc-roi_stats.tsv` holds the standard deviations. A region with no vertex inside the DWI brain mask has no row.
+- `metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv` — all samples merged, `region_type = GM_surface`
+- `anat/freesurfer/<subject>/` — the `recon-all` folder, as for the thickness
+
+These rows are not added to the combined TSV (same region names as the atlas GM rows).
+
 ## Hippocampal occupancy score
 
 With `--run_hoc true`:

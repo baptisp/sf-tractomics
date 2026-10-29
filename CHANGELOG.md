@@ -9,6 +9,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `--run_cortical_surface_metrics` (default `false`): diffusion metrics of the cortex sampled on the FreeSurfer surfaces at mid-thickness and averaged per Desikan region (new `STATS_SURFACEMETRICS` module), sharing `recon-all` with `--run_cortical_thickness`, in `dwi/*_surf-freesurfer_desc-roi_stats.tsv` and `metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv`.
 - `--run_subject_roi_metrics` (default `false`) and `--subject_roi_min_fraction`: diffusion metrics in the subject's own GM regions, weighted by the fraction of each acquired DWI voxel inside the region (new `IMAGE_LABELFRACTION` module), in `dwi/*_seg-<seg>_desc-roi_stats.tsv` and `metrics/space-native_seg-<seg>_label-mean_desc-roi_stats.tsv`, with the effective region sizes in `*_desc-roi_fractions.csv`.
 - `--run_cortical_thickness` (default `false`): FreeSurfer `recon-all` (nf-neuro `segmentation/fsreconall`) on each distinct T1, thickness, area, grey matter volume and vertex count per Desikan region in `anat/*_desc-thickness.csv` and `metrics/space-native_desc-cortical-thickness.csv`, with `coarse_t1` and `implausible:<regions>` QC flags.
 - `--run_hoc` (default `false`): hippocampal occupancy score (hippocampus / (hippocampus + inferior lateral ventricle)), left, right and bilateral, from the subject's own segmentation, in `anat/*_desc-hoc.csv` and `metrics/space-native_desc-hoc.csv`.

@@ -137,6 +137,75 @@ nextflow_pipeline {
         }
     }
 
+    test("run_cortical_surface_metrics = true without a FreeSurfer licence stops with a clear message") {
+
+        when {
+            params {
+                outdir                       = "$outputDir"
+                run_cortical_surface_metrics = true
+                freesurfer_license           = null
+            }
+        }
+
+        then {
+            assertAll(
+                { assert !workflow.success },
+                { assert new File("${launchDir}/meta/nextflow.log").text.contains("run_cortical_surface_metrics = true requires params.freesurfer_license") }
+            )
+        }
+    }
+
+    test("run_cortical_surface_metrics = true with thickness shares one recon-all and writes the surface files") {
+
+        when {
+            params {
+                outdir                       = "$outputDir"
+                run_cortical_surface_metrics = true
+                run_cortical_thickness       = true
+                freesurfer_license           = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: false).collect { f -> f.toString() }
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) }.size() }
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("RECONALL_THICKNESS") == 1 },
+                { assert tasks("STATS_THICKNESS") == 1 },
+                { assert tasks("STATS_SURFACEMETRICS") == 1 },
+                // The module receives the configured sampling depth (its stub records it)
+                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: projfrac 0.5") } == 1 },
+                { assert "sub-test-1/dwi/sub-test-1_surf-freesurfer_desc-roi_stats.tsv" in files },
+                { assert "sub-test-1/dwi/sub-test-1_surf-freesurfer_label-std_desc-roi_stats.tsv" in files },
+                { assert "metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv" in files },
+                { assert path("${params.outdir}/metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv").readLines()[0] == "sid\tsession\trun\troi\tregion_type\tn_vertices" },
+                { assert "sub-test-1/anat/sub-test-1_desc-thickness.csv" in files }
+            )
+        }
+    }
+
+    test("run_cortical_surface_metrics = true alone runs recon-all but not the thickness table") {
+
+        when {
+            params {
+                outdir                       = "$outputDir"
+                run_cortical_surface_metrics = true
+                freesurfer_license           = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) }.size() }
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("RECONALL_THICKNESS") == 1 },
+                { assert tasks("STATS_THICKNESS") == 0 },
+                { assert tasks("STATS_SURFACEMETRICS") == 1 }
+            )
+        }
+    }
+
     test("run_subject_roi_metrics = true without a subject segmentation stops with a clear message") {
 
         when {

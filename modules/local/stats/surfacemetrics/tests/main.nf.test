@@ -1,0 +1,103 @@
+// Known-answer tests on a synthetic subject (tests/data, built by make_fixture.py):
+//   one sphere per hemisphere, white radius 8 mm, pial 12 mm (mid-thickness at 10 mm), surface
+//   coordinates 10, 20, -5 mm away from scanner coordinates (as in a real orig.mgz);
+//   regions superiorfrontal (top, 500 vertices) and inferiortemporal (bottom, 500 vertices);
+//   diffusion space is 3 mm above T1 space (dwi_to_t1.txt);
+//   md = 2 above the sphere centres and 5 below; mdt (desc-fwc) = distance to the nearest centre;
+//   the DWI mask leaves out the bottom of the rh sphere, so ctx-rh-inferiortemporal has no row.
+// A wrong coordinate frame or a transform not applied moves the samples by 6 mm or more: md then
+// mixes 2 and 5 and mdt leaves 10.
+nextflow_process {
+
+    name "Test Process STATS_SURFACEMETRICS"
+    script "../main.nf"
+    process "STATS_SURFACEMETRICS"
+
+    tag "modules"
+    tag "modules_local"
+    tag "stats/surfacemetrics"
+
+    // Rows of a TSV as maps column -> value
+    def table = { f ->
+        def lines = path(f).readLines()
+        def header = lines[0].split("\t").toList()
+        lines[1..-1].collect { l -> [header, l.split("\t", -1).toList()].transpose().collectEntries() }
+    }
+
+    test("surface metrics - mid-thickness values per region, masked region absent") {
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01', session:'ses-01' ],
+                             [ file("\${d}/test__md.nii.gz"), file("\${d}/test_desc-fwc__md.nii.gz") ],
+                             file("\${d}/mask.nii.gz"), file("\${d}/t1.nii.gz"), file("\${d}/dwi_to_t1.txt"),
+                             file("\${d}/sub__recon_all") ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def mean = table(process.out.stats_mean[0][1])
+            assert path(process.out.stats_mean[0][1]).readLines()[0] == "sid\tsession\trun\troi\tmd\tmdt\tn_vertices"
+            assert mean.collect { r -> r.roi } == ["ctx-lh-inferiortemporal", "ctx-lh-superiorfrontal", "ctx-rh-superiorfrontal"]
+            assert mean.every { r -> r.sid == "sub-01" && r.session == "ses-01" && r.run == "1" && r.n_vertices == "500" }
+            assert mean.collect { r -> r.md as double } == [5.0, 2.0, 2.0]
+            assert mean.every { r -> Math.abs((r.mdt as double) - 10.0) < 0.1 } : mean
+            def std = table(process.out.stats_std[0][1])
+            assert std.collect { r -> r.roi } == mean.collect { r -> r.roi }
+            assert std.every { r -> (r.md as double) < 1e-9 && (r.mdt as double) < 0.05 } : std
+            // versions.yml must be valid YAML with plain version numbers (Nextflow parses it)
+            def versions = new org.yaml.snakeyaml.Yaml().load(path(process.out.versions[0]).text)
+            def tools = versions["STATS_SURFACEMETRICS"]
+            assert tools.keySet() == ["nibabel", "numpy", "ants"] as Set
+            assert tools.values().every { v -> v.toString() ==~ /[0-9][0-9.]*[0-9a-zA-Z-]*/ } : tools
+        }
+    }
+
+    test("surface metrics - projfrac 1 samples the pial surface; covariate columns from meta") {
+
+        config "./nextflow_pial.config"
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01', session:'ses-01', run:'run-2', age:'71.5', disease:'AD' ],
+                             [ file("\${d}/test__md.nii.gz"), file("\${d}/test_desc-fwc__md.nii.gz") ],
+                             file("\${d}/mask.nii.gz"), file("\${d}/t1.nii.gz"), file("\${d}/dwi_to_t1.txt"),
+                             file("\${d}/sub__recon_all") ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def mean = table(process.out.stats_mean[0][1])
+            assert path(process.out.stats_mean[0][1]).readLines()[0] == "sid\tsession\trun\troi\tage\tdisease\tmd\tmdt\tn_vertices"
+            assert mean.every { r -> r.run == "2" && r.age == "71.5" && r.disease == "AD" }
+            assert mean.every { r -> Math.abs((r.mdt as double) - 12.0) < 0.1 } : mean
+        }
+    }
+
+    test("surface metrics - stub") {
+
+        options "-stub-run"
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01' ], [ file("\${d}/test__md.nii.gz") ], file("\${d}/mask.nii.gz"),
+                             file("\${d}/t1.nii.gz"), file("\${d}/dwi_to_t1.txt"), file("\${d}/sub__recon_all") ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+        }
+    }
+}

@@ -26,6 +26,7 @@ include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../mo
 include { STATS_HOC              } from '../modules/local/stats/hoc/main'
 include { SEGMENTATION_FSRECONALL as RECONALL_THICKNESS } from '../modules/nf-neuro/segmentation/fsreconall/main'
 include { STATS_THICKNESS        } from '../modules/local/stats/thickness/main'
+include { STATS_SURFACEMETRICS   } from '../modules/local/stats/surfacemetrics/main'
 include { IMAGE_LABELFRACTION as SUBJECT_ROI_FRACTIONS } from '../modules/local/image/labelfraction/main'
 include { STATS_METRICSINROI as STATS_SUBJECT_ROI_METRICS } from '../modules/nf-neuro/stats/metricsinroi/main'
 include { TRACTOMETRY            } from '../subworkflows/nf-neuro/tractometry/main'
@@ -285,6 +286,8 @@ workflow SF_TRACTOMICS {
     // Hippocampal occupancy score, counted on the subject's own segmentation
     def do_hoc = params.run_hoc == true
     def do_thickness = params.run_cortical_thickness == true
+    // Cortical diffusion metrics sampled on the recon-all surfaces, at mid-thickness
+    def do_surface_metrics = params.run_cortical_surface_metrics == true
     // Diffusion metrics in the subject's own GM regions, weighted by voxel fraction
     def do_subject_metrics = params.run_subject_roi_metrics == true
     if ( do_subject_metrics && !subject_volumes ) {
@@ -293,6 +296,9 @@ workflow SF_TRACTOMICS {
     }
     if ( do_thickness && !params.freesurfer_license ) {
         error "run_cortical_thickness = true requires params.freesurfer_license (recon-all runs from the FreeSurfer container)."
+    }
+    if ( do_surface_metrics && !params.freesurfer_license ) {
+        error "run_cortical_surface_metrics = true requires params.freesurfer_license (recon-all runs from the FreeSurfer container)."
     }
     if ( do_hoc && !subject_volumes ) {
         error "run_hoc = true needs the subject's own segmentation: set volume_source to 'synthseg' or " +
@@ -495,9 +501,10 @@ workflow SF_TRACTOMICS {
         }
     }
 
-    // Cortical thickness per Desikan region, from FreeSurfer recon-all on the raw T1
+    // FreeSurfer recon-all on the raw T1, for cortical thickness and surface sampling
     ch_thickness = channel.empty()
-    if ( do_thickness ) {
+    ch_surface_stats = channel.empty()
+    if ( do_thickness || do_surface_metrics ) {
         // recon-all takes hours per scan: run each distinct T1 once, share it with every run
         def ch_t1_recon = distinctT1s(ch_t1_vol)
         RECONALL_THICKNESS(
@@ -506,15 +513,39 @@ workflow SF_TRACTOMICS {
                 .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
         )
         ch_versions = ch_versions.mix(RECONALL_THICKNESS.out.versions.first())
-        STATS_THICKNESS(
-            ch_t1_recon
-                .map { meta, metas, _t1 -> [meta, metas] }
-                .join(RECONALL_THICKNESS.out.recon_all_out_folder)
-                .flatMap { _meta, metas, recon_all -> metas.collect { m -> [m, recon_all] } }
-        )
-        ch_versions = ch_versions.mix(STATS_THICKNESS.out.versions.first())
-        ch_thickness = STATS_THICKNESS.out.thickness
-        collectSampleCsvs(ch_thickness, "space-native_desc-cortical-thickness.csv", "${params.outdir}/metrics/")
+        def ch_recon_per_sample = ch_t1_recon
+            .map { meta, metas, _t1 -> [meta, metas] }
+            .join(RECONALL_THICKNESS.out.recon_all_out_folder)
+            .flatMap { _meta, metas, recon_all -> metas.collect { m -> [m, recon_all] } }
+
+        // Thickness per Desikan region, read from the recon-all stats
+        if ( do_thickness ) {
+            STATS_THICKNESS(ch_recon_per_sample)
+            ch_versions = ch_versions.mix(STATS_THICKNESS.out.versions.first())
+            ch_thickness = STATS_THICKNESS.out.thickness
+            collectSampleCsvs(ch_thickness, "space-native_desc-cortical-thickness.csv", "${params.outdir}/metrics/")
+        }
+
+        // Diffusion metrics on the surfaces: maps and DWI mask to T1 space with TractoFlow's
+        // DWI-to-T1 transform, sampled at mid-thickness, averaged per Desikan region
+        if ( do_surface_metrics ) {
+            def ch_recon_tractoflow_meta = ch_recon_per_sample
+                .join(ch_t1_annotated.map { orig, meta, _t1 -> [meta, orig] })
+                .map { _meta, recon_all, orig -> [orig, recon_all] }
+            STATS_SURFACEMETRICS(
+                mergeCovariatesIntoMeta(
+                    ch_input_metrics
+                        .join(TRACTOFLOW.out.b0_mask)
+                        .join(TRACTOFLOW.out.t1_native)
+                        .join(TRACTOFLOW.out.diffusion_to_anatomical)
+                        .join(ch_recon_tractoflow_meta),
+                    ch_covariates)
+            )
+            ch_versions = ch_versions.mix(STATS_SURFACEMETRICS.out.versions.first())
+            ch_surface_stats = STATS_SURFACEMETRICS.out.stats_mean
+            collectStatsFiles(ch_surface_stats, "space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv",
+                              "${params.outdir}/metrics/", "GM_surface")
+        }
     }
 
     // Volumes are requested on longitudinal data without the longitudinal option: each session
@@ -733,6 +764,7 @@ workflow SF_TRACTOMICS {
      ["comparison", do_cmp_volumes ? ch_cmp_volumes : null],
      ["HOC", do_hoc ? ch_hoc : null],
      ["cortical thickness", do_thickness ? ch_thickness : null],
+     ["cortical surface metrics", do_surface_metrics ? ch_surface_stats : null],
      ["subject-region metrics", do_subject_metrics ? ch_subject_roi_stats : null]].findAll { entry -> entry[1] != null }.each { entry ->
         checkVolumeCoverage(entry[0], entry[1], ch_expected_sessions, "${params.outdir}/metrics", params.allow_missing_volumes == true)
     }

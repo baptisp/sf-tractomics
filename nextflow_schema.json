@@ -1152,6 +1152,12 @@
                     "help_text": "About 7 hours per scan. Needs freesurfer_license. Per sample: <id>/<session>/anat/*_desc-thickness.csv and the FreeSurfer subject folder in anat/freesurfer/; all samples: metrics/space-native_desc-cortical-thickness.csv. recon-all expects about 1 mm voxels: coarser inputs are flagged coarse_t1.",
                     "default": false
                 },
+                "run_cortical_surface_metrics": {
+                    "type": "boolean",
+                    "description": "Compute diffusion metrics of the cortex sampled on the FreeSurfer surfaces, halfway between the white and the pial surfaces, per Desikan region.",
+                    "help_text": "Runs recon-all as run_cortical_thickness does (once per distinct T1, shared when both are on) and needs freesurfer_license. The metric maps go to T1 space through TractoFlow's DWI-to-T1 transform; vertices outside the DWI brain mask are left out. Per sample: dwi/*_surf-freesurfer_desc-roi_stats.tsv (mean, with n_vertices) and dwi/*_surf-freesurfer_label-std_desc-roi_stats.tsv; all samples: metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv.",
+                    "default": false
+                },
                 "run_subject_roi_metrics": {
                     "type": "boolean",
                     "description": "Compute diffusion metrics in the subject's own GM regions (the 84 GM regions of SynthSeg/FreeSurfer, 18 with SAMSEG), weighted by the fraction of each acquired DWI voxel inside the region.",

@@ -1,6 +1,8 @@
 .nextflow*
 work/
 data/
+# Test fixtures of the local modules are data folders too, and must be committed
+!modules/local/**/tests/data/
 results/
 .DS_Store
 testing/

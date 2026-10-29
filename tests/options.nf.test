@@ -52,6 +52,26 @@ nextflow_pipeline {
         }
     }
 
+    test("use_binary_masks = true counts the WM bundle volumes by voxel fraction") {
+
+        when {
+            params {
+                outdir           = "$outputDir"
+                run_wm_volumes   = true
+                use_binary_masks = true
+            }
+        }
+
+        then {
+            def scripts = commandScripts("${launchDir}/work")
+            assertAll(
+                { assert workflow.success },
+                { assert scripts.count { t -> t.contains("# settings: mask_volume fraction") } == 1 },
+                { assert !scripts.any { t -> t.contains("# settings: mask_volume nonzero") } }
+            )
+        }
+    }
+
     test("run_hoc = true without a subject segmentation stops with a clear message") {
 
         when {

@@ -29,7 +29,7 @@ nextflow_process {
         }
     }
 
-    test("masks mode: voxels with any non-zero weight are counted") {
+    test("masks mode, mask_volume nonzero (default): every non-zero voxel counts once") {
         config "./roivolumes_masks.config"
         when {
             process {
@@ -46,6 +46,27 @@ nextflow_process {
                 "sid,session,run,roi,volume_voxels,volume_mm3",
                 "sub-01,ses-01,1,BUNDLEA,8,24.0000",
                 "sub-01,ses-01,1,BUNDLEB,27,81.0000"
+            ]
+        }
+    }
+
+    test("masks mode, mask_volume fraction: each voxel counts by its value") {
+        config "./roivolumes_masks_fraction.config"
+        when {
+            process {
+                """
+                def d = "${projectDir}/tests/known_answer"
+                input[0] = [ [id:'sub-01', session:'ses-01'],
+                             [ file("\${d}/sub-01_ses-01_BUNDLEA.nii.gz"), file("\${d}/sub-01_ses-01_BUNDLEB.nii.gz") ], [] ]
+                """
+            }
+        }
+        then {
+            assert process.success
+            assert path(process.out.volumes[0][1]).readLines() == [
+                "sid,session,run,roi,volume_voxels,volume_mm3",
+                "sub-01,ses-01,1,BUNDLEA,8,24.0000",
+                "sub-01,ses-01,1,BUNDLEB,20,60.0000"   // 13 voxels at 1 + 14 at 0.5
             ]
         }
     }

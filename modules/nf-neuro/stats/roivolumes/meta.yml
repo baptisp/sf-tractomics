@@ -103,8 +103,17 @@ args:
         single atlas/labelmap image and rois_lut must be provided; one volume is
         computed per LUT entry, counting voxels whose rounded value equals the label
         index. If false (labels mode), rois is a list of mask files and one volume is
-        computed per file (number of non-zero voxels × voxel volume).
+        computed per file, as set by mask_volume.
       default: false
+  - mask_volume:
+      type: string
+      description: |
+        Labels mode only. "nonzero" (default): the volume is the number of non-zero
+        voxels × voxel volume. "fraction": the sum of the mask values × voxel volume,
+        for masks whose values are the covered fraction of each voxel (in [0, 1]), such
+        as binary masks warped with linear interpolation; the task fails on values
+        outside [0, 1].
+      default: "nonzero"
   - first_suffix:
       type: string
       description: |

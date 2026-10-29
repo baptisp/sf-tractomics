@@ -108,7 +108,7 @@ with open("versions.yml", "w") as v:
     v.write(f"    nibabel: {nib.__version__}\\n")
     v.write(f"    numpy: {np.__version__}\\n")
 PYEOF
-    echo "    ants: \$(antsRegistration --version | grep 'Version' | sed 's/.*: v//')" >> versions.yml
+    echo "    ants: \$(antsRegistration --version | grep '^ANTs Version' | sed -E 's/.*: v?([0-9.a-zA-Z-]+).*/\\1/')" >> versions.yml
     """
 
     stub:

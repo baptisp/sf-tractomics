@@ -57,6 +57,11 @@ nextflow_process {
             assert maps.collect { f -> file(f).name }.sort() == ["sub-01__Left-Hippocampus_fraction.nii.gz", "sub-01__Left-Inf-Lat-Vent_fraction.nii.gz"]
             assert describe(file(mapOf(maps, "Left-Hippocampus"))) == "0.5:8:4-5,2-3,2-3 1:8:2-3,2-3,2-3"
             assert describe(file(mapOf(maps, "Left-Inf-Lat-Vent"))) == "0.25:8:6-7,6-7,6-7"
+            // versions.yml must be valid YAML with plain version numbers (Nextflow parses it)
+            def versions = new org.yaml.snakeyaml.Yaml().load(path(process.out.versions[0]).text)
+            def tools = versions["IMAGE_LABELFRACTION"]
+            assert tools.keySet() == ["nibabel", "numpy", "ants"] as Set
+            assert tools.values().every { v -> v.toString() ==~ /[0-9][0-9.]*[0-9a-zA-Z-]*/ } : tools
         }
     }
 

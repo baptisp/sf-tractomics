@@ -82,6 +82,24 @@ nextflow_process {
         }
     }
 
+    test("surface metrics - a reference grid that cuts the cortex stops the task") {
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01' ], [ file("\${d}/test__md.nii.gz") ], file("\${d}/mask.nii.gz"),
+                             file("\${d}/t1_cropped.nii.gz"), file("\${d}/dwi_to_t1.txt"), file("\${d}/sub__recon_all") ]
+                """
+            }
+        }
+
+        then {
+            assert !process.success
+            assert new File("${launchDir}/meta/nextflow.log").text.contains("lh vertices lie outside the grid of t1_cropped.nii.gz")
+        }
+    }
+
     test("surface metrics - stub") {
 
         options "-stub-run"

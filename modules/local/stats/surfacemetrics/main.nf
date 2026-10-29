@@ -5,7 +5,9 @@
 // the white and the pial surfaces, as cortical MD studies in AD do (Montal 2018, Sun 2024; see
 // docs/plans/diagnosis_markers.md), keeps each value as far as possible from both borders:
 //   1. the metric maps and the DWI brain mask go to T1 space through TractoFlow's DWI-to-T1
-//      transform (linear interpolation);
+//      transform (linear interpolation), on the grid of t1_reference: the raw T1 given to
+//      recon-all, whose field of view holds the whole cortex (the run stops if a vertex falls
+//      outside it, as it would on a T1 cropped to the brain);
 //   2. every vertex is placed at white + ext.projfrac x (pial - white), 0.5 by default (mid-thickness),
 //      and the maps are sampled there (trilinear), in scanner coordinates of orig.mgz;
 //   3. vertices outside the DWI brain mask (mask < 0.5) are left out; each region of
@@ -56,6 +58,7 @@ process STATS_SURFACEMETRICS {
 
     python3 << 'PYEOF'
 import os
+import sys
 
 import nibabel as nib
 import numpy as np
@@ -92,6 +95,10 @@ for hemi in ("lh", "rh"):
     pial, _ = nib.freesurfer.read_geometry(os.path.join(recon, "surf", f"{hemi}.pial"))
     labels, _, regions = nib.freesurfer.read_annot(os.path.join(recon, "label", f"{hemi}.aparc.annot"))
     ijk = nib.affines.apply_affine(tkr_to_voxel, white + frac * (pial - white)).T
+    outside = np.any((ijk < 0) | (ijk > np.array(mask.shape)[:, None] - 1), axis=0)
+    if outside.any():
+        sys.exit(f"ERROR: {outside.sum()} {hemi} vertices lie outside the grid of ${t1_reference}: "
+                 "give the full T1 that recon-all ran on, not a cropped one")
     inside = map_coordinates(mask, ijk, order=1, cval=0.0) >= 0.5
     values = {m: map_coordinates(metrics[m], ijk, order=1, cval=np.nan) for m in names}
     for index, region in enumerate(regions):

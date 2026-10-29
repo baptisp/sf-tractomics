@@ -529,16 +529,18 @@ workflow SF_TRACTOMICS {
         // Diffusion metrics on the surfaces: maps and DWI mask to T1 space with TractoFlow's
         // DWI-to-T1 transform, sampled at mid-thickness, averaged per Desikan region
         if ( do_surface_metrics ) {
+            // Reference grid: the raw T1 given to recon-all (full field of view; TractoFlow's T1
+            // is cropped to the brain and can cut the edge of the cortex). Same world coordinates.
             def ch_recon_tractoflow_meta = ch_recon_per_sample
-                .join(ch_t1_annotated.map { orig, meta, _t1 -> [meta, orig] })
-                .map { _meta, recon_all, orig -> [orig, recon_all] }
+                .join(ch_t1_annotated.map { orig, meta, t1 -> [meta, orig, t1] })
+                .map { _meta, recon_all, orig, t1 -> [orig, t1, recon_all] }
             STATS_SURFACEMETRICS(
                 mergeCovariatesIntoMeta(
                     ch_input_metrics
                         .join(TRACTOFLOW.out.b0_mask)
-                        .join(TRACTOFLOW.out.t1_native)
+                        .join(ch_recon_tractoflow_meta)
                         .join(TRACTOFLOW.out.diffusion_to_anatomical)
-                        .join(ch_recon_tractoflow_meta),
+                        .map { meta, metrics, mask, t1, recon_all, transforms -> [meta, metrics, mask, t1, transforms, recon_all] },
                     ch_covariates)
             )
             ch_versions = ch_versions.mix(STATS_SURFACEMETRICS.out.versions.first())

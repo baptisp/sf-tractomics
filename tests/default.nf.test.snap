@@ -113,6 +113,7 @@
             [
                 "metrics",
                 "metrics/bundles_mean_stats.tsv",
+                "metrics/dwi_input_report.tsv",
                 "metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv",
                 "multiqc",
                 "multiqc/global_multiqc_data",
@@ -142,6 +143,7 @@
                 "sub-test-1/dwi/sub-test-1_atlas-iit-wm_label-std_desc-roi_stats.tsv",
                 "sub-test-1/dwi/sub-test-1_desc-brain_mask.nii.gz",
                 "sub-test-1/dwi/sub-test-1_desc-ensemble_tractogram.trk",
+                "sub-test-1/dwi/sub-test-1_desc-fodfthreshold.csv",
                 "sub-test-1/dwi/sub-test-1_desc-local_tractogram.trk",
                 "sub-test-1/dwi/sub-test-1_desc-pft_tractogram.trk",
                 "sub-test-1/dwi/sub-test-1_desc-preproc_b0.nii.gz",
@@ -220,7 +222,7 @@
                 "sub-test-1/xfm/sub-test-1_from-dwi_to-T1w_mode-image_desc-warp_xfm.nii.gz"
             ]
         ],
-        "timestamp": "2026-10-28T16:09:49.040071338",
+        "timestamp": "2026-10-30T16:57:05.857153642",
         "meta": {
             "nf-test": "0.9.5",
             "nextflow": "26.04.4"

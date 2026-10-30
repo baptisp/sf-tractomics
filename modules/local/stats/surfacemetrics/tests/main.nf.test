@@ -82,6 +82,30 @@ nextflow_process {
         }
     }
 
+    test("surface metrics - samples near the mask border are not pulled down by the zeros outside it") {
+
+        config "./nextflow_pial.config"
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01' ], [ file("\${d}/tight__md.nii.gz") ], file("\${d}/mask_tight.nii.gz"),
+                             file("\${d}/t1.nii.gz"), file("\${d}/dwi_to_t1.txt"), file("\${d}/sub__recon_all") ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def mean = table(process.out.stats_mean[0][1])
+            // md is 2 above the centres and 5 below, everywhere inside the mask
+            assert mean.findAll { r -> r.roi.endsWith("superiorfrontal") }.every { r -> Math.abs((r.md as double) - 2.0) < 1e-6 } : mean
+            assert mean.findAll { r -> r.roi.endsWith("inferiortemporal") }.every { r -> Math.abs((r.md as double) - 5.0) < 1e-6 } : mean
+            assert mean.size() == 4
+        }
+    }
+
     test("surface metrics - a reference grid that cuts the cortex stops the task") {
 
         when {

@@ -4,13 +4,14 @@
 // thick and a diffusion voxel 2 to 2.7 mm wide. Sampling the metrics on the surface halfway between
 // the white and the pial surfaces, as cortical MD studies in AD do (Montal 2018, Sun 2024; see
 // docs/plans/diagnosis_markers.md), keeps each value as far as possible from both borders:
-//   1. the metric maps and the DWI brain mask go to T1 space through TractoFlow's DWI-to-T1
-//      transform (linear interpolation), on the grid of t1_reference: the raw T1 given to
+//   1. the metric maps, set to 0 outside the DWI brain mask, and that mask go to T1 space through
+//      TractoFlow's DWI-to-T1 transform (linear interpolation), on the grid of t1_reference: the raw T1 given to
 //      recon-all, whose field of view holds the whole cortex (the run stops if a vertex falls
 //      outside it, as it would on a T1 cropped to the brain);
 //   2. every vertex is placed at white + ext.projfrac x (pial - white), 0.5 by default (mid-thickness),
 //      and the maps are sampled there (trilinear), in scanner coordinates of orig.mgz;
-//   3. vertices outside the DWI brain mask (mask < 0.5) are left out; each region of
+//   3. vertices outside the DWI brain mask (interpolated mask < 0.5) are left out, and each sample is
+//      divided by the interpolated mask, so the voxels outside it do not pull it down; each region of
 //      label/?h.aparc.annot gets the mean and std over its vertices (unknown and corpuscallosum skipped).
 //
 // Metric names follow STATS_METRICSINROI: the part after "__" in the file name, plus "t" for the
@@ -50,9 +51,26 @@ process STATS_SURFACEMETRICS {
     def run_id         = (meta.run ?: "run-1").replaceFirst(/^run-/, "")
     """
     export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=${task.cpus}
-    mkdir t1_space
+    mkdir masked t1_space
+
+    # Zero every map outside the DWI brain mask (binary), in diffusion space, before the warp
+    python3 << 'PYEOF'
+import nibabel as nib
+import numpy as np
+
+mask_img = nib.load("${dwi_mask}")
+mask = np.asarray(mask_img.dataobj) > 0
+nib.save(nib.Nifti1Image(mask.astype(np.float32), mask_img.affine), "masked/${dwi_mask}")
+for f in "${metric_list.join(' ')}".split():
+    img = nib.load(f)
+    data = np.asarray(img.dataobj, dtype=np.float32)
+    if data.shape[:3] != mask.shape or not np.allclose(img.affine, mask_img.affine, atol=1e-3):
+        raise SystemExit(f"ERROR: {f} is not on the grid of ${dwi_mask}")
+    nib.save(nib.Nifti1Image(np.where(mask, data, 0).astype(np.float32), img.affine), f"masked/{f}")
+PYEOF
+
     for image in ${metric_list.join(' ')} ${dwi_mask}; do
-        antsApplyTransforms -d 3 -i \$image -r ${t1_reference} -o t1_space/\$image \\
+        antsApplyTransforms -d 3 -i masked/\$image -r ${t1_reference} -o t1_space/\$image \\
             -n Linear -u float ${ants_transforms}
     done
 
@@ -99,8 +117,12 @@ for hemi in ("lh", "rh"):
     if outside.any():
         sys.exit(f"ERROR: {outside.sum()} {hemi} vertices lie outside the grid of ${t1_reference}: "
                  "give the full T1 that recon-all ran on, not a cropped one")
-    inside = map_coordinates(mask, ijk, order=1, cval=0.0) >= 0.5
-    values = {m: map_coordinates(metrics[m], ijk, order=1, cval=np.nan) for m in names}
+    weight = map_coordinates(mask, ijk, order=1, cval=0.0)
+    inside = weight >= 0.5
+    # The maps were zeroed outside the mask and warped like it: dividing each sample by the mask
+    # interpolated the same way removes the share of the outside voxels (normalised interpolation)
+    values = {m: map_coordinates(metrics[m], ijk, order=1, cval=np.nan) / np.maximum(weight, 1e-6)
+              for m in names}
     for index, region in enumerate(regions):
         region = region.decode()
         if region in ("unknown", "corpuscallosum"):

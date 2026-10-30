@@ -13,6 +13,10 @@ to the DWI point 3 mm higher, as an ANTs transform does. Maps:
   test__md.nii.gz            2 above the sphere centres, 5 below
   test_desc-fwc__md.nii.gz   distance to the nearest sphere centre (10 at mid-thickness)
   mask.nii.gz                1 within 18 mm of a centre, except below the rh centre (z < -2 mm)
+  mask_tight.nii.gz          1 within 12.6 mm of a centre
+  tight__md.nii.gz           test__md set to 0 outside mask_tight, as real maps are outside the brain
+                             mask: at the pial surface, samples mix in those zeros unless they are
+                             normalised by the mask
 """
 import os
 
@@ -70,5 +74,7 @@ dist = {h: np.linalg.norm(xyz - c, axis=1) for h, c in centres.items()}
 nearest = np.minimum(dist["lh"], dist["rh"])
 md = np.where(xyz[:, 2] > centres["lh"][2], 2.0, 5.0)
 mask = (nearest <= 18) & ~((dist["rh"] < dist["lh"]) & (xyz[:, 2] < centres["rh"][2] - 2))
-for name, data in (("test__md", md), ("test_desc-fwc__md", nearest), ("mask", mask.astype(float))):
+tight = nearest <= 12.6   # ends just outside the pial surface (radius 12): border voxels are sampled
+for name, data in (("test__md", md), ("test_desc-fwc__md", nearest), ("mask", mask.astype(float)),
+                   ("mask_tight", tight.astype(float)), ("tight__md", md * tight)):
     nib.save(nib.Nifti1Image(data.reshape(32, 32, 32).astype(np.float32), dwi_affine), f"{name}.nii.gz")

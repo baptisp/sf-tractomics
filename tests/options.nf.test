@@ -199,7 +199,7 @@ nextflow_pipeline {
                 { assert "sub-test-1/dwi/sub-test-1_surf-freesurfer_desc-roi_stats.tsv" in files },
                 { assert "sub-test-1/dwi/sub-test-1_surf-freesurfer_label-std_desc-roi_stats.tsv" in files },
                 { assert "metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv" in files },
-                { assert path("${params.outdir}/metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv").readLines()[0] == "sid\tsession\trun\troi\tregion_type\tn_vertices" },
+                { assert path("${params.outdir}/metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv").readLines()[0] == "sid\tsession\trun\troi\tregion_type\tfwc_failed_fraction\tn_vertices" },
                 { assert "sub-test-1/anat/sub-test-1_desc-thickness.csv" in files }
             )
         }

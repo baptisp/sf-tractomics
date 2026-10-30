@@ -1,0 +1,77 @@
+// Known-answer test of the DWI input check (see dwi_input_check/main.nf for the sessions)
+nextflow_workflow {
+
+    name "Known-answer test of the DWI input check"
+    script "./dwi_input_check/main.nf"
+    workflow "DWI_INPUT_CHECK_KNOWN_ANSWER"
+    config "./dwi_input_check/nextflow.config"
+    tag "known_answer"
+
+    def rows = { f ->
+        def lines = path(f).readLines()
+        def header = lines[0].split("\t", -1).toList()
+        lines[1..-1].collect { l -> [header, l.split("\t", -1).toList()].transpose().collectEntries() }
+    }
+
+    test("split series merged, b-series and incomplete or duplicated split series skipped with their T1") {
+        when {
+            workflow {
+                """
+                input[0] = "${projectDir}/tests/known_answer/dwi_input_check/data"
+                input[1] = "${outputDir}/report"
+                input[2] = false
+                """
+            }
+        }
+        then {
+            assert workflow.success
+            def key = { m -> [m.id, m.run] }
+            // Kept: sub-01 as it is, sub-03 as one concatenated DWI with the meta of part 1
+            assert workflow.out.dwi_bval_bvec.collect { e -> key(e[0]) }.sort() == [["sub-01", ""], ["sub-03", "run-1"]]
+            def merged = workflow.out.dwi_bval_bvec.find { e -> e[0].id == "sub-03" }
+            assert file(merged[1]).name == "sub-03_ses-01_run-1__dwi_concatenated.nii.gz"
+            assert path(merged[2]).text.trim() == "0 1000 1000 0 500 500 0 2000 2000"
+            def single = workflow.out.dwi_bval_bvec.find { e -> e[0].id == "sub-01" }
+            assert file(single[1]).name == "sub-01_ses-01_dwi.nii.gz"
+            // The other inputs follow: no T1 or reverse DWI left for the skipped samples
+            assert workflow.out.t1.collect { e -> key(e[0]) }.sort() == [["sub-01", ""], ["sub-03", "run-1"]]
+            assert workflow.out.rev_dwi.collect { e -> key(e[0]) }.sort() == [["sub-01", ""], ["sub-03", "run-1"]]
+
+            def report = rows("${outputDir}/report/dwi_input_report.tsv")
+            assert report.collect { r -> [r.sid, r.run, r.decision] } == [
+                ["sub-01", "1", "kept"], ["sub-02", "1", "skipped"], ["sub-03", "1", "merged"],
+                ["sub-04", "1", "skipped"], ["sub-04", "2", "skipped"], ["sub-04", "3", "skipped"], ["sub-04", "4", "skipped"],
+                ["sub-05", "1", "skipped"]
+            ]
+            def r = report.collectEntries { x -> [[x.sid, x.run], x] }
+            assert r[["sub-01", "1"]].shells == "1000:6"
+            assert r[["sub-01", "1"]].largest_dti_shell == "6"
+            assert r[["sub-01", "1"]].warning == "fODF shells hold 6 volumes for the 45 coefficients of sh_order 8"
+            assert r[["sub-02", "1"]].reason == "largest DTI shell has 1 volumes (< 2)"
+            assert r[["sub-03", "1"]].series == "MDDW_1_of_3_sms+MDDW_2_of_3_sms+MDDW_3_of_3_sms"
+            assert r[["sub-03", "1"]].shells == "500:2 1000:2 2000:2"
+            assert r[["sub-03", "1"]].largest_dti_shell == "2"
+            assert r[["sub-03", "1"]].fodf_volumes == "4"
+            assert r[["sub-03", "1"]].reason == "merged 3 parts of MDDW_k_of_3_sms (run-1+run-2+run-3)"
+            assert ["1", "2", "3", "4"].every { run -> r[["sub-04", run]].reason == "split series MDDW_k_of_3_sms incomplete or duplicated (part 1: 2, part 2: 1, part 3: 1)" }
+            assert r[["sub-05", "1"]].reason == "split series MDDW_k_of_2 incomplete or duplicated (part 1: 1, part 2: 0)"
+        }
+    }
+
+    test("two kept samples with the same subject, session and run stop the run") {
+        when {
+            workflow {
+                """
+                input[0] = "${projectDir}/tests/known_answer/dwi_input_check/data"
+                input[1] = "${outputDir}/report"
+                input[2] = true
+                """
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { l -> l.contains("Several DWI samples share the same subject, session and run: sub-01_ses-01") } ||
+                   workflow.stderr.any { l -> l.contains("Several DWI samples share the same subject, session and run: sub-01_ses-01") }
+        }
+    }
+}

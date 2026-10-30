@@ -81,6 +81,21 @@
                     "fa_icon": "fas fa-wrench",
                     "help_text": "Consider all b-values up to +-tolerance as belonging to the same shell."
                 },
+                "merge_split_dwi": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Concatenate the parts of a split diffusion series of a session into one DWI.",
+                    "help_text": "Siemens stores some protocols as several series named '<name>_1_of_3', '_2_of_3', ... (SeriesDescription of the BIDS sidecar), each with some of the shells (OASIS-3 Vida). The parts are concatenated in order, each scaled to the mean b0 of the first, into one sample with the meta of part 1. A session where a part is missing or present twice is skipped. See metrics/dwi_input_report.tsv.",
+                    "fa_icon": "fas fa-object-group"
+                },
+                "dwi_min_shell_directions": {
+                    "type": "integer",
+                    "default": 6,
+                    "minimum": 0,
+                    "description": "Skip DWIs whose largest DTI shell holds fewer volumes (0 disables the check).",
+                    "help_text": "A tensor needs at least 6 directions, and eddy needs shells. Acquisitions with one direction per b-value (b-series, as OASIS-3 TrioTim 'ep2d_dif_25dir') are skipped with their T1 instead of failing the run. See metrics/dwi_input_report.tsv.",
+                    "fa_icon": "fas fa-filter"
+                },
                 "outdir": {
                     "type": "string",
                     "format": "directory-path",
@@ -489,6 +504,12 @@
                     "default": 2.0,
                     "description": "Multiplicative factor for AFD max in ventricles.",
                     "help_text": "Multiplicative factor for AFD max in ventricles.",
+                    "minimum": 0
+                },
+                "fodf_absolute_threshold": {
+                    "type": "number",
+                    "description": "One absolute fODF peak threshold for every subject (default: none, a_factor x the subject's largest ventricle peak).",
+                    "help_text": "By default each subject's threshold is fodf_metrics_a_factor times the largest fODF peak in its ventricles, which depends on the size of the ventricles (larger in atrophy). A number here uses that threshold for all subjects; the per-subject values are written to dwi/*_desc-fodfthreshold.csv, e.g. to use their mean. Affects afd_max, afd_sum, NuFO and peaks, not afd_total.",
                     "minimum": 0
                 },
                 "relative_threshold": {

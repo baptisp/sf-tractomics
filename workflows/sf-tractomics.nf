@@ -35,6 +35,7 @@ include { REGISTRATION_TRACTOGRAM as REGISTRATION_TRACTOGRAM_TO_ORIG } from '../
 include { OUTPUT_TEMPLATE_SPACE  } from '../subworkflows/nf-neuro/output_template_space/main'
 include { HARMONIZATION          } from '../subworkflows/nf-neuro/harmonization/main'
 include { mergeCovariatesIntoMeta } from '../subworkflows/local/utils_nfcore_sf-tractomics_pipeline/main'
+include { DWI_INPUT_CHECK        } from '../subworkflows/local/dwi_input_check/main'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -62,6 +63,19 @@ workflow SF_TRACTOMICS {
     ch_bet_template = channel.empty()
     ch_bet_probability = channel.empty()
     ch_synthstrip_weights = channel.empty()
+
+    // Split series merged, unusable DWIs (b-series) skipped with their T1, decisions reported
+    DWI_INPUT_CHECK(ch_t1, ch_wmparc, ch_aparc_aseg, ch_dwi_bval_bvec, ch_b0, ch_rev_dwi_bval_bvec,
+                    ch_rev_b0, ch_lesion, "${params.outdir}/metrics")
+    ch_versions = ch_versions.mix(DWI_INPUT_CHECK.out.versions)
+    ch_t1                = DWI_INPUT_CHECK.out.t1
+    ch_wmparc            = DWI_INPUT_CHECK.out.wmparc
+    ch_aparc_aseg        = DWI_INPUT_CHECK.out.aparc_aseg
+    ch_dwi_bval_bvec     = DWI_INPUT_CHECK.out.dwi_bval_bvec
+    ch_b0                = DWI_INPUT_CHECK.out.b0
+    ch_rev_dwi_bval_bvec = DWI_INPUT_CHECK.out.rev_dwi_bval_bvec
+    ch_rev_b0            = DWI_INPUT_CHECK.out.rev_b0
+    ch_lesion            = DWI_INPUT_CHECK.out.lesion
 
     if (workflow.profile.contains('reproducible') && workflow.profile.contains('gpu')) {
         error "\033[0;31mERROR: Profiles 'reproducible' and 'gpu' are not compatible and cannot be used together. Please remove gpu if you want reproducible results.\033[0m"

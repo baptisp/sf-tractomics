@@ -1,0 +1,95 @@
+// Known-answer tests on three parts of a split acquisition (tests/data, built by make_fixture.py):
+// b0 = 100 in the central 2x2x2 voxels, 10 elsewhere, times a per-series scale of 1, 2 and 0.5;
+// diffusion volumes b0 exp(-b 1e-3) with b = 1000, 500, 2000 in parts 1, 2, 3.
+nextflow_process {
+
+    name "Test Process PREPROC_DWICONCATENATE"
+    script "../main.nf"
+    process "PREPROC_DWICONCATENATE"
+
+    tag "modules"
+    tag "modules_local"
+    tag "preproc/dwiconcatenate"
+
+    // Central-voxel value of every volume of a 4D image
+    def centre = { img ->
+        def cmd = ["docker", "run", "--rm", "-v", "${img.parent}:${img.parent}",
+                   "community.wave.seqera.io/library/nibabel_numpy:4148b92a8cbc6976", "python3", "-c",
+                   "import nibabel as nib, numpy as np\n" +
+                   "a = np.asarray(nib.load('${img}').dataobj)\n" +
+                   "print(a.dtype, ' '.join(f'{x:.4f}' for x in a[1, 1, 1, :]), f'{a[0, 0, 0, 0]:.4f}')"]
+        def p = cmd.execute(); p.waitFor(); p.text.trim()
+    }
+
+    test("dwi concatenate - parts in order, each on the intensity scale of part 1") {
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01', session:'ses-01' ],
+                             [ file("\${d}/part1.nii.gz"), file("\${d}/part2.nii.gz"), file("\${d}/part3.nii.gz") ],
+                             [ file("\${d}/part1.bval"), file("\${d}/part2.bval"), file("\${d}/part3.bval") ],
+                             [ file("\${d}/part1.bvec"), file("\${d}/part2.bvec"), file("\${d}/part3.bvec") ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def out = process.out.dwi_bval_bvec[0]
+            assert path(out[2]).text.trim() == "0 1000 1000 0 500 500 0 2000 2000"
+            assert path(out[3]).readLines().collect { l -> l.tokenize().collect { x -> x as double } } == [
+                [0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0, 0, 0, 0]
+            ].collect { r -> r.collect { x -> x as double } }
+            // b0 100 everywhere in the brain, diffusion signal 100 exp(-b 1e-3); outside 10
+            assert centre(file(out[1])) == "float32 100.0000 36.7879 36.7879 100.0000 60.6531 60.6531 100.0000 13.5335 13.5335 10.0000"
+            assert path(process.out.parts[0][1]).readLines() == [
+                "part,file,volumes,b0_volumes,scale,note",
+                "1,part1.nii.gz,3,1,1.000000,",
+                "2,part2.nii.gz,3,1,0.500000,",
+                "3,part3.nii.gz,3,1,2.000000,"
+            ]
+        }
+    }
+
+    test("dwi concatenate - parts on different grids stop the task") {
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01', session:'ses-01' ],
+                             [ file("\${d}/part1.nii.gz"), file("\${d}/shifted.nii.gz") ],
+                             [ file("\${d}/part1.bval"), file("\${d}/part2.bval") ],
+                             [ file("\${d}/part1.bvec"), file("\${d}/part2.bvec") ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.failed
+            assert process.stdout.any { l -> l.contains("is not on the grid of part 1") } ||
+                   process.stderr.any { l -> l.contains("is not on the grid of part 1") }
+        }
+    }
+
+    test("dwi concatenate - stub") {
+        options "-stub-run"
+
+        when {
+            process {
+                """
+                input[0] = [ [ id:'sub-01' ], [ file('a.nii.gz', checkIfExists: false), file('b.nii.gz', checkIfExists: false) ],
+                             [ file('a.bval', checkIfExists: false), file('b.bval', checkIfExists: false) ],
+                             [ file('a.bvec', checkIfExists: false), file('b.bvec', checkIfExists: false) ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert file(process.out.dwi_bval_bvec[0][1]).name == "sub-01__dwi_concatenated.nii.gz"
+        }
+    }
+}

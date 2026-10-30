@@ -9,6 +9,8 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- DWI input check (`DWI_INPUT_CHECK`, `metrics/dwi_input_report.tsv`): the parts of a split series (`<name>_k_of_N`, OASIS-3 Vida) are concatenated into one DWI, each scaled to the b0 of part 1 (`--merge_split_dwi`, new `PREPROC_DWICONCATENATE` module); DWIs whose largest DTI shell has fewer than `--dwi_min_shell_directions` (6) volumes (b-series) are skipped with their T1 instead of failing the run; a warning when the fODF shells hold fewer volumes than `sh_order` needs; two samples with the same subject, session and run stop the run.
+- `--fodf_absolute_threshold` (default none: per-subject threshold from the ventricles, unchanged): one fODF peak threshold for all subjects; each sample's threshold is written to `dwi/*_desc-fodfthreshold.csv`.
 - `fwc_failed_fraction` in the subject-region fractions and the surface stats: share of each region on voxels where the free-water-corrected fit failed (AD, RD or MD set to 0 by scilpy's outlier removal), reported and not removed, so its link with diagnosis can be checked.
 - `volume_icv_fraction` (volume / intracranial volume) next to `icv_mm3` in every volume file and table.
 - `small_region` flag and `--subject_roi_small_region_voxels` (50) for subject regions covering few acquired DWI voxels.

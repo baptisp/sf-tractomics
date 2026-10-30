@@ -141,6 +141,7 @@ process RECONST_FODF {
 
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
+    def absolute_threshold = task.ext.absolute_threshold != null ? "${task.ext.absolute_threshold}" : "none"
 
     """
     scil_dwi_extract_shell -h
@@ -163,6 +164,7 @@ process RECONST_FODF {
     touch ${prefix}__afd_sum.nii.gz
     touch ${prefix}__nufo.nii.gz
     touch ${prefix}__ventricles_mask.nii.gz
+    # settings: absolute_threshold ${absolute_threshold}
     echo "ventricle_max,a_factor,ventricle_threshold,threshold,source" > ${prefix}__fodf_threshold.csv
 
     cat <<-END_VERSIONS > versions.yml

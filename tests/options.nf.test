@@ -28,8 +28,32 @@ nextflow_pipeline {
             assertAll(
                 { assert workflow.success },
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("PREPROC_T1:IMAGE_RESAMPLE") }.isEmpty() },
+                // fODF peak threshold from each subject's ventricles by default
+                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: absolute_threshold none") } == 1 },
                 // Every option the workflow passes to TractoFlow must be one it knows
                 { assert !new File("${launchDir}/meta/nextflow.log").text.contains("Unknown option") }
+            )
+        }
+    }
+
+    test("fodf_absolute_threshold sets one fODF peak threshold, and the threshold file is published") {
+
+        when {
+            params {
+                outdir                  = "$outputDir"
+                fodf_absolute_threshold = 0.3
+            }
+        }
+
+        then {
+            assertAll(
+                { assert workflow.success },
+                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: absolute_threshold 0.3") } == 1 },
+                { assert {
+                    def found = []
+                    new File("${params.outdir}").eachFileRecurse(groovy.io.FileType.FILES) { f -> if (f.name.endsWith("_desc-fodfthreshold.csv")) found << f }
+                    found.size() == 1
+                }() }
             )
         }
     }

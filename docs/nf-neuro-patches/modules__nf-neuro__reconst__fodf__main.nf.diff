@@ -1,0 +1,56 @@
+--- upstream f2d66a70/modules/nf-neuro/reconst/fodf/main.nf
++++ sf-tractomics/modules/nf-neuro/reconst/fodf/main.nf
+@@ -23,6 +23,7 @@
+         tuple val(meta), path("*__afd_sum.nii.gz")        , emit: afd_sum, optional: true
+         tuple val(meta), path("*__nufo.nii.gz")           , emit: nufo, optional: true
+         tuple val(meta), path("*__ventricles_mask.nii.gz"), emit: vent_mask, optional: true
++        tuple val(meta), path("*__fodf_threshold.csv")    , emit: threshold, optional: true
+         path "versions.yml"                               , emit: versions
+ 
+     when:
+@@ -42,6 +43,9 @@
+     def set_mask = mask ? "--mask $mask" : ""
+     def relative_threshold = task.ext.relative_threshold ? "--rt " + task.ext.relative_threshold : ""
+     def fodf_metrics_a_factor = task.ext.fodf_metrics_a_factor ? task.ext.fodf_metrics_a_factor : 2.0
++    // ext.absolute_threshold: one peak threshold for every subject instead of a_factor x the
++    // largest fODF peak in the subject's ventricles (null, the default)
++    def absolute_threshold = task.ext.absolute_threshold != null ? "${task.ext.absolute_threshold}" : ""
+     def fa_threshold = task.ext.fa_threshold ? "--fa_t " + task.ext.fa_threshold : ""
+     def md_threshold = task.ext.md_threshold ? "--md_t " + task.ext.md_threshold : ""
+     def absolute_peaks = task.ext.absolute_peaks ? "--abs_peaks_and_values" : ""
+@@ -107,7 +111,17 @@
+ 
+         echo "Maximal peak value in ventricles : \${v_max}"
+         result=\$(awk "BEGIN {result = \${a_factor} * \${v_max}; if (result <= 0) result = 1e-10; print result}")
+-        a_threshold=\$(printf "%.10g" \$result)
++        ventricle_threshold=\$(printf "%.10g" \$result)
++        if [ -n "${absolute_threshold}" ]; then
++            a_threshold=${absolute_threshold}
++            threshold_source=fixed
++        else
++            a_threshold=\${ventricle_threshold}
++            threshold_source=ventricles
++        fi
++        # The threshold of this subject, and the one its ventricles give, to compare subjects
++        echo "ventricle_max,a_factor,ventricle_threshold,threshold,source" > ${prefix}__fodf_threshold.csv
++        echo "\$(cat ventricles_fodf_max_value.txt),\${a_factor},\${ventricle_threshold},\${a_threshold},\${threshold_source}" >> ${prefix}__fodf_threshold.csv
+ 
+         echo "Computing fodf metrics with absolute threshold : \${a_threshold}"
+ 
+@@ -127,6 +141,7 @@
+ 
+     stub:
+     def prefix = task.ext.prefix ?: "${meta.id}"
++    def absolute_threshold = task.ext.absolute_threshold != null ? "${task.ext.absolute_threshold}" : "none"
+ 
+     """
+     scil_dwi_extract_shell -h
+@@ -149,6 +164,8 @@
+     touch ${prefix}__afd_sum.nii.gz
+     touch ${prefix}__nufo.nii.gz
+     touch ${prefix}__ventricles_mask.nii.gz
++    # settings: absolute_threshold ${absolute_threshold}
++    echo "ventricle_max,a_factor,ventricle_threshold,threshold,source" > ${prefix}__fodf_threshold.csv
+ 
+     cat <<-END_VERSIONS > versions.yml
+     "${task.process}":

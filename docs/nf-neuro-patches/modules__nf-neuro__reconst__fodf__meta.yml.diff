@@ -1,0 +1,37 @@
+--- upstream f2d66a70/modules/nf-neuro/reconst/fodf/meta.yml
++++ sf-tractomics/modules/nf-neuro/reconst/fodf/meta.yml
+@@ -68,6 +68,12 @@
+       type: float
+       description: Absolute threshold to apply on FODF peaks.
+       default: 2.0
++  - absolute_threshold:
++      type: float
++      description: |
++        One absolute peak threshold for every subject. By default (null), the threshold is
++        fodf_metrics_a_factor x the largest fODF peak found in the subject's ventricles.
++      default: null
+   - fa_threshold:
+       type: float
+       description: Threshold to apply on the FA map to extract voxels in ventricles.
+@@ -374,6 +380,21 @@
+           pattern: "*__ventricles_mask.nii.gz"
+           ontologies:
+             - edam: http://edamontology.org/format_3989 # GZIP format
++  threshold:
++    - - meta:
++          type: map
++          description: |
++            Groovy Map containing sample information
++            e.g. `[ id:'test', single_end:false ]`
++      - "*__fodf_threshold.csv":
++          type: file
++          description: |
++            Peak threshold used for the fODF metrics: ventricle_max, a_factor,
++            ventricle_threshold (a_factor x ventricle_max), threshold (the one used) and
++            source (ventricles or fixed).
++          pattern: "*__fodf_threshold.csv"
++          ontologies:
++            - edam: http://edamontology.org/format_3752 # CSV
+   versions:
+     - versions.yml:
+         type: file

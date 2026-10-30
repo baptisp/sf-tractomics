@@ -10,6 +10,15 @@ Output files are written to `--outdir` organised by subject (and session if pres
   metrics/          globally collected stats across all subjects
 ```
 
+- `metrics/dwi_input_report.tsv`: decision for every input DWI (kept, merged from split parts,
+  skipped with its T1), with its shells, largest DTI shell, fODF volumes and the reason or
+  warning; see [usage](usage.md#dwi-input-check).
+- `dwi/<sample>_desc-concatenatedparts.csv`: for a sample built from split parts, each part's
+  file, volumes, b0 volumes and the intensity scale applied to it.
+- `dwi/<sample>_desc-fodfthreshold.csv`: the fODF peak threshold of the sample (`threshold`,
+  `source` = `ventricles` or `fixed`) and the one its ventricles give (`ventricle_max`,
+  `a_factor`, `ventricle_threshold`).
+
 ## WM bundle ROI metrics
 
 Enabled by `--run_atlas_roimetrics` + `--run_wm_metrics` (or `--run_roi_metrics`).

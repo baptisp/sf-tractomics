@@ -22,6 +22,28 @@ in a `-c` config file (`params { ... }`); every step sees the final value. The e
 `nextflow.config`, before any `-c` file, so give them on the command line or in a `-params-file`
 (an `outdir` set only in a `-c` file sends the run reports to `./null`).
 
+## DWI input check
+
+Before any processing, the diffusion acquisitions of each session are checked, and every decision
+is written to `metrics/dwi_input_report.tsv` (one row per sample: shells, largest DTI shell,
+fODF volumes, decision, reason, warning):
+
+- Split series: Siemens stores some protocols as several series named `<name>_1_of_3`,
+  `<name>_2_of_3`, ... (or `<name>1of3`), each with some of the shells (OASIS-3 Vida: 66 volumes
+  from b = 100 to 2000 in 3 parts). With `--merge_split_dwi` (default `true`) the parts are
+  concatenated in order into one sample, with the subject, session and run of part 1; each part
+  is scaled to the mean b0 of part 1 (factors in `dwi/*_desc-concatenatedparts.csv`). When a part
+  is missing or appears twice (the same series exported twice), all the parts are skipped.
+- DWIs whose largest DTI shell holds fewer than `--dwi_min_shell_directions` volumes (6) are
+  skipped with their T1: acquisitions with one direction per b-value (b-series, such as OASIS-3
+  TrioTim `ep2d_dif_25dir`) cannot be corrected by eddy. `0` disables the check.
+- A warning when the fODF shells hold fewer volumes than the `(sh_order + 1)(sh_order + 2) / 2`
+  coefficients of the fit (45 for `sh_order` 8): the fODF and AFD of those samples are unstable.
+  OASIS-3 Vida (28 fODF volumes) and TrioTim (23 to 24) need `sh_order` 4 or 6.
+
+Two kept samples with the same subject, session and run stop the run. Samples of one session
+that are not split parts (for example two runs of the same DTI) are all kept, each with its run.
+
 ## ROI metrics
 
 ### Master switches

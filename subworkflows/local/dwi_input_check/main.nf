@@ -1,6 +1,6 @@
 // Checks of the diffusion acquisitions before any processing, per session:
 //   1. split series: Siemens stores some protocols as several series "<name>_1_of_3", "_2_of_3",
-//      ... (SeriesDescription of the BIDS sidecar), each holding some of the shells (OASIS-3
+//      ... (or "<name>1of3") (SeriesDescription of the BIDS sidecar), each holding some of the shells (OASIS-3
 //      Vida: 3 parts, 66 volumes from b = 100 to 2000). Processed one by one, each part is an
 //      incomplete protocol. With merge_split_dwi, the parts are concatenated in order into one
 //      sample (the meta of part 1); when a part is missing or present more than once (the same
@@ -57,7 +57,7 @@ def planDwiSession(entries, opts) {
     def split = [:]
     def singles = []
     entries.each { e ->
-        def m = opts.merge_split ? (e[4] =~ /^(.*?)_?(\d+)_of_(\d+)(.*)$/) : null
+        def m = opts.merge_split ? (e[4] =~ /^(.*?)_?(\d+)_?of_?(\d+)(.*)$/) : null
         if (m && m.matches()) {
             def key = "${m.group(1)}_of_${m.group(3)}${m.group(4)}"
             split.computeIfAbsent(key, { [n: m.group(3) as int, parts: []] }).parts << [m.group(2) as int, e]

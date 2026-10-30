@@ -4,6 +4,7 @@
 //   sub-03 ses-01 run 1-3 MDDW_1/2/3_of_3_sms, b 1000 / 500 / 2000       merged into run 1
 //   sub-04 ses-01 run 1-4 MDDW parts 1, 1, 2, 3 (part 1 exported twice) all skipped
 //   sub-05 ses-01         MDDW_1_of_2 alone                              skipped
+//   sub-06 ses-01 run 1-2 MDDW1of2, MDDW2of2 (no underscores)            merged into run 1
 // duplicate = true adds a second sub-01 ses-01 sample with the same meta (the run must stop).
 include { DWI_INPUT_CHECK } from '../../../subworkflows/local/dwi_input_check/main'
 
@@ -19,7 +20,7 @@ workflow DWI_INPUT_CHECK_KNOWN_ANSWER {
 
     main:
     def samples = [["sub-01", ""], ["sub-02", ""], ["sub-03", "run-1"], ["sub-03", "run-2"], ["sub-03", "run-3"],
-                   ["sub-04", "run-1"], ["sub-04", "run-2"], ["sub-04", "run-3"], ["sub-04", "run-4"], ["sub-05", ""]]
+                   ["sub-04", "run-1"], ["sub-04", "run-2"], ["sub-04", "run-3"], ["sub-04", "run-4"], ["sub-05", ""], ["sub-06", "run-1"], ["sub-06", "run-2"]]
     if (duplicate) samples << ["sub-01", ""]
     def entries = samples.collect { s ->
         def meta = [id: s[0], session: "ses-01", run: s[1]]

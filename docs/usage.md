@@ -137,7 +137,8 @@ Reuses the warped FreeSurfer atlas from the CSF pipeline to extract metrics acro
 The output files are the same as with `atlas`, with the same region names, plus two columns:
 
 - `volume_source`: `atlas`, `synthseg` or `freesurfer`.
-- `icv_mm3`: total intracranial volume from SynthSeg, for normalising (`volume_mm3 / icv_mm3`). Empty for `atlas` and `freesurfer`.
+- `icv_mm3`: total intracranial volume (head size) from SynthSeg, or SAMSEG with `--run_longitudinal_volumes`. Empty for `atlas` and `freesurfer`.
+- `volume_icv_fraction`: `volume_mm3 / icv_mm3`, the region's share of the intracranial volume, to compare people with different head sizes (a small head has a small hippocampus without atrophy). Empty when `icv_mm3` is.
 
 SynthSeg segments the raw T1, not the brain-extracted one, so the CSF outside the brain stays in the intracranial volume. It has no choroid plexus label, so the two choroid plexus rows of the CSF and comparison files have empty volumes with `synthseg` (not measured, rather than a misleading 0). Its segmentation, soft volumes and QC score are written to `anat/<subject>_desc-synthseg_{dseg.nii.gz,volumes.csv,qc.csv}`; check the QC score before using a subject.
 
@@ -222,7 +223,10 @@ region, and each metric is averaged with these fractions as weights. A voxel 20%
 hippocampus counts 0.2. This reduces partial volume but does not remove it, so keep the volume
 in the analysis. `--subject_roi_min_fraction 0.75` uses instead the voxels at least 75% inside,
 unweighted, for a sensitivity analysis: cleaner values, but an atrophied region keeps fewer voxels.
-The effective size of every region (sum of fractions) is written next to the metrics.
+The effective size of every region (sum of fractions) is written next to the metrics. Voxels outside the DWI brain mask, where the maps are 0, get no weight;
+`in_mask_fraction` gives the share of each region left inside the mask, and `small_region` flags the
+regions covering fewer than `--subject_roi_small_region_voxels` (50) acquired voxels, such as the
+accumbens or the transverse temporal gyrus at 2.5 mm, whose means are noisy.
 
 Needs `--volume_source synthseg` or `freesurfer`, or `--run_longitudinal_volumes true`. The atlas
 GM metrics are still computed when requested, in their own files.

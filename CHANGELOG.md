@@ -9,6 +9,9 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `volume_icv_fraction` (volume / intracranial volume) next to `icv_mm3` in every volume file and table.
+- `small_region` flag and `--subject_roi_small_region_voxels` (50) for subject regions covering few acquired DWI voxels.
+- Warnings when free water is fitted on single-shell data and when cortical thickness is computed session by session on subjects with several sessions.
 - `--run_cortical_surface_metrics` (default `false`): diffusion metrics of the cortex sampled on the FreeSurfer surfaces at mid-thickness and averaged per Desikan region (new `STATS_SURFACEMETRICS` module), sharing `recon-all` with `--run_cortical_thickness`, in `dwi/*_surf-freesurfer_desc-roi_stats.tsv` and `metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv`.
 - `--run_subject_roi_metrics` (default `false`) and `--subject_roi_min_fraction`: diffusion metrics in the subject's own GM regions, weighted by the fraction of each acquired DWI voxel inside the region (new `IMAGE_LABELFRACTION` module), in `dwi/*_seg-<seg>_desc-roi_stats.tsv` and `metrics/space-native_seg-<seg>_label-mean_desc-roi_stats.tsv`, with the effective region sizes in `*_desc-roi_fractions.csv`.
 - `--run_cortical_thickness` (default `false`): FreeSurfer `recon-all` (nf-neuro `segmentation/fsreconall`) on each distinct T1, thickness, area, grey matter volume and vertex count per Desikan region in `anat/*_desc-thickness.csv` and `metrics/space-native_desc-cortical-thickness.csv`, with `coarse_t1` and `implausible:<regions>` QC flags.
@@ -29,6 +32,9 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Fixed`
 
+- Subject-region diffusion metrics: voxels outside the DWI brain mask (where the maps are 0) kept their weight and pulled region means down (up to 15% of a frontal pole); they now get none, as in the atlas tables, and `in_mask_fraction` reports the share kept. Same correction for the surface sampling (maps masked before the warp, samples normalised by the mask).
+- WM bundle volumes with `--use_binary_masks`: border voxels of the linearly warped masks counted as whole voxels (+40 to +125%); `stats/roivolumes` gets `ext.mask_volume` (`nonzero` | `fraction`).
+- RECONST_FRF received no shell or b0 settings (it used DTI shells up to 1500 and fODF shells from 100), and the DTI fits no b0 threshold or shell tolerance; they now follow the pipeline parameters. A misnamed N4 setting that was never read was removed.
 - Parameters set in a `-c` config file or in a profile (`test`, `iit_tractometry`, `legacy`, `full_pipeline`, `skip_preproc`) did not reach the module settings (`ext.*`): `conf/modules/*.config` copied them while `nextflow.config` was read, before those values were applied, so steps silently used the defaults (for example `max_dti_shell_value` 1200 instead of the value set). The module settings now read the parameters when each task runs. `outdir`, `publish_dir_mode` and `clean_output` still have to be given on the command line or in a `-params-file`.
 - The per-sample WM, GM, CSF and comparison stats tables were published under one name for both the mean and the std table, so either could overwrite the other. The std table is now `*_label-std_desc-roi_stats.tsv`; the mean keeps its name.
 - Global stats and stats+volumes files list samples in sid / session / run order; they followed work directory names before.

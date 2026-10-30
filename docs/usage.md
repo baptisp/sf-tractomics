@@ -226,7 +226,12 @@ unweighted, for a sensitivity analysis: cleaner values, but an atrophied region 
 The effective size of every region (sum of fractions) is written next to the metrics. Voxels outside the DWI brain mask, where the maps are 0, get no weight;
 `in_mask_fraction` gives the share of each region left inside the mask, and `small_region` flags the
 regions covering fewer than `--subject_roi_small_region_voxels` (50) acquired voxels, such as the
-accumbens or the transverse temporal gyrus at 2.5 mm, whose means are noisy.
+accumbens or the transverse temporal gyrus at 2.5 mm, whose means are noisy. With free water,
+`fwc_failed_fraction` gives the share of each region's weight on voxels where the free-water-corrected
+fit failed (AD, RD or MD set to 0 by scilpy's outlier removal, mostly at CSF borders): those zeros
+are kept in the `adt`, `rdt`, `mdt` means and pull them down by about that share. Nothing is removed,
+because removing them would select voxels in a way that can depend on atrophy; check instead whether
+the share differs between groups, and use it as a covariate or an exclusion criterion.
 
 Needs `--volume_source synthseg` or `freesurfer`, or `--run_longitudinal_volumes true`. The atlas
 GM metrics are still computed when requested, in their own files.
@@ -262,6 +267,8 @@ needs `--freesurfer_license`, but no subject segmentation.
 
 The maps and the DWI brain mask go to T1 space through TractoFlow's DWI-to-T1 transform (linear
 interpolation); vertices outside the mask are left out, and `n_vertices` gives how many remain.
+`fwc_failed_fraction` is the mean share of the samples coming from voxels where the
+free-water-corrected fit failed (see above).
 Mid-thickness is the point farthest from both CSF and white matter, so these values are less
 contaminated than the voxel means over the cortical labels of `--run_subject_roi_metrics`, but a
 2 mm diffusion voxel still reaches past both borders of a 2.5 mm cortex: keep the cortical

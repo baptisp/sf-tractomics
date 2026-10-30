@@ -17,6 +17,9 @@ to the DWI point 3 mm higher, as an ANTs transform does. Maps:
   tight__md.nii.gz           test__md set to 0 outside mask_tight, as real maps are outside the brain
                              mask: at the pial surface, samples mix in those zeros unless they are
                              normalised by the mask
+  failed_desc-fwc__md.nii.gz 1, except 0 above z = 2 mm (DWI) on the lh side (x < 10 mm): a failed
+                             free-water fit over the whole ctx-lh-superiorfrontal (its samples lie
+                             above z = 3 mm) and nowhere near the inferiortemporal regions
 """
 import os
 
@@ -76,5 +79,6 @@ md = np.where(xyz[:, 2] > centres["lh"][2], 2.0, 5.0)
 mask = (nearest <= 18) & ~((dist["rh"] < dist["lh"]) & (xyz[:, 2] < centres["rh"][2] - 2))
 tight = nearest <= 12.6   # ends just outside the pial surface (radius 12): border voxels are sampled
 for name, data in (("test__md", md), ("test_desc-fwc__md", nearest), ("mask", mask.astype(float)),
-                   ("mask_tight", tight.astype(float)), ("tight__md", md * tight)):
+                   ("mask_tight", tight.astype(float)), ("tight__md", md * tight),
+                   ("failed_desc-fwc__md", np.where((xyz[:, 0] < 10) & (xyz[:, 2] > 2), 0.0, 1.0))):
     nib.save(nib.Nifti1Image(data.reshape(32, 32, 32).astype(np.float32), dwi_affine), f"{name}.nii.gz")

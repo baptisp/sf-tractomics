@@ -210,6 +210,9 @@ workflow SF_TRACTOMICS {
         .join(TRACTOFLOW.out.afd_sum)
         .join(TRACTOFLOW.out.afd_max)
 
+    // Free-water-corrected AD, RD, MD: their zeros mark voxels where the corrected fit failed
+    def ch_fwc_maps = channel.empty()
+
     //
     // Run RECONST/NODDI & RECONST/FREEWATER
     //
@@ -235,6 +238,10 @@ workflow SF_TRACTOMICS {
             ]
         )
         ch_versions = ch_versions.mix(RECONST_FW_NODDI.out.versions)
+        ch_fwc_maps = RECONST_FW_NODDI.out.fw_dti_ad
+            .join(RECONST_FW_NODDI.out.fw_dti_rd)
+            .join(RECONST_FW_NODDI.out.fw_dti_md)
+            .map { meta, ad, rd, md -> [meta, [ad, rd, md]] }
 
         // Add FW/NODDI metrics to the volume
         // ROI extraction.
@@ -484,6 +491,10 @@ workflow SF_TRACTOMICS {
                     .combine(channel.fromPath("${projectDir}/assets/${subject_lut}", checkIfExists: true))
                     // the maps are 0 outside the DWI brain mask: no weight there
                     .join(TRACTOFLOW.out.b0_mask)
+                    // share of each region on failed free-water fits (fwc_failed_fraction); [] without free water
+                    .join(ch_fwc_maps, remainder: true)
+                    .filter { t -> t[1] != null }
+                    .map { t -> t[0..-2] + [t[-1] ?: []] }
             )
             ch_versions = ch_versions.mix(SUBJECT_ROI_FRACTIONS.out.versions.first())
             STATS_SUBJECT_ROI_METRICS(

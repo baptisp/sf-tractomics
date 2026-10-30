@@ -40,7 +40,7 @@ nextflow_process {
                 """
                 def d = "${moduleDir}/tests/data"
                 input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
-                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [] ]
+                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [], [] ]
                 """
             }
         }
@@ -48,10 +48,10 @@ nextflow_process {
         then {
             assert process.success
             assert path(process.out.sums[0][1]).readLines() == [
-                "sid,session,run,roi,acq_voxels,volume_mm3,in_mask_fraction,small_region",
-                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,1.0000,1",
-                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,1",
-                "sub-01,,1,Right-Hippocampus,0.0000,0.0000,,1"
+                "sid,session,run,roi,acq_voxels,volume_mm3,in_mask_fraction,small_region,fwc_failed_fraction",
+                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,1.0000,1,",
+                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,1,",
+                "sub-01,,1,Right-Hippocampus,0.0000,0.0000,,1,"
             ]
             def maps = process.out.fractions[0][1]
             assert maps.collect { f -> file(f).name }.sort() == ["sub-01__Left-Hippocampus_fraction.nii.gz", "sub-01__Left-Inf-Lat-Vent_fraction.nii.gz"]
@@ -72,7 +72,7 @@ nextflow_process {
                 """
                 def d = "${moduleDir}/tests/data"
                 input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
-                             file("\${d}/target_fa.nii.gz"), file("\${d}/shift_2mm_x.txt"), file("\${d}/lut.json"), [] ]
+                             file("\${d}/target_fa.nii.gz"), file("\${d}/shift_2mm_x.txt"), file("\${d}/lut.json"), [], [] ]
                 """
             }
         }
@@ -80,9 +80,9 @@ nextflow_process {
         then {
             assert process.success
             assert path(process.out.sums[0][1]).readLines()[1..3] == [
-                "sub-01,,1,Left-Inf-Lat-Vent,0.0000,0.0000,,1",
-                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,1",
-                "sub-01,,1,Right-Hippocampus,0.0000,0.0000,,1"
+                "sub-01,,1,Left-Inf-Lat-Vent,0.0000,0.0000,,1,",
+                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,1,",
+                "sub-01,,1,Right-Hippocampus,0.0000,0.0000,,1,"
             ]
             def maps = process.out.fractions[0][1]
             maps = maps instanceof List ? maps : [maps]
@@ -99,7 +99,7 @@ nextflow_process {
                 """
                 def d = "${moduleDir}/tests/data"
                 input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
-                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [] ]
+                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [], [] ]
                 """
             }
         }
@@ -122,7 +122,7 @@ nextflow_process {
                 def d = "${moduleDir}/tests/data"
                 input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
                              file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"),
-                             file("\${d}/brain_mask_x0-5.nii.gz") ]
+                             file("\${d}/brain_mask_x0-5.nii.gz"), [] ]
                 """
             }
         }
@@ -131,8 +131,8 @@ nextflow_process {
             assert process.success
             // The mask stops at target x = 5: the ventricle (x 6-7) is outside, the hippocampus inside
             assert path(process.out.sums[0][1]).readLines()[1..2] == [
-                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,0.0000,1",
-                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,1"
+                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,0.0000,1,",
+                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,1,"
             ]
             def maps = process.out.fractions[0][1]
             maps = maps instanceof List ? maps : [maps]
@@ -149,7 +149,7 @@ nextflow_process {
                 def d = "${moduleDir}/tests/data"
                 input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
                              file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"),
-                             file("\${d}/brain_mask_x0-3.nii.gz") ]
+                             file("\${d}/brain_mask_x0-3.nii.gz"), [] ]
                 """
             }
         }
@@ -159,13 +159,42 @@ nextflow_process {
             // The mask stops at target x = 3: of the hippocampus weight (8 voxels at 1 for x 2-3,
             // 8 at 0.5 for x 4-5, 12 in all), 8 is kept, 8/12 = 0.6667. Volumes stay those of the labels.
             assert path(process.out.sums[0][1]).readLines()[1..2] == [
-                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,0.0000,1",
-                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,0.6667,1"
+                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,0.0000,1,",
+                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,0.6667,1,"
             ]
             def maps = process.out.fractions[0][1]
             maps = maps instanceof List ? maps : [maps]
             assert maps.collect { f -> file(f).name } == ["sub-01__Left-Hippocampus_fraction.nii.gz"]
             assert describe(file(mapOf(maps, "Left-Hippocampus"))) == "1:8:2-3,2-3,2-3"
+        }
+    }
+
+    test("labelfraction - fwc_failed_fraction: share of the weight on brain voxels where a fwc map is 0") {
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                // brain mask x 0-5; the fwc map is 0 from x = 4 (a fit that failed there)
+                input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
+                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"),
+                             file("\${d}/brain_mask_x0-5.nii.gz"), [ file("\${d}/brain_mask_x0-3.nii.gz") ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            // hippocampus weight: 8 voxels at 1 (x 2-3) and 8 at 0.5 (x 4-5), 12 in all; the failed
+            // voxels hold 4 of it: 0.3333. The ventricle (x 6-7) is outside the brain mask: no weight,
+            // empty. Nothing is removed: volumes, in_mask_fraction and the map are unchanged.
+            assert path(process.out.sums[0][1]).readLines()[1..2] == [
+                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,0.0000,1,",
+                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,1,0.3333"
+            ]
+            def maps = process.out.fractions[0][1]
+            maps = maps instanceof List ? maps : [maps]
+            assert describe(file(mapOf(maps, "Left-Hippocampus"))) == "0.5:8:4-5,2-3,2-3 1:8:2-3,2-3,2-3"
         }
     }
 
@@ -178,7 +207,7 @@ nextflow_process {
                 """
                 def d = "${moduleDir}/tests/data"
                 input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
-                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [] ]
+                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [], [] ]
                 """
             }
         }
@@ -187,8 +216,8 @@ nextflow_process {
             assert process.success
             // threshold 1: the hippocampus (1.5 acquired voxels) is not small, the ventricle (0.25) is
             assert path(process.out.sums[0][1]).readLines()[1..2] == [
-                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,1.0000,1",
-                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,0"
+                "sub-01,,1,Left-Inf-Lat-Vent,0.2500,2.0000,1.0000,1,",
+                "sub-01,,1,Left-Hippocampus,1.5000,12.0000,1.0000,0,"
             ]
         }
     }
@@ -202,7 +231,7 @@ nextflow_process {
                 """
                 def d = "${moduleDir}/tests/data"
                 input[0] = [ [ id:'sub-01' ], file("\${d}/labels.nii.gz"), file("\${d}/acq_dwi.nii.gz"),
-                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [] ]
+                             file("\${d}/target_fa.nii.gz"), file("\${d}/identity.txt"), file("\${d}/lut.json"), [], [] ]
                 """
             }
         }

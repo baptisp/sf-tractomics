@@ -41,11 +41,12 @@ nextflow_process {
         then {
             assert process.success
             def mean = table(process.out.stats_mean[0][1])
-            assert path(process.out.stats_mean[0][1]).readLines()[0] == "sid\tsession\trun\troi\tmd\tmdt\tn_vertices"
+            assert path(process.out.stats_mean[0][1]).readLines()[0] == "sid\tsession\trun\troi\tmd\tmdt\tfwc_failed_fraction\tn_vertices"
             assert mean.collect { r -> r.roi } == ["ctx-lh-inferiortemporal", "ctx-lh-superiorfrontal", "ctx-rh-superiorfrontal"]
             assert mean.every { r -> r.sid == "sub-01" && r.session == "ses-01" && r.run == "1" && r.n_vertices == "500" }
             assert mean.collect { r -> r.md as double } == [5.0, 2.0, 2.0]
             assert mean.every { r -> Math.abs((r.mdt as double) - 10.0) < 0.1 } : mean
+            assert mean.every { r -> r.fwc_failed_fraction == "0.0000" } : mean   // mdt is never 0 here
             def std = table(process.out.stats_std[0][1])
             assert std.collect { r -> r.roi } == mean.collect { r -> r.roi }
             assert std.every { r -> (r.md as double) < 1e-9 && (r.mdt as double) < 0.05 } : std
@@ -76,7 +77,7 @@ nextflow_process {
         then {
             assert process.success
             def mean = table(process.out.stats_mean[0][1])
-            assert path(process.out.stats_mean[0][1]).readLines()[0] == "sid\tsession\trun\troi\tage\tdisease\tmd\tmdt\tn_vertices"
+            assert path(process.out.stats_mean[0][1]).readLines()[0] == "sid\tsession\trun\troi\tage\tdisease\tmd\tmdt\tfwc_failed_fraction\tn_vertices"
             assert mean.every { r -> r.run == "2" && r.age == "71.5" && r.disease == "AD" }
             assert mean.every { r -> Math.abs((r.mdt as double) - 12.0) < 0.1 } : mean
         }
@@ -103,6 +104,57 @@ nextflow_process {
             assert mean.findAll { r -> r.roi.endsWith("superiorfrontal") }.every { r -> Math.abs((r.md as double) - 2.0) < 1e-6 } : mean
             assert mean.findAll { r -> r.roi.endsWith("inferiortemporal") }.every { r -> Math.abs((r.md as double) - 5.0) < 1e-6 } : mean
             assert mean.size() == 4
+        }
+    }
+
+    test("surface metrics - fwc_failed_fraction: share of the samples from voxels where the fwc fit failed") {
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01', session:'ses-01' ],
+                             [ file("\${d}/test__md.nii.gz"), file("\${d}/failed_desc-fwc__md.nii.gz") ],
+                             file("\${d}/mask.nii.gz"), file("\${d}/t1.nii.gz"), file("\${d}/dwi_to_t1.txt"),
+                             file("\${d}/sub__recon_all") ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            // mdt is 0 where the fit failed (above the lh centre) and 1 elsewhere, so each sampled
+            // mdt is exactly 1 - the failed share: the region means must add up to 1. The lh
+            // superiorfrontal samples come almost all from failed voxels (its lowest vertices reach
+            // the edge of the failed zone, blurred by the warp); the other regions none.
+            // md is unchanged: the share is reported, nothing is removed.
+            def mean = table(process.out.stats_mean[0][1])
+            assert mean.collect { r -> [r.roi, r.md as double] } == [
+                ["ctx-lh-inferiortemporal", 5.0], ["ctx-lh-superiorfrontal", 2.0], ["ctx-rh-superiorfrontal", 2.0]
+            ]
+            assert mean.every { r -> Math.abs((r.fwc_failed_fraction as double) + (r.mdt as double) - 1.0) < 1e-4 } : mean
+            assert mean.collect { r -> r.fwc_failed_fraction }.with { f -> f[0] == "0.0000" && f[2] == "0.0000" } : mean
+            assert (mean[1].fwc_failed_fraction as double) > 0.9 : mean
+        }
+    }
+
+    test("surface metrics - without free-water-corrected maps fwc_failed_fraction is empty") {
+
+        when {
+            process {
+                """
+                def d = "${moduleDir}/tests/data"
+                input[0] = [ [ id:'sub-01', session:'ses-01' ], [ file("\${d}/test__md.nii.gz") ],
+                             file("\${d}/mask.nii.gz"), file("\${d}/t1.nii.gz"), file("\${d}/dwi_to_t1.txt"),
+                             file("\${d}/sub__recon_all") ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def mean = table(process.out.stats_mean[0][1])
+            assert mean.size() == 3 && mean.every { r -> r.fwc_failed_fraction == "" } : mean
         }
     }
 

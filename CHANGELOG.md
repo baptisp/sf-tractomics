@@ -9,6 +9,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `fwc_failed_fraction` in the subject-region fractions and the surface stats: share of each region on voxels where the free-water-corrected fit failed (AD, RD or MD set to 0 by scilpy's outlier removal), reported and not removed, so its link with diagnosis can be checked.
 - `volume_icv_fraction` (volume / intracranial volume) next to `icv_mm3` in every volume file and table.
 - `small_region` flag and `--subject_roi_small_region_voxels` (50) for subject regions covering few acquired DWI voxels.
 - Warnings when free water is fitted on single-shell data and when cortical thickness is computed session by session on subjects with several sessions.

@@ -107,7 +107,7 @@ With `synthseg`, the segmentation itself is published per subject:
 With `--run_subject_roi_metrics true` (`<seg>` = `synthseg`, `freesurfer` or `samseg`):
 
 - `dwi/<subject>_seg-<seg>_desc-roi_stats.tsv` — fraction-weighted mean of each metric per region, same layout as the GM file (`sid, session, run, roi, covariates..., metrics...`); `dwi/<subject>_seg-<seg>_label-std_desc-roi_stats.tsv` holds the standard deviations
-- `dwi/<subject>_seg-<seg>_desc-roi_fractions.csv` — effective size of each region: `acq_voxels` (sum of the voxel fractions), `volume_mm3`, `in_mask_fraction`, the share of the region inside the DWI brain mask (the statistics use only that part; a low value, e.g. a frontal pole cut by the mask, means a less reliable region), and `small_region` (1 when `acq_voxels` is below `--subject_roi_small_region_voxels`, 50 by default: a mean over so few acquired voxels is noisy; a flag only)
+- `dwi/<subject>_seg-<seg>_desc-roi_fractions.csv` — effective size of each region: `acq_voxels` (sum of the voxel fractions), `volume_mm3`, `in_mask_fraction`, the share of the region inside the DWI brain mask (the statistics use only that part; a low value, e.g. a frontal pole cut by the mask, means a less reliable region), and `small_region` (1 when `acq_voxels` is below `--subject_roi_small_region_voxels`, 50 by default: a mean over so few acquired voxels is noisy; a flag only), and `fwc_failed_fraction` (with free water: share of the region's weight on brain voxels where the free-water-corrected fit failed and scilpy set AD, RD or MD to 0; these zeros stay in the `adt`, `rdt`, `mdt` means, which they lower by about that share; empty without free water)
 - `metrics/space-native_seg-<seg>_label-mean_desc-roi_stats.tsv` and `metrics/space-native_seg-<seg>_desc-roi_fractions.csv` — all samples merged, `region_type = GM_subject`
 
 These rows are not added to the combined TSV, which keys rows by region name: they would merge with the atlas GM rows of the same names.
@@ -124,7 +124,7 @@ With `--run_cortical_thickness true`:
 
 With `--run_cortical_surface_metrics true`:
 
-- `dwi/<subject>_surf-freesurfer_desc-roi_stats.tsv` — mean of each metric over the vertices of each Desikan region, sampled at mid-thickness: `sid, session, run, roi, covariates..., metrics..., n_vertices`; `dwi/<subject>_surf-freesurfer_label-std_desc-roi_stats.tsv` holds the standard deviations. A region with no vertex inside the DWI brain mask has no row.
+- `dwi/<subject>_surf-freesurfer_desc-roi_stats.tsv` — mean of each metric over the vertices of each Desikan region, sampled at mid-thickness: `sid, session, run, roi, covariates..., metrics..., fwc_failed_fraction, n_vertices` (`fwc_failed_fraction`: mean share of the samples from voxels where the free-water-corrected fit failed, as in the fractions file); `dwi/<subject>_surf-freesurfer_label-std_desc-roi_stats.tsv` holds the standard deviations. A region with no vertex inside the DWI brain mask has no row.
 - `metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv` — all samples merged, `region_type = GM_surface`
 - `anat/freesurfer/<subject>/` — the `recon-all` folder, as for the thickness
 

@@ -14,11 +14,16 @@
 //      divided by the interpolated mask, so the voxels outside it do not pull it down; each region of
 //      label/?h.aparc.annot gets the mean and std over its vertices (unknown and corpuscallosum skipped).
 //
+// fwc_failed_fraction: scilpy's outlier removal sets the free-water-corrected AD, RD and MD to 0
+// where the corrected fit failed (mostly CSF borders); those zeros are sampled as values. The map of
+// such brain voxels is warped and sampled like the mask, and each region reports the mean share of
+// its samples coming from them (empty without free-water-corrected maps). Nothing is removed.
+//
 // Metric names follow STATS_METRICSINROI: the part after "__" in the file name, plus "t" for the
 // free-water-corrected maps (desc-fwc), so the columns match the volume stats files.
 //
 // Outputs (TSV): <prefix>_desc-mean_surface_stats.tsv and <prefix>_desc-std_surface_stats.tsv
-//   sid, session, run, roi, <ext.meta_columns>, <metrics, alphabetical>, n_vertices
+//   sid, session, run, roi, <ext.meta_columns>, <metrics, alphabetical>, fwc_failed_fraction, n_vertices
 // A region with no vertex inside the mask has no row.
 process STATS_SURFACEMETRICS {
     tag "$meta.id"
@@ -61,15 +66,20 @@ import numpy as np
 mask_img = nib.load("${dwi_mask}")
 mask = np.asarray(mask_img.dataobj) > 0
 nib.save(nib.Nifti1Image(mask.astype(np.float32), mask_img.affine), "masked/${dwi_mask}")
+failed = np.zeros(mask.shape, bool)
 for f in "${metric_list.join(' ')}".split():
     img = nib.load(f)
     data = np.asarray(img.dataobj, dtype=np.float32)
     if data.shape[:3] != mask.shape or not np.allclose(img.affine, mask_img.affine, atol=1e-3):
         raise SystemExit(f"ERROR: {f} is not on the grid of ${dwi_mask}")
     nib.save(nib.Nifti1Image(np.where(mask, data, 0).astype(np.float32), img.affine), f"masked/{f}")
+    head, metric = f[:-len(".nii.gz")].split("__", 1)
+    if "_desc-fwc" in head and metric in ("ad", "rd", "md"):
+        failed |= mask & (data == 0)
+nib.save(nib.Nifti1Image(failed.astype(np.float32), mask_img.affine), "masked/fwc_failed.nii.gz")
 PYEOF
 
-    for image in ${metric_list.join(' ')} ${dwi_mask}; do
+    for image in ${metric_list.join(' ')} ${dwi_mask} fwc_failed.nii.gz; do
         antsApplyTransforms -d 3 -i masked/\$image -r ${t1_reference} -o t1_space/\$image \\
             -n Linear -u float ${ants_transforms}
     done
@@ -102,6 +112,9 @@ metrics = {metric_name(f): np.asarray(nib.load(f"t1_space/{f}").dataobj, dtype=n
 names = sorted(metrics)
 mask_img = nib.load("t1_space/${dwi_mask}")
 mask = np.asarray(mask_img.dataobj, dtype=np.float64)
+failed = np.asarray(nib.load("t1_space/fwc_failed.nii.gz").dataobj, dtype=np.float64)
+has_fwc = any("_desc-fwc" in f.split("__")[0] and f.split("__")[1][:-len(".nii.gz")] in ("ad", "rd", "md")
+              for f in "${metric_list.join(' ')}".split())
 
 # FreeSurfer surfaces are in tkregister coordinates of orig.mgz; the maps are in scanner coordinates
 orig = nib.load(os.path.join(recon, "mri", "orig.mgz"))
@@ -123,21 +136,23 @@ for hemi in ("lh", "rh"):
     # interpolated the same way removes the share of the outside voxels (normalised interpolation)
     values = {m: map_coordinates(metrics[m], ijk, order=1, cval=np.nan) / np.maximum(weight, 1e-6)
               for m in names}
+    failed_share = map_coordinates(failed, ijk, order=1, cval=0.0) / np.maximum(weight, 1e-6)
     for index, region in enumerate(regions):
         region = region.decode()
         if region in ("unknown", "corpuscallosum"):
             continue
         keep = (labels == index) & inside
         if keep.any():
-            rows.append((f"ctx-{hemi}-{region}", {m: values[m][keep] for m in names}, int(keep.sum())))
+            share = f"{float(failed_share[keep].mean()):.4f}" if has_fwc else ""
+            rows.append((f"ctx-{hemi}-{region}", {m: values[m][keep] for m in names}, share, int(keep.sum())))
 
-header = ["sid", "session", "run", "roi"] + meta_columns + names + ["n_vertices"]
+header = ["sid", "session", "run", "roi"] + meta_columns + names + ["fwc_failed_fraction", "n_vertices"]
 for stat, function in (("mean", np.mean), ("std", np.std)):
     with open(f"${prefix}_desc-{stat}_surface_stats.tsv", "w") as out:
         out.write("\\t".join(header) + "\\n")
-        for roi, v, n in sorted(rows):
+        for roi, v, share, n in sorted(rows):
             line = ["${subject_id}", "${session_id}", "${run_id}", roi] + meta_values
-            out.write("\\t".join(line + [repr(float(function(v[m]))) for m in names] + [str(n)]) + "\\n")
+            out.write("\\t".join(line + [repr(float(function(v[m]))) for m in names] + [share, str(n)]) + "\\n")
 
 with open("versions.yml", "w") as v:
     v.write('"${task.process}":\\n')
@@ -154,7 +169,7 @@ PYEOF
     """
     # settings: projfrac ${projfrac}
     for stat in mean std; do
-        printf "sid\\tsession\\trun\\troi\\tn_vertices\\n${meta.id}\\t${meta.session ?: ""}\\t${run_id}\\tctx-lh-bankssts\\t0\\n" \\
+        printf "sid\\tsession\\trun\\troi\\tfwc_failed_fraction\\tn_vertices\\n${meta.id}\\t${meta.session ?: ""}\\t${run_id}\\tctx-lh-bankssts\\t\\t0\\n" \\
             > ${prefix}_desc-\${stat}_surface_stats.tsv
     done
 

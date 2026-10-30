@@ -1171,6 +1171,12 @@
                     "description": "0 (default): fraction-weighted means over every voxel touching the region. Above 0: unweighted means over the voxels at least that much inside the region (e.g. 0.75), for sensitivity analyses.",
                     "default": 0
                 },
+                "subject_roi_small_region_voxels": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Regions covering fewer acquired DWI voxels than this (acq_voxels, sum of the voxel fractions) are flagged small_region = 1 in the subject-region fractions CSV: a mean over so few voxels is noisy. Flag only; no value is removed.",
+                    "default": 50
+                },
                 "run_hoc": {
                     "type": "boolean",
                     "description": "Compute the hippocampal occupancy score (hippocampus / (hippocampus + inferior lateral ventricle)), left, right and bilateral.",

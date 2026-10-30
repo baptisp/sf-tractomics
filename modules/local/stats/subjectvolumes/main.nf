@@ -4,8 +4,10 @@
 // measure atrophy.
 //
 // Output CSV:
-//   sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,qc_score,qc_flags,scanner,duplicate_of
+//   sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of
 // The first six columns match STATS_ROIVOLUMES so the existing collectors read it unchanged.
+// volume_icv_fraction = volume_mm3 / icv_mm3 (the region's share of the intracranial volume, to
+// compare heads of different sizes); empty when icv_mm3 is.
 //
 // qc_flags lists, separated by ';', every reason not to trust this sample's volumes (empty = no
 // reason found): qc_low (SynthSeg QC score below ext.qc_threshold), icv_missing, icv_implausible
@@ -122,10 +124,11 @@ if "${duplicate_of}":
 qc_flags = ";".join(flags)
 
 with open("${prefix}_${suffix}.csv", "w") as out:
-    out.write("sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,qc_score,qc_flags,scanner,duplicate_of\\n")
+    out.write("sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of\\n")
     for name, voxels, mm3 in rows:
+        fraction = f"{float(mm3) / float(icv):.8f}" if mm3 and icv and float(icv) > 0 else ""
         out.write(f"${subject_id},${session_id},${run_id},{name},{voxels},{mm3},${volume_source},"
-                  f"{icv},{qc_score},{qc_flags},${scanner},${duplicate_of}\\n")
+                  f"{icv},{fraction},{qc_score},{qc_flags},${scanner},${duplicate_of}\\n")
 
 with open("versions.yml", "w") as v:
     v.write('"${task.process}":\\n')
@@ -138,7 +141,7 @@ PYEOF
     def prefix = task.ext.prefix ?: "${meta.id}"
     def suffix = task.ext.first_suffix ? "${task.ext.first_suffix}_volumes" : "volumes"
     """
-    echo "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,qc_score,qc_flags,scanner,duplicate_of" > ${prefix}_${suffix}.csv
+    echo "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of" > ${prefix}_${suffix}.csv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

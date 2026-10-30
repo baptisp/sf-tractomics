@@ -20,7 +20,7 @@ workflow SUBJECT_ROI_KNOWN_ANSWER {
         .map { m -> [m, [file("${dir}/${prefix.call(m)}__fa.nii.gz"), file("${dir}/${prefix.call(m)}__md.nii.gz")]] }
 
     IMAGE_LABELFRACTION(channel.fromList(metas).map { m -> [m, file("${data}/labels.nii.gz"), file("${data}/acq_dwi.nii.gz"),
-        file("${data}/target_fa.nii.gz"), file("${data}/identity.txt"), file("${data}/lut.json")] })
+        file("${data}/target_fa.nii.gz"), file("${data}/identity.txt"), file("${data}/lut.json"), []] })
     STATS_METRICSINROI(ch_metrics.join(IMAGE_LABELFRACTION.out.fractions).map { m, metrics, masks -> [m, metrics, masks, []] })
     collectStatsFiles(STATS_METRICSINROI.out.stats_mean, "subject_roi.tsv", outdir, "GM_subject")
 }

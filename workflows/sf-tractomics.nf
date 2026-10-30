@@ -482,6 +482,8 @@ workflow SF_TRACTOMICS {
                     .join(TRACTOFLOW.out.dti_fa)
                     .join(TRACTOFLOW.out.anatomical_to_diffusion)
                     .combine(channel.fromPath("${projectDir}/assets/${subject_lut}", checkIfExists: true))
+                    // the maps are 0 outside the DWI brain mask: no weight there
+                    .join(TRACTOFLOW.out.b0_mask)
             )
             ch_versions = ch_versions.mix(SUBJECT_ROI_FRACTIONS.out.versions.first())
             STATS_SUBJECT_ROI_METRICS(
@@ -548,6 +550,42 @@ workflow SF_TRACTOMICS {
             collectStatsFiles(ch_surface_stats, "space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv",
                               "${params.outdir}/metrics/", "GM_surface")
         }
+    }
+
+    // Free water from a single shell: the fit is driven by its fixed diffusivity priors and cannot
+    // separate free water from tissue MD well; on mixed protocols, single- and multi-shell
+    // subjects get different models.
+    if ( params.run_freewater == true ) {
+        ch_dwi_bval_bvec
+            .filter { _meta, _dwi, bval, _bvec ->
+                def shells = file(bval.toString()).text.tokenize().collect { b -> Math.round((b as double) / 100.0) * 100 }.findAll { b -> b > params.b0_thr_extract_b0 }.unique()
+                shells.size() < 2
+            }
+            .map { meta, _dwi, _bval, _bvec -> meta.id }
+            .unique()
+            .collect()
+            .subscribe { ids ->
+                log.warn "Free water is fitted on single-shell data for ${ids.size()} subject(s) (e.g. ${ids.take(3).join(', ')}): " +
+                         "the free-water fraction and the free-water-corrected metrics depend on the fixed diffusivity priors " +
+                         "and are exploratory; do not mix them with multi-shell subjects without modelling the protocol."
+            }
+    }
+
+    // Cortical thickness on several sessions of a subject: recon-all runs on each session on its
+    // own, and that noise is comparable to yearly cortical thinning.
+    if ( do_thickness ) {
+        ch_t1
+            .map { meta, _t1 -> [meta.id, meta.session ?: ""] }
+            .unique()
+            .groupTuple()
+            .filter { _id, sessions -> sessions.size() > 1 }
+            .map { id, _sessions -> id }
+            .collect()
+            .subscribe { ids ->
+                log.warn "Cortical thickness: ${ids.size()} subject(s) have several sessions (e.g. ${ids.take(3).join(', ')}). " +
+                         "recon-all runs on each session independently (cross-sectional), which adds session-to-session " +
+                         "noise comparable to yearly thinning; use the FreeSurfer longitudinal stream to measure change over time."
+            }
     }
 
     // Volumes are requested on longitudinal data without the longitudinal option: each session
@@ -1373,6 +1411,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             if (volumeSource != null) {
                 all_columns.add("volume_source")
                 all_columns.add("icv_mm3")
+                all_columns.add("volume_icv_fraction")
                 QC_COLS.each { c -> all_columns.add(c) }
             }
             all_columns = all_columns.toList()
@@ -1433,6 +1472,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                         if (col == "volume_mm3")    return vd[1]
                         if (col == "volume_source") return vd[2]
                         if (col == "icv_mm3")       return vd[3]
+                        if (col == "volume_icv_fraction") return icvFraction(vd[1], vd[3])
                         if (col in QC_COLS)         return vd[4 + QC_COLS.indexOf(col)]
                         stats_idx.containsKey(col) ? (stats_idx[col] < vals.size() ? vals[stats_idx[col]] : '') : ''
                     }
@@ -1454,6 +1494,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                             if (col == "volume_mm3")    return vd[1]
                             if (col == "volume_source") return vd[2]
                             if (col == "icv_mm3")       return vd[3]
+                            if (col == "volume_icv_fraction") return icvFraction(vd[1], vd[3])
                             if (col in QC_COLS)         return vd[4 + QC_COLS.indexOf(col)]
                             ''
                         }
@@ -1477,11 +1518,18 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
 // mixed unknowingly). The intracranial volume is constant in adults: a session whose ICV differs
 // from its subject's median by more than icvDrift (fraction) gets the 'icv_drift' flag, which
 // catches failed segmentations and scanner-induced shifts.
+// volume_mm3 / icv_mm3 with 8 decimals, or "" when either is missing
+def icvFraction(mm3, icv) {
+    if (!mm3 || !icv) return ""
+    def i = icv as double
+    return i > 0 ? String.format(java.util.Locale.ROOT, "%.8f", (mm3 as double) / i) : ""
+}
+
 def collectVolumeFiles(ch_volumes, name, storeDir, volumeSource, icvDrift = 0.03, revision = "") {
 
     def output_file_path = "${storeDir}/${name}"
     def out_cols = ["sid", "session", "run", "roi", "volume_voxels", "volume_mm3", "volume_source", "icv_mm3",
-                    "qc_score", "qc_flags", "scanner", "duplicate_of", "pipeline_revision"]
+                    "volume_icv_fraction", "qc_score", "qc_flags", "scanner", "duplicate_of", "pipeline_revision"]
 
     return ch_volumes
         .map { _meta, csv -> toAbsFile(csv.toString()).absolutePath }
@@ -1507,6 +1555,7 @@ def collectVolumeFiles(ch_volumes, name, storeDir, volumeSource, icvDrift = 0.03
                     rows << out_cols.collect { col ->
                         def v = value.call(col)
                         if (col == "pipeline_revision") return revision ?: ""
+                        if (col == "volume_icv_fraction") return v ?: icvFraction(value.call("volume_mm3"), value.call("icv_mm3"))
                         (v == null && col == "volume_source") ? volumeSource : (v ?: "")
                     }
                 }
@@ -1683,7 +1732,7 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
                     def vox_idx = cols.indexOf("volume_voxels")
                     def mm3_idx = cols.indexOf("volume_mm3")
                     // Carried as is: provenance and QC columns of the volume CSVs
-                    def extra = ["volume_source", "icv_mm3", "qc_score", "qc_flags", "scanner", "duplicate_of", "pipeline_revision"]
+                    def extra = ["volume_source", "icv_mm3", "volume_icv_fraction", "qc_score", "qc_flags", "scanner", "duplicate_of", "pipeline_revision"]
                         .collectEntries { c -> [(c): cols.indexOf(c)] }.findAll { _c, i -> i >= 0 }
 
                     all_metrics.addAll(["volume_voxels", "volume_mm3"])

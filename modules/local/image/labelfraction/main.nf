@@ -13,12 +13,20 @@
 // ext.min_fraction = 0 (default) writes the fractions, for weighted means. A value above 0 writes
 // binary masks of the voxels at least that much inside the label instead (unweighted means).
 //
+// brain_mask (optional, on the target grid): the metric maps are 0 outside it, so the maps get no
+// weight there; otherwise those zeros pull the region means down (up to 15% of a frontal pole lies
+// outside a b0 brain mask). Region statistics then use the voxels of the region inside the mask.
+//
 // Outputs:
 //   <prefix>__<roi>_fraction.nii.gz   one map per LUT label present in the image (float32); with
 //                                     min_fraction, only labels with a voxel above it
 //   <prefix>_fraction_sums.csv        sid, session, run, roi, acq_voxels (sum of fractions),
-//                                     volume_mm3 (acq_voxels x acquisition voxel volume), for every
-//                                     LUT label: the effective size of each region in the statistics
+//                                     volume_mm3 (acq_voxels x acquisition voxel volume),
+//                                     in_mask_fraction (share of the region's weight on the target
+//                                     grid inside brain_mask; 1 without a mask), small_region (1 when
+//                                     acq_voxels is below ext.small_region_voxels, 50 by default: a
+//                                     mean over so few acquired voxels is noisy; 0 otherwise), for
+//                                     every LUT label
 process IMAGE_LABELFRACTION {
     tag "$meta.id"
     label 'process_single'
@@ -26,7 +34,7 @@ process IMAGE_LABELFRACTION {
     container "scilus/scilus:2.2.2"
 
     input:
-    tuple val(meta), path(labels), path(acq_reference), path(target_reference), path(transforms), path(lut)
+    tuple val(meta), path(labels), path(acq_reference), path(target_reference), path(transforms), path(lut), path(brain_mask) /* optional, input = [] */
 
     output:
     tuple val(meta), path("*__*_fraction.nii.gz"), emit: fractions
@@ -40,6 +48,7 @@ process IMAGE_LABELFRACTION {
     def prefix       = task.ext.prefix ?: "${meta.id}"
     def factor       = task.ext.supersampling ?: 4
     def min_fraction = task.ext.min_fraction ?: 0
+    def small_voxels = task.ext.small_region_voxels != null ? task.ext.small_region_voxels : 50
     def transform_list = transforms instanceof List ? transforms : [transforms]
     def ants_transforms = transform_list.collect { t -> "-t ${t}" }.join(" ")
     def subject_id   = meta.id ?: ""
@@ -86,20 +95,30 @@ inside = np.all((idx >= 0) & (idx < (nx, ny, nz)), axis=1)
 
 acq_voxel_mm3 = float(np.prod(acq.header.get_zooms()[:3]))
 lut = json.load(open("${lut}"))
+brain = np.ones(len(ijk), bool)
+if "${brain_mask}":
+    mask_img = nib.load("${brain_mask}")
+    if mask_img.shape[:3] != target.shape[:3] or not np.allclose(mask_img.affine, target.affine, atol=1e-3):
+        raise SystemExit("ERROR: brain_mask must be on the grid of target_reference")
+    brain = np.asarray(mask_img.dataobj).reshape(-1) > 0
 with open("${prefix}_fraction_sums.csv", "w") as sums:
-    sums.write("sid,session,run,roi,acq_voxels,volume_mm3\\n")
+    sums.write("sid,session,run,roi,acq_voxels,volume_mm3,in_mask_fraction,small_region\\n")
     for label_id, name in sorted(lut.items(), key=lambda x: int(x[0])):
         fraction = (blocks == int(label_id)).sum(axis=(1, 3, 5)) / float(k ** 3)
         total = float(fraction.sum())
-        sums.write(f"${subject_id},${session_id},${run_id},{name},{total:.4f},{total * acq_voxel_mm3:.4f}\\n")
-        if total == 0:
-            continue
-        if ${min_fraction} > 0:
-            fraction = (fraction >= ${min_fraction}).astype(float)
-            if not fraction.any():
-                continue   # no voxel mostly inside: no mask, the region is absent from the stats
         out = np.zeros(len(ijk), np.float32)
         out[inside] = fraction[idx[inside, 0], idx[inside, 1], idx[inside, 2]]
+        in_mask = float(out[brain].sum() / out.sum()) if out.sum() > 0 else None
+        out[~brain] = 0
+        in_mask_str = "" if in_mask is None else f"{in_mask:.4f}"
+        small = 1 if total < ${small_voxels} else 0
+        sums.write(f"${subject_id},${session_id},${run_id},{name},{total:.4f},{total * acq_voxel_mm3:.4f},{in_mask_str},{small}\\n")
+        if not out.any():
+            continue   # absent, or entirely outside the brain mask: no map, the region has no stats
+        if ${min_fraction} > 0:
+            out = (out >= ${min_fraction}).astype(np.float32)
+            if not out.any():
+                continue   # no voxel mostly inside: no mask, the region is absent from the stats
         nib.save(nib.Nifti1Image(out.reshape(target.shape[:3]), target.affine),
                  f"${prefix}__{name}_fraction.nii.gz")
 
@@ -115,10 +134,11 @@ PYEOF
     def prefix       = task.ext.prefix ?: "${meta.id}"
     def factor       = task.ext.supersampling ?: 4
     def min_fraction = task.ext.min_fraction ?: 0
+    def small_voxels = task.ext.small_region_voxels != null ? task.ext.small_region_voxels : 50
     """
-    # settings: supersampling ${factor} min_fraction ${min_fraction}
+    # settings: supersampling ${factor} min_fraction ${min_fraction} small_region_voxels ${small_voxels}
     touch ${prefix}__Left-Hippocampus_fraction.nii.gz
-    echo "sid,session,run,roi,acq_voxels,volume_mm3" > ${prefix}_fraction_sums.csv
+    echo "sid,session,run,roi,acq_voxels,volume_mm3,in_mask_fraction,small_region" > ${prefix}_fraction_sums.csv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

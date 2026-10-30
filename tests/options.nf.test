@@ -250,6 +250,7 @@ nextflow_pipeline {
                 outdir                   = "$outputDir"
                 run_subject_roi_metrics  = true
                 subject_roi_min_fraction = 0.75
+                subject_roi_small_region_voxels = 30
                 volume_source            = "synthseg"
                 freesurfer_license       = "${projectDir}/tests/fake_freesurfer_license.txt"
             }
@@ -263,7 +264,7 @@ nextflow_pipeline {
                 { assert fractions.size() == 1 },
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_SUBJECT_ROI_METRICS") }.size() == 1 },
                 // The threshold reaches the module (its stub records the settings it received)
-                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: supersampling 4 min_fraction 0.75") } == 1 },
+                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: supersampling 4 min_fraction 0.75 small_region_voxels 30") } == 1 },
                 { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_desc-roi_stats.tsv" in files },
                 { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_label-std_desc-roi_stats.tsv" in files },
                 { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_desc-roi_fractions.csv" in files },
@@ -291,7 +292,7 @@ nextflow_pipeline {
         then {
             assertAll(
                 { assert workflow.success },
-                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: supersampling 4 min_fraction 0.6") } == 1 }
+                { assert commandScripts("${launchDir}/work").count { t -> t.contains("# settings: supersampling 4 min_fraction 0.6 small_region_voxels 50") } == 1 }
             )
         }
     }

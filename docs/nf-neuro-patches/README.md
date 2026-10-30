@@ -22,7 +22,7 @@ python3 docs/nf-neuro-patches/make_patches.py ../modules
 | File | Change | Why | Upstream |
 |---|---|---|---|
 | `segmentation/synthseg/main.nf` | Pass `--parc`; use `FS_LICENSE` instead of copying the licence into `$FREESURFER_HOME` | `--parc` was defined but never passed, so every cortex region was empty. The licence copy fails when the container runs as the host user, as with the Docker profile. | To propose |
-| `stats/metricsinroi/main.nf` | `sid`, `session`, `run` columns (bare run number, absent run = 1); region-centric transposition in label mode; `desc-*__` metric names | One TSV layout for WM bundles and GM/CSF regions, with the covariates and run convention the collectors use | Partly in the reviewed upstream version; to compare |
+| `stats/metricsinroi/main.nf` | `sid`, `session`, `run` columns (bare run number, absent run = 1); region-centric transposition in label mode; `desc-*__` metric names; first ROI name read with `awk 'NR == 1'` instead of `head -n 1` | One TSV layout for WM bundles and GM/CSF regions, with the covariates and run convention the collectors use; `head` closing the pipe early made `printf` fail with SIGPIPE (exit 141 under `pipefail`) at random, seen on OASIS-3 | Partly in the reviewed upstream version; to compare |
 | `atlas_iit/main.nf`, `meta.yml` | IIT GM Desikan atlas download (`fetch_gm_desikan`) | GM region metrics | Vendored from the reviewed upstream pull request |
 | `atlas_iit/nextflow.config` | Comment only | | |
 | `atlas_roimetrics/main.nf`, `meta.yml`, `tests/main.nf.test` | `use_registered_atlas` input, source and output axes | Follows the reviewed upstream pull request | Vendored from the reviewed upstream pull request |

@@ -33,6 +33,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Fixed`
 
+- Region statistics (nf-neuro `stats/metricsinroi`) failed at random with exit status 141: `head -n 1` closed the pipe while `printf` was writing the region names. They are now read with `awk`.
 - Subject-region diffusion metrics: voxels outside the DWI brain mask (where the maps are 0) kept their weight and pulled region means down (up to 15% of a frontal pole); they now get none, as in the atlas tables, and `in_mask_fraction` reports the share kept. Same correction for the surface sampling (maps masked before the warp, samples normalised by the mask).
 - WM bundle volumes with `--use_binary_masks`: border voxels of the linearly warped masks counted as whole voxels (+40 to +125%); `stats/roivolumes` gets `ext.mask_volume` (`nonzero` | `fraction`).
 - RECONST_FRF received no shell or b0 settings (it used DTI shells up to 1500 and fODF shells from 100), and the DTI fits no b0 threshold or shell tolerance; they now follow the pipeline parameters. A misnamed N4 setting that was never read was removed.

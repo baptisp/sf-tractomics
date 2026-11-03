@@ -192,21 +192,25 @@ Global volume CSVs are written by `collectVolumeFiles` (not `collectFile`) and a
 name order) into `SAMSEG_LONG_VOLUMES` (`modules/local/segmentation/samseglong`:
 `mri_robust_template` LTAs + `run_samseg_long --tp-to-base-transform`, so no resampling), whose
 per-session files `<id_session[_run]>__samseg_{seg.nii.gz,icv.csv}` are mapped back to session metas
-by name with `flatMap`. GM uses `assets/freesurfer_gm_samseg_lut.json` (cortex totals, no Desikan
+by name with `flatMap`, then fanned out (`distinctT1s` key `t1SampleKey`) to every DWI run sharing
+the segmented T1 file; runs with another T1 file of the session get none (`samsegUnsegmented`,
+startup warning) and are not expected by the per-run subject-region metrics check. GM uses `assets/freesurfer_gm_samseg_lut.json` (cortex totals, no Desikan
 parcels). When any volumes are requested, subjects have several sessions and the option is false,
 a startup `log.warn` says `run_longitudinal_volumes` is not activated.
 
 Volume QC: `annotateT1s` (workflows/sf-tractomics.nf) adds `meta.scanner` (BIDS sidecar) and
 `meta.duplicate_of` (T1 with the same voxel data as another sample: header and gzip bytes ignored, hashed only among same-shape images) to
-`ch_t1_vol`; STATS_SUBJECTVOLUMES writes `qc_score`, `qc_flags`, `scanner`, `duplicate_of`;
+`ch_t1_vol`, plus `meta.t1_shared_with` (label of the first run, by `firstRun`, sharing the same T1 file);
+STATS_SUBJECTVOLUMES writes `qc_score`, `qc_flags`, `scanner`, `duplicate_of`, `t1_shared_with` (STATS_HOC the last);
 `collectVolumeFiles` adds the `icv_drift` flag (needs all sessions) and `pipeline_revision`.
 `checkVolumeCoverage` fails the run when a session has no volumes of a requested type (report in
-`metrics/volumes_missing_samples.txt`) unless `allow_missing_volumes`. Label warps use
+`metrics/volumes_missing_samples.txt`) unless `allow_missing_volumes`; subject-region metrics are checked per
+DWI run (`keyLength` 3). Label warps use
 GenericLabel (MultiLabel alters volumes even under identity; tests/known_answer). Run convention
 everywhere: bare run number, absent = 1.
 
 `collectStatsFilesWithVolumes` pairs stats and volumes on `(id, session, run)` (absent run = run 1),
-falling back to the session's CSV (SAMSEG has one per session), and keeps subject-segmentation ROIs
+falling back to the session's CSV when no run matches, and keeps subject-segmentation ROIs
 missing from the atlas stats as volume-only rows. SynthSeg runs once per distinct T1 file and its
 result is fanned out to every DWI run sharing it. The flag is checked with
 `== true`: a CLI value arrives as a string and `"false" as boolean` is true.

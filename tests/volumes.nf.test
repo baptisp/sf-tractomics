@@ -67,4 +67,54 @@ nextflow_pipeline {
             )
         }
     }
+
+    // SAMSEG segments one T1 per session (the first run's). Its segmentation must reach every DWI run
+    // that shares that T1 file (sub-INTB run-2), and not a run with another T1 file (run-3), which is
+    // warned about instead. TractoFlow is skipped (volumes_integrity config).
+    test("run_longitudinal_volumes - the session's segmentation reaches every run sharing its T1") {
+
+        config "./volumes_integrity/nextflow.config"
+
+        when {
+            params {
+                def d = "${projectDir}/tests/volumes_integrity"
+                // subject, session, run, run of the T1 file
+                def samples = [["INTA", "01", 0, 0], ["INTA", "02", 0, 0], ["INTB", "01", 1, 1], ["INTB", "01", 2, 1], ["INTB", "01", 3, 2]]
+                def config = samples.collect { sub, ses, run, f -> [
+                    subject: sub, session: ses, run: run,
+                    t1: "${d}/t1_${sub}_${ses}_r${f}.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
+                    TotalReadoutTime: 0.062, DWIPhaseEncodingDir: "y", rev_DWIPhaseEncodingDir: "",
+                    rev_dwi: "", rev_bval: "", rev_bvec: "", topup: "", rev_topup: "", wmparc: "", aparc_aseg: ""
+                ] }
+                def cfg = new File("${outputDir}/bids_struct.json")
+                cfg.parentFile.mkdirs()
+                cfg.text = groovy.json.JsonOutput.toJson(config)
+
+                outdir                   = "$outputDir/out"
+                input                    = null
+                bids_config              = cfg.absolutePath
+                run_gm_volumes           = true
+                run_hoc                  = true
+                run_longitudinal_volumes = true
+                freesurfer_license       = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) } }
+            def anat = "$outputDir/out/sub-INTB/ses-01/anat"
+            def log = new File("${launchDir}/meta/nextflow.log").text
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("SAMSEG_LONG_VOLUMES").size() == 2 },
+                // sub-INTA ses-01 and ses-02, sub-INTB run-1 and run-2; not run-3
+                { assert tasks("STATS_HOC").size() == 4 },
+                { assert tasks("STATS_SUBJECT_GM_VOLUMES").size() == 4 },
+                { assert path("${anat}/sub-INTB_ses-01_run-1_desc-hoc.csv").exists() },
+                { assert path("${anat}/sub-INTB_ses-01_run-2_desc-hoc.csv").exists() },
+                { assert !path("${anat}/sub-INTB_ses-01_run-3_desc-hoc.csv").exists() },
+                { assert log.readLines().any { l -> l.contains("another T1 file") && l.contains("sub-INTB_ses-01_run-3") } }
+            )
+        }
+    }
 }

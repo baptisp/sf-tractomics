@@ -4,7 +4,11 @@ pipeline code.
 Checks (any failure is printed and the exit code is 1):
   values     every volume equals a recount of the labels in the sample's own published
              segmentation; ICV and SynthSeg QC equal the segmenter's own tables
-  coverage   every input sample is present once, with every region of its LUT, and nothing else
+  coverage   every input sample (DWI run) is present once, with every region of its LUT, and
+             nothing else; with SAMSEG, a run whose T1 file is not its session's first run's has
+             none (one T1 segmented per session)
+  shared     t1_shared_with names the session's first run on every later run that shares its T1
+             file, and is empty elsewhere
   structure  every line has as many fields as its header, numbers parse, no NaN/None/null text
   empties    every empty cell is an expected one (labels the method cannot produce, no QC flag,
              no duplicate, covariates when no participants file is given)
@@ -53,9 +57,47 @@ def lut(typ, method):
 
 
 def seg_path(outdir, sid, ses, method):
+    # Published under the name of one run of the session when it has several
     tag = "samseglong" if method == "samseg_long" else "synthseg"
-    hits = glob.glob(f"{outdir}/{sid}/{ses}/anat/{sid}_{ses}_desc-{tag}_dseg.nii.gz")
+    hits = glob.glob(f"{outdir}/{sid}/{ses}/anat/{sid}_{ses}*_desc-{tag}_dseg.nii.gz")
     return hits[0] if len(hits) == 1 else None
+
+
+def run_label(r):
+    """run-N of a bids_config entry, as the pipeline names it; '' when the run entity is absent"""
+    run = str(r.get("run") or "").replace("run-", "")
+    return "" if run in ("", "0") else f"run-{int(run)}"
+
+
+def bare_run(value):
+    """Bare run number of a run column or label, '1' when absent (the pipeline's convention)"""
+    value = str(value or "").replace("run-", "")
+    return str(int(value)) if value.isdigit() else (value or "1")
+
+
+def bare_session(value):
+    value = str(value or "")
+    return value if not value or value.startswith("ses-") else f"ses-{value}"
+
+
+def samples_of(entries, method):
+    """(sid, session, bare run) of every sample with volume rows, and the t1_shared_with each must
+    carry: the label of the session's first run (run entity in name order) sharing its T1 file."""
+    by_t1, by_session = defaultdict(list), defaultdict(list)
+    for r in entries:
+        sid, ses = f"sub-{r['subject']}", f"ses-{r['session']}"
+        by_t1[sid, ses, r["t1"]].append(run_label(r))
+        by_session[sid, ses].append((run_label(r), r["t1"]))
+    expected, shared = set(), {}
+    for (sid, ses, t1), labels in by_t1.items():
+        if method == "samseg_long" and t1 != min(by_session[sid, ses])[1]:
+            continue
+        first = min(labels)
+        for label in labels:
+            key = (sid, ses, bare_run(label))
+            expected.add(key)
+            shared[key] = "" if label == first else "_".join(x for x in (sid, ses, first) if x)
+    return expected, shared
 
 
 def scanner_of(t1):
@@ -86,12 +128,14 @@ def check(args):
     errors = []
     err = errors.append
     with open(args.bids) as f:
-        inputs = {(f"sub-{r['subject']}", f"ses-{r['session']}"): r for r in json.load(f)}
-    expected = {key + ("1",) for key in inputs}
+        entries = json.load(f)
+    inputs = {(f"sub-{r['subject']}", f"ses-{r['session']}"): r for r in entries}
+    expected, shared = samples_of(entries, args.method)
     participants = None
     if args.participants:
         with open(args.participants) as f:
-            participants = {(r["participant_id"], r["session"]): r for r in csv.DictReader(f, delimiter="\t")}
+            participants = {(r["participant_id"], bare_session(r["session"]), bare_run(r.get("run"))): r
+                            for r in csv.DictReader(f, delimiter="\t")}
 
     # names: LUT labels against FreeSurfer's own table
     if args.fs_lut:
@@ -156,8 +200,12 @@ def check(args):
                 err(f"coverage: {typ} {s} missing {sorted(set(names.values()) - set(regions))}, "
                     f"extra {sorted(set(regions) - set(names.values()))}")
         for r in rows:
+            want = shared.get((r["sid"], r["session"], r["run"]))
+            if want is not None and r.get("t1_shared_with", "") != want:
+                err(f"shared: {typ} {r['sid']} {r['session']} run {r['run']} {r['roi']} t1_shared_with is "
+                    f"{r.get('t1_shared_with')!r}, expected {want!r}")
             for c in header:
-                if r[c] != "" or c in ("qc_flags", "duplicate_of"):
+                if r[c] != "" or c in ("qc_flags", "duplicate_of", "t1_shared_with"):
                     continue
                 if c in ("volume_voxels", "volume_mm3"):
                     label = {v: k for k, v in names.items()}.get(r["roi"])
@@ -243,7 +291,7 @@ def check(args):
                 if r[c] != s[c]:
                     err(f"combined: {r['sid']} {r['session']} {r['roi']} {c} is {r[c]!r}, source has {s[c]!r}")
             if participants is not None:
-                want = participants.get((r["sid"], r["session"]))
+                want = participants.get((r["sid"], r["session"], r["run"]))
                 if want is None:
                     err(f"combined: {r['sid']} {r['session']} is not in the participants file")
                 else:

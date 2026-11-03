@@ -6,8 +6,9 @@
 // one segmentation, so it does not depend on the voxel size.
 //
 // Output CSV:
-//   sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source
-// roi = Left, Right, Bilateral. hoc is empty when both structures are absent.
+//   sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with
+// roi = Left, Right, Bilateral. hoc is empty when both structures are absent. t1_shared_with: as in
+// STATS_SUBJECTVOLUMES, the first DWI run of the session whose T1 file this run shares.
 process STATS_HOC {
     tag "$meta.id"
     label 'process_single'
@@ -32,6 +33,7 @@ process STATS_HOC {
     def session_id    = meta.session ?: ""
     // Same run convention as the other stats files: bare run number, absent run = 1
     def run_id        = (meta.run ?: "run-1").replaceFirst(/^run-/, "")
+    def shared_with   = (meta.t1_shared_with ?: "").toString().replace(",", " ")
     """
     python3 << 'PYEOF'
 import nibabel as nib
@@ -48,11 +50,11 @@ sides = {"Left": (mm3(17), mm3(5)), "Right": (mm3(53), mm3(44))}
 sides["Bilateral"] = tuple(sides["Left"][i] + sides["Right"][i] for i in range(2))
 
 with open("${prefix}_hoc.csv", "w") as out:
-    out.write("sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source\\n")
+    out.write("sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with\\n")
     for roi in ("Left", "Right", "Bilateral"):
         hippo, ventricle = sides[roi]
         hoc = f"{hippo / (hippo + ventricle):.6f}" if hippo + ventricle > 0 else ""
-        out.write(f"${subject_id},${session_id},${run_id},{roi},{hoc},{hippo:.4f},{ventricle:.4f},${volume_source}\\n")
+        out.write(f"${subject_id},${session_id},${run_id},{roi},{hoc},{hippo:.4f},{ventricle:.4f},${volume_source},${shared_with}\\n")
 
 with open("versions.yml", "w") as v:
     v.write('"${task.process}":\\n')
@@ -64,7 +66,7 @@ PYEOF
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    echo "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source" > ${prefix}_hoc.csv
+    echo "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with" > ${prefix}_hoc.csv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

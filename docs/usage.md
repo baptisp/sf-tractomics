@@ -192,6 +192,7 @@ params {
 - The option overrides `--volume_source` for the GM, CSF and comparison volumes. WM bundle volumes stay atlas-based.
 - SAMSEG has no Desikan cortical parcels: the GM file holds `Left-Cerebral-Cortex` and `Right-Cerebral-Cortex` totals instead of the 68 `ctx-*` regions. When GM diffusion metrics are enabled too, those two rows have no IIT GM metric to join to and appear only in the volumes file.
 - A subject with a single session is segmented with cross-sectional `run_samseg`.
+- Several DWI runs in one session: the segmentation of the first run's T1 is given to every run that uses the same T1 file (volumes, HOC and subject-region metrics for each run, as with SynthSeg). A run with another T1 file of the session gets none, since SAMSEG segments one T1 per session and that run's T1-to-DWI transform starts from its own T1: such runs are listed in a startup warning. Use `--volume_source synthseg` to segment every T1.
 - One task per subject: measured at about 10 minutes and 8 GB for two sessions, and 42 minutes and 16 GB for six. The config requests 24 GB.
 - Absolute volumes differ between methods (SAMSEG, SynthSeg, FreeSurfer): never mix sources within one atrophy analysis.
 - A scanner or protocol change during follow-up shifts volumes on its own, and no segmentation method removes that bias. Record the scanner per session (the BIDS JSON `ManufacturersModelName`) and model it as a covariate in the statistics.
@@ -207,11 +208,12 @@ Volumes from the subject's own segmentation (`synthseg`, `freesurfer`, longitudi
 | `qc_flags` | `;`-separated reasons not to trust the sample, empty when none: `qc_low` (QC score below `--volume_qc_threshold`, default 0.65), `icv_missing`, `icv_implausible` (outside 0.9 to 2.3 L), `icv_drift` (ICV off its subject's median by more than `--volume_icv_drift`, default 3%: ICV is constant in adults, so this points to a failed segmentation or a scanner change), `empty:<regions>` (regions with no voxel), `duplicate` |
 | `scanner` | Manufacturer, model and field strength from the T1's BIDS sidecar JSON |
 | `duplicate_of` | The sample whose T1 holds the same voxel data as this one, even when the files differ in header or compression (e.g. a `run-02` exported twice from one acquisition): not an independent measurement |
+| `t1_shared_with` | The first DWI run of the session whose T1 file this run uses too (several DWI runs, one T1). With SynthSeg or SAMSEG its rows are copies of that run's: one measurement, so keep one row per T1 in volume statistics. Empty on the first run and on runs with their own T1. Also in the HOC file |
 | `pipeline_revision` | Git commit (or version) of the code that produced the file, in the global CSVs: never mix files of different revisions |
 
 At startup the pipeline also warns when T1s are duplicates and when a subject was scanned on several scanners: a scanner change shifts volumes by itself, so use `scanner` as a covariate.
 
-**Missing sessions fail the run.** Every input session must have volumes of every requested type. Sessions without them (failed or ignored task, missing input) are listed in `metrics/volumes_missing_samples.txt` and the run fails, unless `--allow_missing_volumes true`.
+**Missing sessions fail the run.** Every input session must have volumes of every requested type. Sessions without them (failed or ignored task, missing input) are listed in `metrics/volumes_missing_samples.txt` and the run fails, unless `--allow_missing_volumes true`. Subject-region metrics are checked per DWI run (each run has its own diffusion values), except runs that SAMSEG cannot serve (see above).
 
 **Lesions.** SAMSEG and FreeSurfer give white-matter hypointensities (lesions) their own label, reported as `WM-hypointensities` in the comparison files. That tissue is not in the white-matter rows: in cohorts with growing lesions, add it back to WM, or lesion growth reads as WM atrophy. SynthSeg has no lesion label (the row is empty) and may mislabel lesions as grey matter or ventricle: prefer SAMSEG or FreeSurfer for such cohorts.
 

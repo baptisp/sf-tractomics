@@ -384,14 +384,14 @@ workflow SF_TRACTOMICS {
                 error "run_longitudinal_volumes = true requires params.freesurfer_license (SAMSEG runs from the FreeSurfer container)."
             }
             // One task per subject with one T1 per session (the first run when a session has
-            // several), sessions in name order. The raw T1 is used, as for SynthSeg.
+            // several, see firstRun), sessions in name order. The raw T1 is used, as for SynthSeg.
             ch_t1_by_subject = ch_t1_vol
                 .map { meta, t1 -> [meta.id, meta, t1] }
                 .groupTuple()
                 .map { id, metas, t1s ->
                     def per_session = [metas, t1s].transpose()
                         .groupBy { pair -> pair[0].session ?: "" }
-                        .collect { _ses, pairs -> pairs.sort { pair -> pair[0].run ?: "" }[0] }
+                        .collect { _ses, pairs -> firstRun(pairs) }
                         .sort { pair -> pair[0].session ?: "" }
                     [[id: id], per_session.collect { pair -> pair[0] }, per_session.collect { pair -> pair[1] }]
                 }
@@ -401,7 +401,7 @@ workflow SF_TRACTOMICS {
             ch_versions = ch_versions.mix(SAMSEG_LONG_VOLUMES.out.versions.first())
 
             // Back to one item per session: files are named <id_session[_run]>__samseg_*.
-            ch_subject_seg = SAMSEG_LONG_VOLUMES.out.seg
+            ch_samseg_seg = SAMSEG_LONG_VOLUMES.out.seg
                 .flatMap { _meta, session_metas, segs, icvs ->
                     def seg_list = segs instanceof List ? segs : [segs]
                     def icv_list = icvs instanceof List ? icvs : [icvs]
@@ -415,6 +415,24 @@ workflow SF_TRACTOMICS {
                         ]
                     }
                 }
+            // Then to every DWI run of the session that uses the segmented T1 file, as SynthSeg does
+            // (distinctT1s): the segmentation is in that file's space, so it serves each of them.
+            // A run with another T1 file of the session gets none: its T1-to-DWI transform starts from
+            // its own T1. Those runs are listed at startup and left out of the per-run checks.
+            ch_subject_seg = ch_samseg_seg
+                .join(ch_t1_vol)
+                .map { m, seg, icv, qc, t1 -> [t1SampleKey(m, t1), seg, icv, qc] }
+                .join(distinctT1s(ch_t1_vol).map { meta, metas, t1 -> [t1SampleKey(meta, t1), metas] })
+                .flatMap { _key, seg, icv, qc, metas -> metas.collect { m -> [m, seg, icv, qc] } }
+            ch_t1_vol.toList().subscribe { items ->
+                def skipped = samsegUnsegmented(items)
+                if (skipped) {
+                    log.warn "run_longitudinal_volumes: ${skipped.size()} DWI run(s) use another T1 file than the " +
+                             "first run of their session (e.g. ${skipped.take(3).collect { m -> sampleLabel(m) }.join(', ')}). " +
+                             "SAMSEG segments one T1 per session, so these runs get no volumes, HOC or subject-region " +
+                             "metrics. Use volume_source = 'synthseg' to segment every T1."
+                }
+            }
         }
         else if ( volume_source == "synthseg" ) {
             if ( !params.freesurfer_license ) {
@@ -821,7 +839,7 @@ workflow SF_TRACTOMICS {
 
     // Every input session must have volumes of every requested type. A failed task (out of
     // memory, bad image) dropped under errorStrategy 'ignore' would otherwise just be missing
-    // from the CSVs. SAMSEG keeps one run per session, so the check is per session.
+    // from the CSVs. SAMSEG segments one T1 per session, so the volume checks are per session.
     def ch_expected_sessions = ch_t1_vol.map { meta, _t1 -> volumeSampleKey(meta)[0..1] }.unique().toList()
     [["WM bundle", do_wm_volumes ? ch_wm_volumes : null],
      ["GM", do_gm_volumes ? ch_gm_volumes : null],
@@ -829,9 +847,19 @@ workflow SF_TRACTOMICS {
      ["comparison", do_cmp_volumes ? ch_cmp_volumes : null],
      ["HOC", do_hoc ? ch_hoc : null],
      ["cortical thickness", do_thickness ? ch_thickness : null],
-     ["cortical surface metrics", do_surface_metrics ? ch_surface_stats : null],
-     ["subject-region metrics", do_subject_metrics ? ch_subject_roi_stats : null]].findAll { entry -> entry[1] != null }.each { entry ->
+     ["cortical surface metrics", do_surface_metrics ? ch_surface_stats : null]].findAll { entry -> entry[1] != null }.each { entry ->
         checkVolumeCoverage(entry[0], entry[1], ch_expected_sessions, "${params.outdir}/metrics", params.allow_missing_volumes == true)
+    }
+    // Subject-region metrics are diffusion values of one DWI run each, so they are checked per run:
+    // a second run of a session missing them would pass a per-session check. Runs SAMSEG cannot
+    // serve (another T1 file than the session's first run, warned at startup) are not expected.
+    if ( do_subject_metrics ) {
+        def ch_expected_runs = ch_t1_vol.toList().map { items ->
+            def unserved = volume_source == "samseg_long" ? samsegUnsegmented(items) as Set : [] as Set
+            items.findAll { item -> !(item[0] in unserved) }.collect { item -> volumeSampleKey(item[0]) }.unique()
+        }
+        checkVolumeCoverage("subject-region metrics", ch_subject_roi_stats, ch_expected_runs, "${params.outdir}/metrics",
+                            params.allow_missing_volumes == true, 3)
     }
 
     // CSF and comparison volumes alone may come from the subject's segmentation without
@@ -1092,9 +1120,34 @@ def bySampleFileName(a, b) {
 // subject's result to another.
 def distinctT1s(ch_t1) {
     return ch_t1
-        .map { meta, t1 -> [[meta.id, meta.session ?: "", t1.toString()], meta, t1] }
+        .map { meta, t1 -> [t1SampleKey(meta, t1), meta, t1] }
         .groupTuple()
         .map { _key, metas, t1s -> [metas[0], metas, t1s[0]] }
+}
+
+// One T1 file of one session of one subject: the runs that share it get the same segmentation
+def t1SampleKey(meta, t1) {
+    return [meta.id, meta.session ?: "", t1.toString()]
+}
+
+// The first run (run entity in name order) of [meta, t1] pairs: the T1 SAMSEG segments for a
+// session, and the run whose T1 the others share (t1_shared_with)
+def firstRun(List pairs) {
+    return pairs.toSorted { pair -> pair[0].run ?: "" }[0]
+}
+
+// Metas of the runs whose T1 file is not the one SAMSEG segments for their session
+def samsegUnsegmented(List items) {
+    return items.groupBy { item -> [item[0].id, item[0].session ?: ""] }
+        .collectMany { _key, pairs ->
+            def chosen = firstRun(pairs)[1].toString()
+            pairs.findAll { pair -> pair[1].toString() != chosen }.collect { pair -> pair[0] }
+        }
+}
+
+// sub-X_ses-Y_run-N label of a sample, as in duplicate_of and t1_shared_with
+def sampleLabel(meta) {
+    return [meta.id, meta.session, meta.run].findAll { x -> x }.join("_")
 }
 
 // Concatenate per-sample CSVs that share one header into <dir>/<name>, in file name order
@@ -1207,23 +1260,32 @@ def imageContentHash(path) {
 // voxels are identical to the T1 of another subject/session (e.g. run-02 exported twice from one
 // acquisition): it would be counted as an independent measurement. Files are grouped by image shape
 // first, so only candidates that could match are hashed. The same file shared by several DWI runs
-// of one session is not a duplicate. Returns [original meta, annotated meta, t1] for each item.
+// of one session is not a duplicate, but it is one measurement: every run after the first gets
+// meta.t1_shared_with, the label of the first run, so its volume rows (copies of the first run's
+// with SynthSeg or SAMSEG) can be left out of statistics. Returns [original meta, annotated meta, t1] for each item.
 def annotateT1s(List items) {
+    def sharedWith = [:]    // sample label -> label of the first run with the same T1 file
+    items.groupBy { item -> t1SampleKey(item[0], item[1]) }.each { _key, pairs ->
+        def first = sampleLabel(firstRun(pairs)[0])
+        pairs.collect { pair -> sampleLabel(pair[0]) }.findAll { label -> label != first }
+            .each { label -> sharedWith[label] = first }
+    }
     def byShape = items.groupBy { item -> imageShapeKey(item[1]) }
     def duplicateOf = [:]   // real path -> sample label of the first file with the same content
     byShape.values().findAll { group -> group.collect { item -> realPathString(item[1]) }.unique().size() > 1 }.each { group ->
         def byHash = group.collect { item -> realPathString(item[1]) }.unique().groupBy { path -> imageContentHash(path) }
         byHash.values().findAll { paths -> paths.size() > 1 }.each { paths ->
+            // A file shared by several runs is named after its lowest label, whatever the item order
             def labels = paths.collectEntries { path ->
-                def m = group.find { item -> realPathString(item[1]) == path }[0]
-                [(path): [m.id, m.session, m.run].findAll { x -> x }.join("_")]
+                [(path): group.findAll { item -> realPathString(item[1]) == path }.collect { item -> sampleLabel(item[0]) }.min()]
             }
             def first = paths.min { path -> labels[path] }
             paths.findAll { path -> path != first }.each { path -> duplicateOf[path] = labels[first] }
         }
     }
     return items.collect { meta, t1 ->
-        def annotated = meta + [scanner: t1Scanner(t1), duplicate_of: duplicateOf.getOrDefault(realPathString(t1), "")]
+        def annotated = meta + [scanner: t1Scanner(t1), duplicate_of: duplicateOf.getOrDefault(realPathString(t1), ""),
+                                t1_shared_with: sharedWith.getOrDefault(sampleLabel(meta), "")]
         [meta, annotated, t1]
     }
 }
@@ -1247,28 +1309,31 @@ def warnT1Annotations(List items) {
     }
 }
 
-// Report sessions that have no volumes of one type: written to <outdir>/volumes_missing_samples.txt,
-// then a pipeline error unless allowMissing.
-def checkVolumeCoverage(String type, ch_volumes, ch_expected_sessions, String outdir, boolean allowMissing) {
+// Report sessions (keyLength 2) or DWI runs (keyLength 3) that have no volumes of one type: written
+// to <outdir>/volumes_missing_samples.txt, then a pipeline error unless allowMissing.
+def checkVolumeCoverage(String type, ch_volumes, ch_expected, String outdir, boolean allowMissing, int keyLength = 2) {
+    def unit = keyLength == 3 ? "DWI run(s)" : "session(s)"
     ch_volumes
-        .map { meta, _f -> volumeSampleKey(meta)[0..1] }
+        .map { meta, _f -> volumeSampleKey(meta)[0..keyLength - 1] }
         .unique()
         .toList()
         .map { got -> [got: got] }
-        .combine(ch_expected_sessions.map { expected -> [expected: expected] })
+        .combine(ch_expected.map { expected -> [expected: expected] })
         .subscribe { got_item, expected_item ->
-            def missing = (expected_item.expected - got_item.got).collect { k -> k.findAll { x -> x }.join("_") }.sort()
+            def missing = (expected_item.expected - got_item.got).collect { k ->
+                (k.size() == 3 ? k[0..1] + ["run-${k[2]}"] : k).findAll { x -> x }.join("_")
+            }.sort()
             if (!missing) return
             def report = new File("${outdir}/volumes_missing_samples.txt")
             report.parentFile.mkdirs()
             report << missing.collect { m -> "${type}\t${m}" }.join("\n") + "\n"
-            def message = "${missing.size()} session(s) have no ${type} volumes (e.g. ${missing.take(5).join(', ')}): their " +
+            def message = "${missing.size()} ${unit} have no ${type} volumes (e.g. ${missing.take(5).join(', ')}): their " +
                           "segmentation or volume task failed or had no input. Listed in ${report}."
             if (allowMissing) {
                 log.warn message
             } else {
                 log.error message + " Fix them, or set allow_missing_volumes = true to accept incomplete volume files."
-                throw new IllegalStateException("Missing ${type} volumes for ${missing.size()} session(s)")
+                throw new IllegalStateException("Missing ${type} volumes for ${missing.size()} ${unit}")
             }
         }
 }
@@ -1432,7 +1497,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             }
             all_columns.add("volume_voxels")
             all_columns.add("volume_mm3")
-            def QC_COLS = ["qc_score", "qc_flags", "scanner", "duplicate_of"]
+            def QC_COLS = ["qc_score", "qc_flags", "scanner", "duplicate_of", "t1_shared_with"]
             if (volumeSource != null) {
                 all_columns.add("volume_source")
                 all_columns.add("icv_mm3")
@@ -1538,7 +1603,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
 // volume_source = volumeSource and an empty icv_mm3. Replaces a plain collectFile so the global
 // file says where its volumes come from whichever source produced it.
 //
-// Also carried: qc_score, qc_flags, scanner, duplicate_of (subject segmentations) and
+// Also carried: qc_score, qc_flags, scanner, duplicate_of, t1_shared_with (subject segmentations) and
 // pipeline_revision (the code that produced the file, so results of different versions are never
 // mixed unknowingly). The intracranial volume is constant in adults: a session whose ICV differs
 // from its subject's median by more than icvDrift (fraction) gets the 'icv_drift' flag, which
@@ -1554,7 +1619,8 @@ def collectVolumeFiles(ch_volumes, name, storeDir, volumeSource, icvDrift = 0.03
 
     def output_file_path = "${storeDir}/${name}"
     def out_cols = ["sid", "session", "run", "roi", "volume_voxels", "volume_mm3", "volume_source", "icv_mm3",
-                    "volume_icv_fraction", "qc_score", "qc_flags", "scanner", "duplicate_of", "pipeline_revision"]
+                    "volume_icv_fraction", "qc_score", "qc_flags", "scanner", "duplicate_of", "t1_shared_with",
+                    "pipeline_revision"]
 
     return ch_volumes
         .map { _meta, csv -> toAbsFile(csv.toString()).absolutePath }
@@ -1757,7 +1823,8 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
                     def vox_idx = cols.indexOf("volume_voxels")
                     def mm3_idx = cols.indexOf("volume_mm3")
                     // Carried as is: provenance and QC columns of the volume CSVs
-                    def extra = ["volume_source", "icv_mm3", "volume_icv_fraction", "qc_score", "qc_flags", "scanner", "duplicate_of", "pipeline_revision"]
+                    def extra = ["volume_source", "icv_mm3", "volume_icv_fraction", "qc_score", "qc_flags", "scanner", "duplicate_of",
+                                 "t1_shared_with", "pipeline_revision"]
                         .collectEntries { c -> [(c): cols.indexOf(c)] }.findAll { _c, i -> i >= 0 }
 
                     all_metrics.addAll(["volume_voxels", "volume_mm3"])

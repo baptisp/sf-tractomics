@@ -9,6 +9,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `t1_shared_with` column in the subject volume files, the global volume files, the combined TSV and the HOC file: the first DWI run of the session whose T1 file a run shares, so the copied rows of a session with several DWI runs and one T1 can be left out of volume statistics.
 - DWI input check (`DWI_INPUT_CHECK`, `metrics/dwi_input_report.tsv`): the parts of a split series (`<name>_k_of_N`, OASIS-3 Vida) are concatenated into one DWI, each scaled to the b0 of part 1 (`--merge_split_dwi`, new `PREPROC_DWICONCATENATE` module); DWIs whose largest DTI shell has fewer than `--dwi_min_shell_directions` (6) volumes (b-series) are skipped with their T1 instead of failing the run; a warning when the fODF shells hold fewer volumes than `sh_order` needs; two samples with the same subject, session and run stop the run.
 - `--fodf_absolute_threshold` (default none: per-subject threshold from the ventricles, unchanged): one fODF peak threshold for all subjects; each sample's threshold is written to `dwi/*_desc-fodfthreshold.csv`.
 - `fwc_failed_fraction` in the subject-region fractions and the surface stats: share of each region on voxels where the free-water-corrected fit failed (AD, RD or MD set to 0 by scilpy's outlier removal), reported and not removed, so its link with diagnosis can be checked.
@@ -35,6 +36,9 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Fixed`
 
+- SAMSEG longitudinal (`--run_longitudinal_volumes`) gave its segmentation only to the first DWI run of a session: the other runs had no volumes, HOC or subject-region metrics, and the per-session check did not notice. It now reaches every run that uses the segmented T1 file; a run with another T1 file of the session is listed in a startup warning. Subject-region metrics are checked per DWI run.
+- `duplicate_of` could name a later run instead of the first when a T1 file shared by several runs had a duplicate, depending on the order of the inputs.
+- `docs/volumes_validation/check_outputs.py` assumed one sample per session (run 1) and matched `participants.tsv` sessions only when written with `ses-`: it now checks every DWI run, `t1_shared_with`, and reads sessions without the prefix and the run column.
 - Region statistics (nf-neuro `stats/metricsinroi`) failed at random with exit status 141: `head -n 1` closed the pipe while `printf` was writing the region names. They are now read with `awk`.
 - Subject-region diffusion metrics: voxels outside the DWI brain mask (where the maps are 0) kept their weight and pulled region means down (up to 15% of a frontal pole); they now get none, as in the atlas tables, and `in_mask_fraction` reports the share kept. Same correction for the surface sampling (maps masked before the warp, samples normalised by the mask).
 - WM bundle volumes with `--use_binary_masks`: border voxels of the linearly warped masks counted as whole voxels (+40 to +125%); `stats/roivolumes` gets `ext.mask_volume` (`nonzero` | `fraction`).

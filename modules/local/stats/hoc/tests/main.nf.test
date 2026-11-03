@@ -35,10 +35,10 @@ nextflow_process {
             def csv = path(process.out.hoc[0][1])
             assert csv.fileName.toString() == "sub-01_ses-01_hoc.csv"
             assert csv.readLines() == [
-                "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source",
-                "sub-01,ses-01,1,Left,0.750000,30.0000,10.0000,synthseg",
-                "sub-01,ses-01,1,Right,1.000000,20.0000,0.0000,synthseg",
-                "sub-01,ses-01,1,Bilateral,0.833333,50.0000,10.0000,synthseg"
+                "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with",
+                "sub-01,ses-01,1,Left,0.750000,30.0000,10.0000,synthseg,",
+                "sub-01,ses-01,1,Right,1.000000,20.0000,0.0000,synthseg,",
+                "sub-01,ses-01,1,Bilateral,0.833333,50.0000,10.0000,synthseg,"
             ]
         }
     }
@@ -60,10 +60,10 @@ nextflow_process {
             assert process.success
             def csv = path(process.out.hoc[0][1])
             assert csv.readLines() == [
-                "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source",
-                "sub-02,,2,Left,0.750000,60.0000,20.0000,synthseg",
-                "sub-02,,2,Right,1.000000,40.0000,0.0000,synthseg",
-                "sub-02,,2,Bilateral,0.833333,100.0000,20.0000,synthseg"
+                "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with",
+                "sub-02,,2,Left,0.750000,60.0000,20.0000,synthseg,",
+                "sub-02,,2,Right,1.000000,40.0000,0.0000,synthseg,",
+                "sub-02,,2,Bilateral,0.833333,100.0000,20.0000,synthseg,"
             ]
         }
     }
@@ -85,9 +85,9 @@ nextflow_process {
             assert process.success
             def csv = path(process.out.hoc[0][1])
             assert csv.readLines()[1..3] == [
-                "sub-03,ses-01,1,Left,,0.0000,0.0000,synthseg",
-                "sub-03,ses-01,1,Right,,0.0000,0.0000,synthseg",
-                "sub-03,ses-01,1,Bilateral,,0.0000,0.0000,synthseg"
+                "sub-03,ses-01,1,Left,,0.0000,0.0000,synthseg,",
+                "sub-03,ses-01,1,Right,,0.0000,0.0000,synthseg,",
+                "sub-03,ses-01,1,Bilateral,,0.0000,0.0000,synthseg,"
             ]
         }
     }
@@ -109,7 +109,7 @@ nextflow_process {
 
         then {
             assert process.success
-            assert path(process.out.hoc[0][1]).readLines() == ["sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source"]
+            assert path(process.out.hoc[0][1]).readLines() == ["sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with"]
         }
     }
 }

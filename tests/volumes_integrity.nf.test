@@ -8,6 +8,8 @@
 //   1 sub-INTA ses-01   2 sub-INTA ses-02          (one subject, two sessions)
 //   3 sub-INTB ses-01 run-1   4 sub-INTB ses-01 run-2   (two runs, two segmentations)
 //   5 sub-INTC without session
+//   6 sub-INTB ses-01 run-3, a DWI run sharing run-1's T1 file (and segmentation): its rows carry
+//     run-1's values (i = 3) and t1_shared_with = sub-INTB_ses-01_run-1; its own age (66)
 // Each T1 has its own BIDS sidecar (sub-INTA ses-02 on a Prisma, the others on a TrioTim), and
 // the T1 of sub-INTB run-2 holds run-1's voxels in a file whose header and bytes differ (a second
 // export of one acquisition, as in OASIS-3).
@@ -28,11 +30,13 @@ nextflow_pipeline {
         when {
             params {
                 def d = "${projectDir}/tests/volumes_integrity"
-                def samples = [["INTA", "01", 0], ["INTA", "02", 0], ["INTB", "01", 1], ["INTB", "01", 2], ["INTC", "", 0]]
-                def config = samples.collect { sub, ses, run -> [
+                // subject, session, run, run of the T1 and aparc+aseg files
+                def samples = [["INTA", "01", 0, 0], ["INTA", "02", 0, 0], ["INTB", "01", 1, 1], ["INTB", "01", 2, 2], ["INTC", "", 0, 0],
+                               ["INTB", "01", 3, 1]]
+                def config = samples.collect { sub, ses, run, f -> [
                     subject: sub, session: ses, run: run,
-                    t1: "${d}/t1_${sub}_${ses ?: 'nos'}_r${run}.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
-                    aparc_aseg: "${d}/${sub}_${ses ?: 'nos'}_r${run}_aparc.nii.gz",
+                    t1: "${d}/t1_${sub}_${ses ?: 'nos'}_r${f}.nii.gz", dwi: "${d}/dummy.nii.gz", bval: "${d}/dummy.bval", bvec: "${d}/dummy.bvec",
+                    aparc_aseg: "${d}/${sub}_${ses ?: 'nos'}_r${f}_aparc.nii.gz",
                     TotalReadoutTime: 0.062, DWIPhaseEncodingDir: "y", rev_DWIPhaseEncodingDir: "",
                     rev_dwi: "", rev_bval: "", rev_bvec: "", topup: "", rev_topup: "", wmparc: ""
                 ] }
@@ -59,8 +63,10 @@ nextflow_pipeline {
                 [sid: "sub-INTA", session: "ses-02", run: "1", i: 2],
                 [sid: "sub-INTB", session: "ses-01", run: "1", i: 3],
                 [sid: "sub-INTB", session: "ses-01", run: "2", i: 4],
-                [sid: "sub-INTC", session: "",       run: "1", i: 5]
+                [sid: "sub-INTC", session: "",       run: "1", i: 5],
+                [sid: "sub-INTB", session: "ses-01", run: "3", i: 3, age: 66]
             ]
+            def sharedWith = { s -> s.sid == "sub-INTB" && s.run == "3" ? "sub-INTB_ses-01_run-1" : "" }
             def expected = { i -> ["Left-Hippocampus": 1000 + i, "Left-Inf-Lat-Vent": 100 + i, "Left-Lateral-Ventricle": 2000 + i, "ctx-lh-precuneus": 3000 + i] }
             def read = { f, sep -> def ls = path(f).readLines(); def h = ls[0].split(sep, -1).toList()
                          ls[1..-1].collect { l -> [h, l.split(sep, -1).toList()].transpose().collectEntries() } }
@@ -87,6 +93,7 @@ nextflow_pipeline {
                     assert mine.every { r -> r.duplicate_of == (dup ? "sub-INTB_ses-01_run-1" : "") } : "${spec.f}: duplicate_of of ${s}"
                     assert mine.every { r -> r.qc_flags.split(";").contains("duplicate") == dup } : "${spec.f}: duplicate flag of ${s}"
                     assert mine.every { r -> r.pipeline_revision } : "${spec.f}: no pipeline_revision"
+                    assert mine.every { r -> r.t1_shared_with == sharedWith(s) } : "${spec.f}: t1_shared_with of ${s}"
                 }
                 assert rows.size() == samples.size() * spec.n : "${spec.f}: unexpected extra rows"
             }
@@ -99,6 +106,7 @@ nextflow_pipeline {
                 assert mine*.hoc == [left, "", left] : "HOC: ${s} = ${mine*.hoc}, expected ${left}"
                 assert (mine[0].hippocampus_mm3 as double) == 1000 + s.i && (mine[0].inf_lat_vent_mm3 as double) == 100 + s.i
                 assert mine.every { r -> r.volume_source == "freesurfer" }
+                assert mine.every { r -> r.t1_shared_with == sharedWith(s) } : "HOC: t1_shared_with of ${s}"
                 def prefix = [s.sid, s.session, s.run == "1" && s.sid != "sub-INTB" ? "" : "run-${s.run}"].findAll { x -> x }.join("_")
                 def dir = s.session ? "${s.sid}/${s.session}" : s.sid
                 assert path("$outputDir/out/${dir}/anat/${prefix}_desc-hoc.csv").exists() : "HOC: no per-sample file for ${s}"
@@ -107,7 +115,7 @@ nextflow_pipeline {
             samples.each { s ->
                 def mine = combined.findAll { r -> r.sid == s.sid && r.session == s.session && r.run == s.run }
                 assert mine.size() == 84 + 9 : "combined: ${s} has ${mine.size()} rows"
-                assert mine.every { r -> r.age == "${60 + s.i}" } : "combined: covariates of ${s} are not its own"
+                assert mine.every { r -> r.age == "${s.age ?: 60 + s.i}" } : "combined: covariates of ${s} are not its own"
                 expected(s.i).each { roi, v ->
                     def r = mine.find { x -> x.roi == roi }
                     if (r) assert (r.volume_mm3 as double) == v : "combined: ${s} ${roi} = ${r.volume_mm3}, expected ${v}"

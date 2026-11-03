@@ -4,7 +4,7 @@
 // measure atrophy.
 //
 // Output CSV:
-//   sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of
+//   sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of,t1_shared_with
 // The first six columns match STATS_ROIVOLUMES so the existing collectors read it unchanged.
 // volume_icv_fraction = volume_mm3 / icv_mm3 (the region's share of the intracranial volume, to
 // compare heads of different sizes); empty when icv_mm3 is.
@@ -14,6 +14,9 @@
 // (outside ext.icv_min..ext.icv_max mm3), empty:<regions> (LUT regions with no voxel), duplicate
 // (the T1 holds the same voxels as another sample's, see duplicate_of). Flags that need several
 // sessions (intracranial volume drifting within a subject) are added when the global CSVs are built.
+// t1_shared_with names the first DWI run of the session whose T1 file this run shares (empty on the
+// first run and on unshared T1s): with SynthSeg or SAMSEG its rows are copies of that run's, not
+// another measurement.
 process STATS_SUBJECTVOLUMES {
     tag "$meta.id"
     label 'process_single'
@@ -49,6 +52,7 @@ process STATS_SUBJECTVOLUMES {
     // Commas would break the CSV
     def scanner       = (meta.scanner ?: "").toString().replace(",", " ")
     def duplicate_of  = (meta.duplicate_of ?: "").toString().replace(",", " ")
+    def shared_with   = (meta.t1_shared_with ?: "").toString().replace(",", " ")
     """
     python3 << 'PYEOF'
 import csv
@@ -124,11 +128,11 @@ if "${duplicate_of}":
 qc_flags = ";".join(flags)
 
 with open("${prefix}_${suffix}.csv", "w") as out:
-    out.write("sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of\\n")
+    out.write("sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of,t1_shared_with\\n")
     for name, voxels, mm3 in rows:
         fraction = f"{float(mm3) / float(icv):.8f}" if mm3 and icv and float(icv) > 0 else ""
         out.write(f"${subject_id},${session_id},${run_id},{name},{voxels},{mm3},${volume_source},"
-                  f"{icv},{fraction},{qc_score},{qc_flags},${scanner},${duplicate_of}\\n")
+                  f"{icv},{fraction},{qc_score},{qc_flags},${scanner},${duplicate_of},${shared_with}\\n")
 
 with open("versions.yml", "w") as v:
     v.write('"${task.process}":\\n')
@@ -141,7 +145,7 @@ PYEOF
     def prefix = task.ext.prefix ?: "${meta.id}"
     def suffix = task.ext.first_suffix ? "${task.ext.first_suffix}_volumes" : "volumes"
     """
-    echo "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of" > ${prefix}_${suffix}.csv
+    echo "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of,t1_shared_with" > ${prefix}_${suffix}.csv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

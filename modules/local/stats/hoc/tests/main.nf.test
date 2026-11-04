@@ -24,6 +24,7 @@ nextflow_process {
                 """
                 input[0] = [
                     [ id:'sub-01', session:'ses-01' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/labels_1mm.nii.gz", checkIfExists: true)
                 ]
                 """
@@ -32,8 +33,8 @@ nextflow_process {
 
         then {
             assert process.success
-            def csv = path(process.out.hoc[0][1])
-            assert csv.fileName.toString() == "sub-01_ses-01_hoc.csv"
+            def csv = path(process.out.hoc[0][2])
+            assert csv.fileName.toString() == "sub-01_ses-01__seg-synthseg_hoc.csv"
             assert csv.readLines() == [
                 "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with",
                 "sub-01,ses-01,1,Left,0.750000,30.0000,10.0000,synthseg,",
@@ -50,6 +51,7 @@ nextflow_process {
                 """
                 input[0] = [
                     [ id:'sub-02', session:'', run:'run-2' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/labels_1x1x2mm.nii.gz", checkIfExists: true)
                 ]
                 """
@@ -58,7 +60,7 @@ nextflow_process {
 
         then {
             assert process.success
-            def csv = path(process.out.hoc[0][1])
+            def csv = path(process.out.hoc[0][2])
             assert csv.readLines() == [
                 "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with",
                 "sub-02,,2,Left,0.750000,60.0000,20.0000,synthseg,",
@@ -75,6 +77,7 @@ nextflow_process {
                 """
                 input[0] = [
                     [ id:'sub-03', session:'ses-01' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/empty.nii.gz", checkIfExists: true)
                 ]
                 """
@@ -83,7 +86,7 @@ nextflow_process {
 
         then {
             assert process.success
-            def csv = path(process.out.hoc[0][1])
+            def csv = path(process.out.hoc[0][2])
             assert csv.readLines()[1..3] == [
                 "sub-03,ses-01,1,Left,,0.0000,0.0000,synthseg,",
                 "sub-03,ses-01,1,Right,,0.0000,0.0000,synthseg,",
@@ -101,6 +104,7 @@ nextflow_process {
                 """
                 input[0] = [
                     [ id:'sub-01', session:'ses-01' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/labels_1mm.nii.gz", checkIfExists: true)
                 ]
                 """
@@ -109,7 +113,7 @@ nextflow_process {
 
         then {
             assert process.success
-            assert path(process.out.hoc[0][1]).readLines() == ["sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with"]
+            assert path(process.out.hoc[0][2]).readLines() == ["sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with"]
         }
     }
 }

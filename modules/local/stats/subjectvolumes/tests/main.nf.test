@@ -23,6 +23,7 @@ nextflow_process {
                 """
                 input[0] = [
                     [ id:'sub-01', session:'ses-01' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/labelmap.nii.gz", checkIfExists: true),
                     file("${moduleDir}/tests/data/lut.json", checkIfExists: true),
                     file("${moduleDir}/tests/data/synthseg_volumes.csv", checkIfExists: true),
@@ -34,8 +35,8 @@ nextflow_process {
 
         then {
             assert process.success
-            def csv = path(process.out.volumes[0][1])
-            assert csv.fileName.toString() == "sub-01_ses-01_atlas-test_volumes.csv"
+            def csv = path(process.out.volumes[0][2])
+            assert csv.fileName.toString() == "sub-01_ses-01__seg-synthseg_atlas-test_desc-roi_volumes.csv"
             assert csv.readLines() == [
                 "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of,t1_shared_with",
                 "sub-01,ses-01,1,Left-Lateral-Ventricle,10,30.0000,synthseg,1234567.8900,0.00002430,,empty:Left-choroid-plexus,,,",
@@ -53,6 +54,7 @@ nextflow_process {
                 """
                 input[0] = [
                     [ id:'sub-01', session:'', run:'1' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/labelmap.nii.gz", checkIfExists: true),
                     file("${moduleDir}/tests/data/lut.json", checkIfExists: true),
                     [],
@@ -64,7 +66,7 @@ nextflow_process {
 
         then {
             assert process.success
-            def lines = path(process.out.volumes[0][1]).readLines()
+            def lines = path(process.out.volumes[0][2]).readLines()
             assert lines.size() == 5
             assert lines[1] == "sub-01,,1,Left-Lateral-Ventricle,10,30.0000,synthseg,,,,icv_missing;empty:Left-choroid-plexus,,,"
             assert lines[2] == "sub-01,,1,Left-Hippocampus,27,81.0000,synthseg,,,,icv_missing;empty:Left-choroid-plexus,,,"
@@ -81,6 +83,7 @@ nextflow_process {
                 """
                 input[0] = [
                     [ id:'sub-01', session:'ses-01' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/labelmap.nii.gz", checkIfExists: true),
                     file("${moduleDir}/tests/data/lut.json", checkIfExists: true),
                     file("${moduleDir}/tests/data/synthseg_volumes_bad_icv.csv", checkIfExists: true),
@@ -93,7 +96,7 @@ nextflow_process {
         then {
             assert process.success
             // label 4 is present in the image but declared unsupported: empty, not its 10 voxels
-            assert path(process.out.volumes[0][1]).readLines() == [
+            assert path(process.out.volumes[0][2]).readLines() == [
                 "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of,t1_shared_with",
                 "sub-01,ses-01,1,Left-Lateral-Ventricle,,,synthseg,,,,icv_missing,,,",
                 "sub-01,ses-01,1,Left-Hippocampus,27,81.0000,synthseg,,,,icv_missing,,,",
@@ -111,6 +114,7 @@ nextflow_process {
                 input[0] = [
                     [ id:'sub-01', session:'ses-02', run:'run-2', scanner:'Siemens TrioTim 3T', duplicate_of:'sub-01_ses-01',
                       t1_shared_with:'sub-01_ses-02_run-1' ],
+                    "synthseg",
                     file("${moduleDir}/tests/data/labelmap.nii.gz", checkIfExists: true),
                     file("${moduleDir}/tests/data/lut.json", checkIfExists: true),
                     file("${moduleDir}/tests/data/synthseg_volumes_small_icv.csv", checkIfExists: true),
@@ -122,7 +126,7 @@ nextflow_process {
 
         then {
             assert process.success
-            def lines = path(process.out.volumes[0][1]).readLines()
+            def lines = path(process.out.volumes[0][2]).readLines()
             // lowest QC score 0.52 < 0.65; ICV 400 000 mm3 outside 900 000..2 300 000; label 31 empty
             assert lines[2] == "sub-01,ses-02,2,Left-Hippocampus,27,81.0000,synthseg,400000.0000,0.00020250,0.5200," +
                                "qc_low;icv_implausible;empty:Left-choroid-plexus;duplicate,Siemens TrioTim 3T,sub-01_ses-01,sub-01_ses-02_run-1"

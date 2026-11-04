@@ -25,10 +25,10 @@ process STATS_SUBJECTVOLUMES {
     container "${ 'community.wave.seqera.io/library/nibabel_numpy:4148b92a8cbc6976' }"
 
     input:
-    tuple val(meta), path(labelmap), path(lut), path(seg_volumes), path(qc_scores)  /* optional, input = [] */
+    tuple val(meta), val(volume_source), path(labelmap), path(lut), path(seg_volumes), path(qc_scores)  /* optional, input = [] */
 
     output:
-    tuple val(meta), path("*_volumes.csv"), emit: volumes
+    tuple val(meta), val(volume_source), path("*_volumes.csv"), emit: volumes
     path "versions.yml",                    emit: versions
 
     when:
@@ -36,11 +36,14 @@ process STATS_SUBJECTVOLUMES {
 
     script:
     def prefix        = task.ext.prefix ?: "${meta.id}"
-    def suffix        = task.ext.first_suffix ? "${task.ext.first_suffix}_volumes" : "volumes"
-    def volume_source = task.ext.volume_source ?: "subject"
+    // <prefix>__seg-<source>_<ext.first_suffix>_desc-roi_volumes.csv: one file per source, so the
+    // volumes of two segmentations of one sample never share a name
+    def source_label  = volume_source == "samseg_long" ? "samseg" : volume_source
+    def suffix        = "_seg-${source_label}" + (task.ext.first_suffix ? "_${task.ext.first_suffix}" : "") + "_desc-roi_volumes"
     // Labels the segmenter cannot produce (SynthSeg has no choroid plexus): written with empty
-    // volumes, so they read as "not measured" instead of a measured 0.
-    def missing_json  = groovy.json.JsonOutput.toJson((task.ext.missing_labels ?: []).collect { l -> l as int })
+    // volumes, so they read as "not measured" instead of a measured 0. ext.missing_labels maps a
+    // source to its labels.
+    def missing_json  = groovy.json.JsonOutput.toJson(((task.ext.missing_labels ?: [:])[volume_source] ?: []).collect { l -> l as int })
     def qc_threshold  = task.ext.qc_threshold != null ? task.ext.qc_threshold : 0.65
     def icv_min       = task.ext.icv_min ?: 900000
     def icv_max       = task.ext.icv_max ?: 2300000
@@ -116,7 +119,7 @@ for label_id, label_name in sorted(lut.items(), key=lambda x: int(x[0])):
 flags = []
 if qc_score and float(qc_score) < ${qc_threshold}:
     flags.append("qc_low")
-if "${volume_source}" in ("synthseg", "samseg_long"):
+if "${volume_source}" in ("synthseg", "samseg_long", "reconall"):
     if not icv:
         flags.append("icv_missing")
     elif not (${icv_min} <= float(icv) <= ${icv_max}):
@@ -142,8 +145,9 @@ PYEOF
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${meta.id}"
-    def suffix = task.ext.first_suffix ? "${task.ext.first_suffix}_volumes" : "volumes"
+    def prefix       = task.ext.prefix ?: "${meta.id}"
+    def source_label = volume_source == "samseg_long" ? "samseg" : volume_source
+    def suffix       = "_seg-${source_label}" + (task.ext.first_suffix ? "_${task.ext.first_suffix}" : "") + "_desc-roi_volumes"
     """
     echo "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction,qc_score,qc_flags,scanner,duplicate_of,t1_shared_with" > ${prefix}_${suffix}.csv
 

@@ -1144,9 +1144,9 @@
                 },
                 "volume_source": {
                     "type": "string",
-                    "description": "Source of the GM, CSF and comparison volumes: 'atlas' (warped template), 'synthseg' (SynthSeg on the subject's T1), 'reconall' (FreeSurfer recon-all run on the subject's T1, shared with the cortical thickness) or 'freesurfer' (the subject's aparc+aseg given as input).",
-                    "help_text": "'atlas' counts the voxels of a template warped onto the subject B0, so its volumes reflect the registration and are not suited to measuring atrophy. 'synthseg', 'reconall' and 'freesurfer' count the subject's own segmentation in native T1 space and write the same output files, with extra volume_source and icv_mm3 columns (icv_mm3: SynthSeg's intracranial volume with 'synthseg', FreeSurfer's eTIV with 'reconall', empty with 'freesurfer'). 'reconall' takes hours per T1 (one recon-all, also used by run_cortical_thickness and run_cortical_surface_metrics) and requires freesurfer_license. WM bundle volumes are always atlas-based. Volumes are cross-sectional: for several sessions per subject, a longitudinal method is recommended.",
-                    "enum": ["atlas", "synthseg", "reconall", "freesurfer"],
+                    "description": "Source(s) of the GM, CSF and comparison volumes, comma-separated (e.g. 'atlas,synthseg,reconall'): 'atlas' (warped template), 'synthseg' (SynthSeg on the subject's T1), 'reconall' (FreeSurfer recon-all run on the subject's T1, shared with the cortical thickness) or 'freesurfer' (the subject's aparc+aseg given as input).",
+                    "help_text": "'atlas' counts the voxels of a template warped onto the subject B0, so its volumes reflect the registration and are not suited to measuring atrophy. 'synthseg', 'reconall' and 'freesurfer' count the subject's own segmentation in native T1 space. Each source listed writes its own files (atlas: space-native_atlas-*_desc-roi_volumes.csv; a subject source: space-native_seg-<source>_label-{gm,csf,comparison}_desc-roi_volumes.csv and anat/<sample>_seg-<source>_*), with volume_source and icv_mm3 columns, and its own rows in the combined table (source column), so the methods are compared without ever being mixed. HOC is computed for each subject source; the subject-region diffusion metrics use the first subject source listed (icv_mm3: SynthSeg's intracranial volume with 'synthseg', FreeSurfer's eTIV with 'reconall', empty with 'freesurfer'). 'reconall' takes hours per T1 (one recon-all, also used by run_cortical_thickness and run_cortical_surface_metrics) and requires freesurfer_license. WM bundle volumes are always atlas-based. Volumes are cross-sectional: for several sessions per subject, a longitudinal method is recommended.",
+                    "pattern": "^(atlas|synthseg|reconall|freesurfer)(,(atlas|synthseg|reconall|freesurfer))*$",
                     "default": "atlas"
                 },
                 "volume_qc_threshold": {
@@ -1204,10 +1204,22 @@
                     "help_text": "Counted on the subject's own segmentation, so it needs volume_source = 'synthseg', 'reconall' or 'freesurfer', or run_longitudinal_volumes = true. Per sample: <id>/<session>/anat/*_desc-hoc.csv; all samples: metrics/space-native_desc-hoc.csv.",
                     "default": false
                 },
+                "run_dwi_processing": {
+                    "type": "boolean",
+                    "description": "Process the DWI (TractoFlow and every DWI-based output). false runs only the T1 branch: subject-segmentation volumes and HOC, recon-all and the cortical thickness.",
+                    "help_text": "For a staged analysis: run first with false to get the T1-based outputs quickly (e.g. volume_source synthseg, run_gm_volumes), then again with true and -resume from the same launch and work directories, with the same pipeline commit and the other parameters unchanged: the T1 tasks are reused (their inputs do not depend on this option) and the DWI outputs are added. Atlas volumes, diffusion metrics, surface metrics and fibre cross-section need the DWI and are skipped (and not reported missing) while it is false.",
+                    "default": true
+                },
+                "run_hippocampal_subfields": {
+                    "type": "boolean",
+                    "description": "Hippocampal subfields and amygdala nuclei volumes (FreeSurfer 7 segment_subregions hippo-amygdala) on the recon-all of each T1. Requires freesurfer_license.",
+                    "help_text": "Runs recon-all if nothing else does (hours per T1; shared with run_cortical_thickness, run_cortical_surface_metrics and volume_source reconall), then about 5 min per T1. Per sample: anat/<sample>_seg-reconall_desc-hippoamyg_volumes.csv (19 hippocampal subfields and 9 amygdala nuclei per side, plus the Whole_* totals, with FreeSurfer's eTIV); all samples: metrics/space-native_seg-reconall_desc-hippoamyg_volumes.csv. The label maps are in anat/freesurfer/<T1>_hippoamyg/.",
+                    "default": false
+                },
                 "run_longitudinal_volumes": {
                     "type": "boolean",
-                    "description": "Segment all sessions of each subject jointly with FreeSurfer SAMSEG longitudinal, to measure atrophy over time. Overrides volume_source for GM, CSF and comparison volumes.",
-                    "help_text": "Sessions are rigidly aligned with mri_robust_template and segmented jointly (run_samseg_long), which removes most of the session-to-session noise of independent segmentations. Volumes are counted in each session's native T1 space and written to the same files, with volume_source = 'samseg_long'. SAMSEG has no Desikan cortical parcels: the GM file holds Left/Right-Cerebral-Cortex totals instead. Requires freesurfer_license. When false and subjects have several sessions, the pipeline warns that this option is not activated.",
+                    "description": "Segment all sessions of each subject jointly with FreeSurfer SAMSEG longitudinal, to measure atrophy over time. Adds the source 'samseg_long' to volume_source (replaces it when volume_source is the default 'atlas' alone).",
+                    "help_text": "Sessions are rigidly aligned with mri_robust_template and segmented jointly (run_samseg_long), which removes most of the session-to-session noise of independent segmentations. Volumes are counted in each session's native T1 space and written to their own files (seg-samseg), with volume_source = 'samseg_long'. SAMSEG has no Desikan cortical parcels: the GM file holds Left/Right-Cerebral-Cortex totals instead. Requires freesurfer_license. When false and subjects have several sessions, the pipeline warns that this option is not activated.",
                     "default": false
                 },
                 "run_fibre_cross_section": {

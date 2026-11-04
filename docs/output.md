@@ -97,11 +97,11 @@ Reuses the warped FreeSurfer atlas to extract metrics across GM subcortical stru
 
 ## Volume source
 
-The GM, CSF and comparison volume files above are filled according to `--volume_source`:
+The GM, CSF and comparison volume files above are the atlas ones. `--volume_source` lists the sources (several, comma-separated, to compare them); each writes its own files:
 
 - `atlas` (default): voxel count of the warped template in DWI space. The volumes reflect the registration and are not suited to measuring atrophy.
-- `synthseg` / `reconall` / `freesurfer`: voxel count of the subject's own segmentation in native T1 space (`reconall`: `aparc+aseg` of the pipeline's recon-all).
-- `samseg_long` (`--run_longitudinal_volumes`): voxel count of the SAMSEG longitudinal segmentation, all sessions of a subject segmented jointly. The GM file holds cortex totals (`Left/Right-Cerebral-Cortex`) instead of the Desikan parcels. Per session: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`. The files keep their names, region names and columns, and add `volume_source` and `icv_mm3` (intracranial volume: SynthSeg's, FreeSurfer eTIV with `reconall`, SAMSEG sbTIV; empty with `freesurfer`).
+- `synthseg` / `reconall` / `freesurfer`: voxel count of the subject's own segmentation in native T1 space (`reconall`: `aparc+aseg` of the pipeline's recon-all), in `anat/<subject>_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv`, `anat/comparison/<subject>_seg-<source>_label-comparison_desc-roi_volumes.csv` and, for all samples, `metrics/space-native_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv` and `metrics/comparison/space-native_seg-<source>_label-comparison_desc-roi_volumes.csv`.
+- `samseg_long` (`--run_longitudinal_volumes`): voxel count of the SAMSEG longitudinal segmentation, all sessions of a subject segmented jointly. The GM file holds cortex totals (`Left/Right-Cerebral-Cortex`) instead of the Desikan parcels. Per session: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`; volume files named `seg-samseg`. Every source's files have the same region names and columns, with `volume_source` and `icv_mm3` (intracranial volume: SynthSeg's, FreeSurfer eTIV with `reconall`, SAMSEG sbTIV; empty with `freesurfer`).
 
 The global volume files (`metrics/...desc-roi_volumes.csv`) always carry `volume_source` and `icv_mm3`.
 
@@ -111,21 +111,27 @@ With `synthseg`, the segmentation itself is published per subject:
 - `anat/<subject>_desc-synthseg_volumes.csv` — SynthSeg's own soft volumes, including total intracranial
 - `anat/<subject>_desc-synthseg_qc.csv` — SynthSeg QC scores
 
-## Diffusion metrics in the subject's own regions
-
-With `volume_source reconall`, per subject:
+With `reconall`, per subject:
 
 - `anat/<subject>_desc-reconall_dseg.nii.gz` — recon-all `aparc+aseg` (1 mm conformed grid, T1 world coordinates)
 - `anat/<subject>_desc-reconall_icv.csv` — FreeSurfer eTIV, the `icv_mm3` of the volume files
 - `anat/freesurfer/<subject>/` — the recon-all directory (also with `--run_cortical_thickness`)
 
-With `--run_subject_roi_metrics true` (`<seg>` = `synthseg`, `reconall`, `freesurfer` or `samseg`):
+With `--run_hippocampal_subfields true` (on the same recon-all):
+
+- `anat/<subject>_seg-reconall_desc-hippoamyg_volumes.csv` — hippocampal subfields and amygdala nuclei per side (`sid, session, run, roi, structure, volume_mm3, volume_source, icv_mm3, volume_icv_fraction, t1_shared_with`; `roi` = `Left-CA1-head`, `Right-Whole_amygdala`...)
+- `anat/freesurfer/<subject>_hippoamyg/` — `segment_subregions` label maps and volume tables
+- `metrics/space-native_seg-reconall_desc-hippoamyg_volumes.csv` — all samples merged
+
+## Diffusion metrics in the subject's own regions
+
+With `--run_subject_roi_metrics true`, on the first subject source of `volume_source` (`<seg>` = `synthseg`, `reconall`, `freesurfer` or `samseg`):
 
 - `dwi/<subject>_seg-<seg>_desc-roi_stats.tsv` — fraction-weighted mean of each metric per region, same layout as the GM file (`sid, session, run, roi, covariates..., metrics...`); `dwi/<subject>_seg-<seg>_label-std_desc-roi_stats.tsv` holds the standard deviations
 - `dwi/<subject>_seg-<seg>_desc-roi_fractions.csv` — effective size of each region: `acq_voxels` (sum of the voxel fractions), `volume_mm3`, `in_mask_fraction`, the share of the region inside the DWI brain mask (the statistics use only that part; a low value, e.g. a frontal pole cut by the mask, means a less reliable region), and `small_region` (1 when `acq_voxels` is below `--subject_roi_small_region_voxels`, 50 by default: a mean over so few acquired voxels is noisy; a flag only), and `fwc_failed_fraction` (with free water: share of the region's weight on brain voxels where the free-water-corrected fit failed and scilpy set AD, RD or MD to 0; these zeros stay in the `adt`, `rdt`, `mdt` means, which they lower by about that share; empty without free water)
 - `metrics/space-native_seg-<seg>_label-mean_desc-roi_stats.tsv` and `metrics/space-native_seg-<seg>_desc-roi_fractions.csv` — all samples merged, `region_type = GM_subject`
 
-These rows are not added to the combined TSV, which keys rows by region name: they would merge with the atlas GM rows of the same names.
+In the combined TSV they are rows of their own source (`source = <seg>`), with that segmentation's GM volumes; they never merge with the atlas GM rows of the same names.
 
 ## Cortical thickness
 
@@ -161,17 +167,20 @@ With `--run_fibre_cross_section true`:
 
 With `--run_hoc true`:
 
-- `anat/<subject>_desc-hoc.csv` — one row per `roi` (`Left`, `Right`, `Bilateral`): `sid, session, run, roi, hoc, hippocampus_mm3, inf_lat_vent_mm3, volume_source`. `hoc` is empty when the segmentation has neither structure.
-- `metrics/space-native_desc-hoc.csv` — all samples merged
+For each subject source of `volume_source`:
+
+- `anat/<subject>_seg-<source>_desc-hoc.csv` — one row per `roi` (`Left`, `Right`, `Bilateral`): `sid, session, run, roi, hoc, hippocampus_mm3, inf_lat_vent_mm3, volume_source`. `hoc` is empty when the segmentation has neither structure.
+- `metrics/space-native_seg-<source>_desc-hoc.csv` — all samples merged
 
 ## Merged output (metrics and/or volumes)
 
 Enabled by `--run_merge_all_stats`.
 
-Produces a single TSV merging all available data across WM, GM, and CSF region types. For each region type:
-- If metrics are enabled (with or without volumes): the collected stats TSV is used — this already includes volume columns when volumes are also enabled.
-- If only volumes are enabled: the volume CSV is normalised (`bundle`/`region` → `roi`, `region_type` added) and included.
+Produces a single TSV merging all available data across WM, GM, and CSF region types, with one row per sample, region and source: `sid, session, run, roi, region_type, source, covariates..., metrics and volumes...`. `source` is the method that produced every value of the row:
 
-All inputs are merged with a union column set; cells missing in a particular region type's data are left empty.
+- `atlas`: the atlas metrics (WM bundles, IIT GM regions, CSF regions) with the atlas volumes when `atlas` is a volume source, or the atlas volumes alone.
+- `synthseg`, `reconall`, `freesurfer`, `samseg_long`: that segmentation's GM and CSF volumes, and, for the first subject source, its subject-region diffusion metrics.
+
+Rows of different sources are never merged, and two files giving different values for one cell of one row stop the run. All inputs are merged with a union column set; cells missing in a source's data are left empty. The per-source files listed above are written in any case: they are the independent copy to check the combined table against (`docs/volumes_validation/check_outputs.py` does).
 
 - `metrics/space-native_all-regions_desc-roi_combined.tsv`

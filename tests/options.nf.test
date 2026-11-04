@@ -132,8 +132,8 @@ nextflow_pipeline {
                 // HOC alone still runs the segmentation, but no volume statistics
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("SYNTHSEG_VOLUMES") }.size() == 1 },
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_SUBJECT_") }.isEmpty() },
-                { assert "sub-test-1/anat/sub-test-1_desc-hoc.csv" in files },
-                { assert "metrics/space-native_desc-hoc.csv" in files }
+                { assert "sub-test-1/anat/sub-test-1_seg-synthseg_desc-hoc.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_desc-hoc.csv" in files }
             )
         }
     }

@@ -171,8 +171,10 @@ The ROI column is named `roi` in **both** modes — labels mode (`use_label = fa
 
 ## Volume source (`volume_source`)
 
-`params.volume_source` = `atlas` (default) | `synthseg` | `reconall` | `freesurfer` picks where GM, CSF and
-comparison volumes come from. WM bundle volumes are always atlas-based.
+`params.volume_source` = one or several (comma-separated) of `atlas` (default) | `synthseg` | `reconall` |
+`freesurfer`: where GM, CSF and comparison volumes come from. WM bundle volumes are always atlas-based.
+`volume_sources` (list) / `subject_sources` (without atlas) / `roi_metrics_source` (first subject source,
+the only one used by the subject-region metrics) are derived in the workflow.
 
 - `atlas`: `STATS_ROIVOLUMES` on the warped template (DWI space). Only reflects the registration.
 - `synthseg`: `SYNTHSEG_VOLUMES` (SEGMENTATION_SYNTHSEG alias, `--parc --robust --vol --qc`) on the
@@ -183,10 +185,16 @@ comparison volumes come from. WM bundle volumes are always atlas-based.
   without resampling and writes eTIV as `total intracranial`; same counting.
 - `freesurfer`: same counting on the input `ch_aparc_aseg` (native space, before TractoFlow's warp).
 
-The subject branch fills `ch_gm_volumes` / `ch_csf_volumes` / `ch_cmp_volumes`, which replace the
-atlas volume channels in the existing collectors, so the output file names do not change. The
-`do_*_atlas_volumes` flags keep the atlas subworkflows from computing unused volumes, and GM-only
-subject volumes no longer require `run_atlas_roimetrics`.
+Sources never share a channel item, file or row: `ch_gm_volumes` / `ch_csf_volumes` / `ch_cmp_volumes`
+are the atlas volumes only ([meta, csv]); `ch_subject_seg` mixes every subject source as
+[meta, source, seg, seg_volumes, qc], and `STATS_SUBJECT_*_VOLUMES` / `STATS_HOC` take the source as a
+`val` input and emit [meta, source, csv] (file `<prefix>__seg-<label>_...`). Each source is collected
+into its own `space-native_seg-<label>_label-{gm,csf,comparison}_desc-roi_volumes.csv` and
+`_desc-hoc.csv` (`sourceLabel`: samseg_long -> samseg); the atlas files keep their names and are always
+written standalone too. Atlas metrics TSVs merge atlas volumes only. `collectUnifiedFiles` items are
+`<KIND>_<type>|<source>:::path`; rows keyed (sample, region type, source, roi), `source` column, and two
+files disagreeing on one cell throw instead of overwriting. Because the source is a task input (not a
+param closure), adding a source to a resumed run keeps the other sources' tasks cached.
 
 `assets/freesurfer_gm_lut.json` maps FreeSurfer ids to the **IIT GM names** (`Left-Thalamus-Proper`,
 `ctx-lh-*`), so subject GM volumes join on IIT GM metrics by region name. SynthSeg has no choroid
@@ -196,8 +204,8 @@ Global volume CSVs are written by `collectVolumeFiles` (not `collectFile`) and a
 `volume_source` and `icv_mm3`; `collectStatsFilesWithVolumes` adds them when given a `volumeSource`
 (not for WM, whose TSV feeds HARMONIZATION).
 
-`params.run_longitudinal_volumes` (default false) sets `volume_source = "samseg_long"`, overriding
-`params.volume_source`: `ch_t1` is grouped per subject (one T1 per session, first run, sessions in
+`params.run_longitudinal_volumes` (default false) adds the source `samseg_long` (replaces the default
+`atlas` when it is alone): `ch_t1` is grouped per subject (one T1 per session, first run, sessions in
 name order) into `SAMSEG_LONG_VOLUMES` (`modules/local/segmentation/samseglong`:
 `mri_robust_template` LTAs + `run_samseg_long --tp-to-base-transform`, so no resampling), whose
 per-session files `<id_session[_run]>__samseg_{seg.nii.gz,icv.csv}` are mapped back to session metas

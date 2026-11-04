@@ -14,8 +14,8 @@ Checks (any failure is printed and the exit code is 1):
              no duplicate, covariates when no participants file is given)
   names      every LUT label carries FreeSurfer's own name for it, and each Left-/lh region lies
              left of its Right-/rh twin in the segmentation
-  combined   every cell of the combined TSV equals the per-type file, region_type matches the
-             source file, covariates match participants.tsv, scanner matches the T1 sidecar
+  combined   every cell of the combined TSV rows of this source equals the per-type file,
+             region_type matches the source file, covariates match participants.tsv, scanner matches the T1 sidecar
   pairing    (with --other-outdir, SAMSEG output only) each SAMSEG segmentation overlaps the
              SynthSeg segmentation of its own session better than any other session's
 
@@ -36,9 +36,12 @@ import nibabel as nib
 import numpy as np
 
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets")
-FILES = {"gm": "space-native_atlas-iit-gm_desc-roi_volumes.csv",
-         "csf": "space-native_atlas-freesurfer-csf_desc-roi_volumes.csv",
-         "comparison": "comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv"}
+def files_for(method):
+    """Global volume files of one subject-segmentation source (each source has its own)"""
+    label = "samseg" if method == "samseg_long" else method
+    return {"gm": f"space-native_seg-{label}_label-gm_desc-roi_volumes.csv",
+            "csf": f"space-native_seg-{label}_label-csf_desc-roi_volumes.csv",
+            "comparison": f"comparison/space-native_seg-{label}_label-comparison_desc-roi_volumes.csv"}
 COMBINED = "space-native_all-regions_desc-roi_combined.tsv"
 REGION_TYPE = {"gm": "GM_region", "csf": "CSF_region"}
 # Labels SynthSeg cannot produce (choroid plexus, WM hypointensities): written empty
@@ -146,13 +149,13 @@ def check(args):
                 p = line.split()
                 if p and p[0].isdigit():
                     fs[int(p[0])] = p[1]
-        for typ in FILES:
+        for typ in files_for(args.method):
             for lid, name in lut(typ, args.method).items():
                 if fs.get(lid) not in (name, ALIAS.get(name)):
                     err(f"names: label {lid} is called {name}, FreeSurfer calls it {fs.get(lid)}")
 
     tables = {}
-    for typ, fn in list(FILES.items()) + [("combined", COMBINED)]:
+    for typ, fn in list(files_for(args.method).items()) + [("combined", COMBINED)]:
         path = f"{args.outdir}/metrics/{fn}"
         if not os.path.isfile(path):
             err(f"coverage: {fn} is missing")
@@ -175,7 +178,7 @@ def check(args):
     # coverage, values and empties of the per-type files
     nvalues = 0
     by_sample = {}
-    for typ in FILES:
+    for typ in files_for(args.method):
         if typ not in tables:
             continue
         header, rows = tables[typ]
@@ -246,7 +249,7 @@ def check(args):
                     err(f"values: {typ} {sid} {ses} QC {r['qc_score']}, segmenter says {qc}")
         # names: each Left-/lh label lies left (lower RAS x) of its Right-/rh twin
         names = {}
-        for typ in FILES:
+        for typ in files_for(args.method):
             names.update({v: k for k, v in lut(typ, args.method).items()})
         for name, lid in names.items():
             twin = name.replace("Left-", "Right-").replace("ctx-lh-", "ctx-rh-")
@@ -280,7 +283,8 @@ def check(args):
         for typ, region_type in REGION_TYPE.items():
             for r in tables.get(typ, ([], []))[1]:
                 source[r["sid"], r["session"], r["run"], r["roi"], region_type] = r
-        volume_rows = [r for r in comb if r["region_type"] in REGION_TYPE.values()]
+        # this source's rows only: the combined table has one row per region and source
+        volume_rows = [r for r in comb if r["region_type"] in REGION_TYPE.values() and r.get("source") == args.method]
         if len(volume_rows) != len(source):
             err(f"combined: {len(volume_rows)} GM/CSF rows, per-type files have {len(source)}")
         for r in volume_rows:

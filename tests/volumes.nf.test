@@ -33,10 +33,13 @@ nextflow_pipeline {
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("STATS_HOC") }.isEmpty() },
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("RECONALL_THICKNESS") }.isEmpty() },
                 { assert "sub-test-1/anat/sub-test-1_desc-synthseg_dseg.nii.gz" in files },
-                { assert "sub-test-1/dwi/sub-test-1_atlas-iit-gm_desc-roi_volumes.csv" in files },
-                { assert "sub-test-1/dwi/sub-test-1_atlas-freesurfer-csf_desc-roi_volumes.csv" in files },
-                { assert "metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv" in files },
-                { assert "metrics/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv" in files },
+                { assert "sub-test-1/anat/sub-test-1_seg-synthseg_label-gm_desc-roi_volumes.csv" in files },
+                { assert "sub-test-1/anat/sub-test-1_seg-synthseg_label-csf_desc-roi_volumes.csv" in files },
+                { assert "sub-test-1/anat/comparison/sub-test-1_seg-synthseg_label-comparison_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_label-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/comparison/space-native_seg-synthseg_label-comparison_desc-roi_volumes.csv" in files },
+                // 'synthseg' alone: no atlas volume file
+                { assert !("metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv" in files) },
                 // atlas volume processes must not run when the subject's segmentation is used
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("ATLAS_CSF_ROIMETRICS") }.isEmpty() }
             )
@@ -72,10 +75,121 @@ nextflow_pipeline {
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("ATLAS_CSF_ROIMETRICS") }.isEmpty() },
                 { assert "sub-test-1/anat/sub-test-1_desc-reconall_dseg.nii.gz" in files },
                 { assert "sub-test-1/anat/sub-test-1_desc-reconall_icv.csv" in files },
-                { assert "sub-test-1/dwi/sub-test-1_atlas-iit-gm_desc-roi_volumes.csv" in files },
-                { assert "metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv" in files },
-                { assert "metrics/space-native_desc-hoc.csv" in files },
+                { assert "sub-test-1/anat/sub-test-1_seg-reconall_label-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-reconall_label-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-reconall_desc-hoc.csv" in files },
                 { assert "metrics/space-native_desc-cortical-thickness.csv" in files }
+            )
+        }
+    }
+
+    test("-profile test - volume_source atlas,synthseg,reconall: each source its own files and rows") {
+
+        when {
+            params {
+                outdir             = "$outputDir"
+                run_atlas_roimetrics = true
+                run_gm_volumes     = true
+                run_csf_volumes    = true
+                run_hoc            = true
+                run_merge_all_stats = true
+                volume_source      = "atlas,synthseg,reconall"
+                freesurfer_license = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: false).collect { f -> f.toString() }
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) } }
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("SYNTHSEG_VOLUMES").size() == 1 },
+                { assert tasks("RECONALL_THICKNESS").size() == 1 },
+                // one volume task per sample and subject source, one HOC per subject source
+                { assert tasks("STATS_SUBJECT_GM_VOLUMES").size() == 2 },
+                { assert tasks("STATS_HOC").size() == 2 },
+                { assert "metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_label-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-reconall_label-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_atlas-freesurfer-csf_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_label-csf_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-reconall_label-csf_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_desc-hoc.csv" in files },
+                { assert "metrics/space-native_seg-reconall_desc-hoc.csv" in files },
+                { assert "sub-test-1/anat/sub-test-1_seg-synthseg_label-gm_desc-roi_volumes.csv" in files },
+                { assert "sub-test-1/anat/sub-test-1_seg-reconall_label-gm_desc-roi_volumes.csv" in files },
+                { assert path("${params.outdir}/metrics/space-native_all-regions_desc-roi_combined.tsv").readLines()[0].split("\t").toList().take(6) ==
+                         ["sid", "session", "run", "roi", "region_type", "source"] }
+            )
+        }
+    }
+
+    test("an unknown volume source stops with a clear message") {
+
+        when {
+            params {
+                outdir        = "$outputDir"
+                run_gm_volumes = true
+                volume_source = "synthseg,fastsurfer"
+            }
+        }
+
+        then {
+            assert !workflow.success
+        }
+    }
+
+    test("-profile test - run_dwi_processing = false: only the T1 branch runs") {
+
+        when {
+            params {
+                outdir             = "$outputDir"
+                run_gm_volumes     = true
+                run_hoc            = true
+                run_dwi_processing = false
+                volume_source      = "synthseg"
+                freesurfer_license = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: false).collect { f -> f.toString() }
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) } }
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("TRACTOFLOW").isEmpty() },
+                { assert tasks("ATLAS_ROIMETRICS").isEmpty() },
+                { assert tasks("SYNTHSEG_VOLUMES").size() == 1 },
+                { assert tasks("STATS_SUBJECT_GM_VOLUMES").size() == 1 },
+                { assert "metrics/space-native_seg-synthseg_label-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_desc-hoc.csv" in files },
+                { assert !files.any { f -> f.contains("dwimap") } }
+            )
+        }
+    }
+
+    test("-profile test - run_hippocampal_subfields shares the recon-all") {
+
+        when {
+            params {
+                outdir                    = "$outputDir"
+                run_cortical_thickness    = true
+                run_hippocampal_subfields = true
+                freesurfer_license        = "${projectDir}/tests/fake_freesurfer_license.txt"
+            }
+        }
+
+        then {
+            def files = getAllFilesFromDir(params.outdir, relative: true, includeDir: true).collect { f -> f.toString() }
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) } }
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("RECONALL_THICKNESS").size() == 1 },
+                { assert tasks("SEGMENTATION_HIPPOAMYG").size() == 1 },
+                { assert tasks("STATS_HIPPOAMYG").size() == 1 },
+                { assert "sub-test-1/anat/sub-test-1_seg-reconall_desc-hippoamyg_volumes.csv" in files },
+                { assert "sub-test-1/anat/freesurfer/sub-test-1_hippoamyg" in files },
+                { assert "metrics/space-native_seg-reconall_desc-hippoamyg_volumes.csv" in files }
             )
         }
     }
@@ -99,8 +213,8 @@ nextflow_pipeline {
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("SAMSEG_LONG_VOLUMES") }.size() == 1 },
                 { assert workflow.trace.tasks().findAll { t -> t.name.contains("SYNTHSEG_VOLUMES") }.isEmpty() },
                 { assert "sub-test-1/anat/sub-test-1_desc-samseglong_dseg.nii.gz" in files },
-                { assert "sub-test-1/dwi/sub-test-1_atlas-iit-gm_desc-roi_volumes.csv" in files },
-                { assert "metrics/space-native_atlas-freesurfer-csf_desc-roi_volumes.csv" in files }
+                { assert "sub-test-1/anat/sub-test-1_seg-samseg_label-gm_desc-roi_volumes.csv" in files },
+                { assert "metrics/space-native_seg-samseg_label-csf_desc-roi_volumes.csv" in files }
             )
         }
     }
@@ -147,9 +261,9 @@ nextflow_pipeline {
                 // sub-INTA ses-01 and ses-02, sub-INTB run-1 and run-2; not run-3
                 { assert tasks("STATS_HOC").size() == 4 },
                 { assert tasks("STATS_SUBJECT_GM_VOLUMES").size() == 4 },
-                { assert path("${anat}/sub-INTB_ses-01_run-1_desc-hoc.csv").exists() },
-                { assert path("${anat}/sub-INTB_ses-01_run-2_desc-hoc.csv").exists() },
-                { assert !path("${anat}/sub-INTB_ses-01_run-3_desc-hoc.csv").exists() },
+                { assert path("${anat}/sub-INTB_ses-01_run-1_seg-samseg_desc-hoc.csv").exists() },
+                { assert path("${anat}/sub-INTB_ses-01_run-2_seg-samseg_desc-hoc.csv").exists() },
+                { assert !path("${anat}/sub-INTB_ses-01_run-3_seg-samseg_desc-hoc.csv").exists() },
                 { assert log.readLines().any { l -> l.contains("another T1 file") && l.contains("sub-INTB_ses-01_run-3") } }
             )
         }

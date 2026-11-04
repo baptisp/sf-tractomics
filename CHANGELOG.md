@@ -9,6 +9,19 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Added`
 
+- `--volume_source` takes several sources, comma-separated (e.g. `atlas,synthseg,reconall`), to compare them. Each source writes its own files (`seg-<source>` for a subject segmentation, per sample in `anat/`), and its own rows in the combined TSV, which gains a `source` column (one row per sample, region and source; two files disagreeing on a cell stop the run). The atlas volume files are always written standalone, and the atlas metrics tables carry atlas volumes only. HOC is computed per subject source; the subject-region metrics use the first one. `--run_longitudinal_volumes` adds `samseg_long` as one more source.
+- `--run_hippocampal_subfields`: hippocampal subfields and amygdala nuclei (FreeSurfer 7 `segment_subregions hippo-amygdala`, no MATLAB) on the pipeline's recon-all, in `anat/*_seg-reconall_desc-hippoamyg_volumes.csv` with eTIV. New modules `SEGMENTATION_HIPPOAMYG`, `STATS_HIPPOAMYG`.
+- `--run_dwi_processing false`: only the T1 branch runs (subject-segmentation volumes, HOC, recon-all, thickness, subfields); a later run with `true` and `-resume` reuses it and adds the DWI outputs.
+
+### `Changed`
+
+- Subject-segmentation volume and HOC files are named after their source: `anat/<sample>_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv`, `anat/comparison/..._label-comparison_...`, `anat/<sample>_seg-<source>_desc-hoc.csv`, and `metrics/space-native_seg-<source>_...`; they used to take the atlas file names (`dwi/<sample>_atlas-iit-gm_desc-roi_volumes.csv`, `metrics/space-native_desc-hoc.csv`).
+
+### `Fixed`
+
+- `SEGMENTATION_RECONALLSEG` converts `aparc+aseg` with nibabel: `mri_convert` asked for a FreeSurfer licence the module did not have, so every `volume_source reconall` run failed. Its ICV is QC-flagged like SynthSeg's.
+- `--fc_template` stops when the template's recorded fODF parameters (`sh_order`, `basis`, `fodf_shells`, `manual_frf`, `mean_frf`, ...) differ from the run's. A warning when neither `manual_frf` nor `mean_frf` is set (FD and FDC are then not comparable between subjects). Run numbers in `fc_template_sessions` compare as integers. `RECONST_FODTOMRTRIX` uses the full rotation of the affine (identical on axis-aligned images, correct on oblique ones). An empty overlap no longer crashes the FC statistics. recon-all runs for `volume_source reconall` only when an output reads it.
+
 - `--volume_source reconall`: GM, CSF and comparison volumes, HOC and subject-region metrics from the `aparc+aseg` of the pipeline's own FreeSurfer recon-all, the run that also gives the cortical thickness and surface metrics (one recon-all per T1); `icv_mm3` is FreeSurfer's eTIV. New module `SEGMENTATION_RECONALLSEG`.
 - `--run_fibre_cross_section`, `--fc_build_template`, `--fc_template`, `--fc_template_sessions`, `--fc_template_voxel_size`, `--fc_min_orientation_agreement`: log fibre cross-section (FC), FD and FDC per IIT bundle on a study fODF template (MRtrix fixel-based analysis steps, no subject tractography), in `dwi/*_space-fctemplate_desc-fc_stats.csv` and `metrics/space-template_desc-fc_stats.csv`. New modules `RECONST_FODTOMRTRIX` (scilpy fODF to MRtrix: RAS order and tournier07 basis, checked against each run's tensor), `TEMPLATE_FODPOPULATION`, `TEMPLATE_IITBUNDLES`, `TEMPLATE_FCBUNDLEFIXELS`, `REGISTRATION_FODTEMPLATE`, `STATS_FIBRECROSSSECTION`. The template directory is checksummed (`manifest.json`) and every row carries its hash. Bundles are in column `roi`, named as in the WM tractometry table.
 - A DWI sample with no fODF shell (for example an ADNI GE b1300 run under `--fodf_shells 1000`) is processed without fibre response, fODF, AFD, NuFO or peaks instead of failing in the fODF step, and is reported as `no fODF shell` in `metrics/dwi_input_report.tsv` with a startup warning; its statistics keep every other metric.

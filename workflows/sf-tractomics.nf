@@ -26,6 +26,8 @@ include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../mo
 include { STATS_HOC              } from '../modules/local/stats/hoc/main'
 include { SEGMENTATION_FSRECONALL as RECONALL_THICKNESS } from '../modules/nf-neuro/segmentation/fsreconall/main'
 include { SEGMENTATION_RECONALLSEG } from '../modules/local/segmentation/reconallseg/main'
+include { SEGMENTATION_HIPPOAMYG } from '../modules/local/segmentation/hippoamyg/main'
+include { STATS_HIPPOAMYG         } from '../modules/local/stats/hippoamyg/main'
 include { STATS_THICKNESS        } from '../modules/local/stats/thickness/main'
 include { STATS_SURFACEMETRICS   } from '../modules/local/stats/surfacemetrics/main'
 include { IMAGE_LABELFRACTION as SUBJECT_ROI_FRACTIONS } from '../modules/local/image/labelfraction/main'
@@ -115,25 +117,38 @@ workflow SF_TRACTOMICS {
         ch_synthstrip_weights = channel.fromPath(params.synthstrip_weights, checkIfExists: true)
     }
 
+    // run_dwi_processing = false: TractoFlow and everything built on the DWI are left out; only the
+    // T1 branch runs (subject segmentations with their volumes and HOC, recon-all with the
+    // thickness). A later run with run_dwi_processing = true and -resume (same launch and work
+    // directories, same commit and parameters) reuses those tasks and adds everything else: their
+    // inputs do not depend on this option.
+    def do_dwi = params.run_dwi_processing != false
+    def dwiInput = { ch -> do_dwi ? ch : channel.empty() }
+    if ( !do_dwi ) {
+        log.warn "run_dwi_processing = false: no DWI processing. Only the T1-based outputs are computed " +
+                 "(subject-segmentation volumes and HOC, cortical thickness); atlas volumes, diffusion metrics, " +
+                 "surface metrics and fibre cross-section need the DWI and are skipped. Run again with " +
+                 "run_dwi_processing = true and -resume to add them."
+    }
     TRACTOFLOW(
-        ch_dwi_bval_bvec,
-        ch_t1,
-        ch_b0
-            .filter{ it -> it[1] },
-        ch_rev_dwi_bval_bvec
-            .filter{ it -> it[1] },
-        ch_rev_b0
-            .filter{ it -> it[1] },
-        ch_wmparc
-            .filter{ it -> it[1] },
-        ch_aparc_aseg
-            .filter{ it -> it[1] },
+        dwiInput.call(ch_dwi_bval_bvec),
+        dwiInput.call(ch_t1),
+        dwiInput.call(ch_b0
+            .filter{ it -> it[1] }),
+        dwiInput.call(ch_rev_dwi_bval_bvec
+            .filter{ it -> it[1] }),
+        dwiInput.call(ch_rev_b0
+            .filter{ it -> it[1] }),
+        dwiInput.call(ch_wmparc
+            .filter{ it -> it[1] }),
+        dwiInput.call(ch_aparc_aseg
+            .filter{ it -> it[1] }),
         ch_topup_config,
         ch_bet_template,
         ch_bet_probability,
         ch_synthstrip_weights,
-        ch_lesion
-            .filter{ it -> it[1] },
+        dwiInput.call(ch_lesion
+            .filter{ it -> it[1] }),
         [
             "preproc_dwi_run_denoising": params.run_dwi_denoising,
             "preproc_dwi_run_degibbs": params.run_gibbs_correction,
@@ -301,27 +316,37 @@ workflow SF_TRACTOMICS {
     def do_csf_volumes = params.run_roi_volumes || params.run_csf_volumes
     def do_cmp_volumes = params.run_csf_comparison_volumes
 
-    // Where GM, CSF and comparison volumes come from. 'atlas' counts voxels of a template warped
-    // onto the subject B0, so it only reflects the registration. 'synthseg', 'reconall' (recon-all
-    // run here, shared with the cortical thickness) and 'freesurfer' (aparc+aseg given as input)
-    // count the subject's own segmentation in native T1 space. WM bundles are always atlas-based.
-    def volume_source = params.volume_source ?: "atlas"
-    if ( !(volume_source in ["atlas", "synthseg", "reconall", "freesurfer"]) ) {
-        error "volume_source must be 'atlas', 'synthseg', 'reconall' or 'freesurfer', but got '${volume_source}'."
+    // Where GM, CSF and comparison volumes come from: one or several sources, comma-separated.
+    // 'atlas' counts voxels of a template warped onto the subject B0, so it only reflects the
+    // registration. 'synthseg', 'reconall' (recon-all run here, shared with the cortical thickness)
+    // and 'freesurfer' (aparc+aseg given as input) count the subject's own segmentation in native
+    // T1 space. Each source writes its own files, and its name in the source column of every row,
+    // so the methods can be compared and are never mixed. WM bundles are always atlas-based.
+    def volume_sources = (params.volume_source ?: "atlas").toString().tokenize(", ").unique()
+    def unknown_sources = volume_sources - ["atlas", "synthseg", "reconall", "freesurfer"]
+    if ( !volume_sources || unknown_sources ) {
+        error "volume_source must be one or several of 'atlas', 'synthseg', 'reconall' and 'freesurfer', " +
+              "comma-separated, but got '${params.volume_source}'."
     }
-    // run_longitudinal_volumes segments all sessions of a subject jointly (SAMSEG longitudinal)
-    // and takes precedence over volume_source for the GM, CSF and comparison volumes.
+    // run_longitudinal_volumes segments all sessions of a subject jointly (SAMSEG longitudinal), one
+    // more source. Alone with the default 'atlas', it replaces it, as it always did.
     def do_longitudinal = params.run_longitudinal_volumes == true
     if ( do_longitudinal ) {
-        if ( volume_source != "atlas" ) {
-            log.info "run_longitudinal_volumes = true: volume_source = '${volume_source}' is replaced by SAMSEG longitudinal."
-        }
-        volume_source = "samseg_long"
+        volume_sources = volume_sources == ["atlas"] ? ["samseg_long"] : volume_sources + ["samseg_long"]
     }
-    def subject_volumes = volume_source != "atlas"
+    def subject_sources = volume_sources - ["atlas"]
+    def atlas_volume_source = "atlas" in volume_sources
+    def subject_volumes = !subject_sources.isEmpty()
+    // The subject-region diffusion metrics use one segmentation: the first subject source listed
+    def roi_metrics_source = subject_volumes ? subject_sources[0] : null
     // Hippocampal occupancy score, counted on the subject's own segmentation
     def do_hoc = params.run_hoc == true
     def do_thickness = params.run_cortical_thickness == true
+    // Hippocampal subfields and amygdala nuclei, segmented on the recon-all
+    def do_subfields = params.run_hippocampal_subfields == true
+    if ( do_subfields && !params.freesurfer_license ) {
+        error "run_hippocampal_subfields = true requires params.freesurfer_license (recon-all and segment_subregions run from the FreeSurfer container)."
+    }
     // Cortical diffusion metrics sampled on the recon-all surfaces, at mid-thickness
     def do_surface_metrics = params.run_cortical_surface_metrics == true
     // Diffusion metrics in the subject's own GM regions, weighted by voxel fraction
@@ -353,9 +378,9 @@ workflow SF_TRACTOMICS {
     // Code revision written into the volume CSVs, so results of different versions are never mixed
     // unknowingly: the git commit when run from a repository, else the pipeline version.
     def pipeline_revision = workflow.commitId ?: gitRevision(projectDir) ?: workflow.manifest.version
-    def do_gm_atlas_volumes  = do_gm_volumes  && !subject_volumes
-    def do_csf_atlas_volumes = do_csf_volumes && !subject_volumes
-    def do_cmp_atlas_volumes = do_cmp_volumes && !subject_volumes
+    def do_gm_atlas_volumes  = do_gm_volumes  && atlas_volume_source
+    def do_csf_atlas_volumes = do_csf_volumes && atlas_volume_source
+    def do_cmp_atlas_volumes = do_cmp_volumes && atlas_volume_source
 
     if ( (do_wm_metrics || do_wm_volumes || do_gm_metrics || do_gm_atlas_volumes) && !params.run_atlas_roimetrics ) {
         error "IIT atlas metrics/volumes (WM or GM) require run_atlas_roimetrics = true."
@@ -388,14 +413,18 @@ workflow SF_TRACTOMICS {
     ch_wm_vols_collected  = channel.empty()
     ch_gm_vols_collected  = channel.empty()
     ch_csf_vols_collected = channel.empty()
-    // Per-subject volume CSVs, filled either by the atlas subworkflows or by the
-    // subject-segmentation branch below, depending on volume_source.
+    // Per-subject volume CSVs of the atlas ([meta, csv]) and of the subject segmentations
+    // ([meta, source, csv], one item per source), kept apart so no source fills another's file.
     ch_wm_volumes  = channel.empty()
     ch_gm_volumes  = channel.empty()
     ch_csf_volumes = channel.empty()
     ch_cmp_volumes = channel.empty()
+    ch_subject_gm_volumes  = channel.empty()
+    ch_subject_csf_volumes = channel.empty()
+    ch_subject_cmp_volumes = channel.empty()
     ch_hoc         = channel.empty()
     ch_subject_roi_stats = channel.empty()
+    ch_subject_roi_collected = channel.empty()
 
     // Every T1 annotated once: scanner (BIDS sidecar) and duplicates (same voxel data). Used by the
     // volume branches and by the warnings below.
@@ -404,11 +433,12 @@ workflow SF_TRACTOMICS {
     ch_t1_annotated.toList().subscribe { items -> warnT1Annotations(items) }
 
     // FreeSurfer recon-all on the raw T1, shared by the cortical thickness, the surface sampling
-    // and volume_source = 'reconall'. recon-all takes hours per scan: run each distinct T1 once,
+    // and volume_source 'reconall'. recon-all takes hours per scan: run each distinct T1 once,
     // share it with every run
     def ch_t1_recon = channel.empty()
     def ch_recon_per_sample = channel.empty()
-    if ( do_thickness || do_surface_metrics || volume_source == "reconall" ) {
+    def reconall_volumes = "reconall" in subject_sources && (do_gm_volumes || do_csf_volumes || do_cmp_volumes || do_hoc || do_subject_metrics)
+    if ( do_thickness || do_surface_metrics || reconall_volumes || do_subfields ) {
         if ( !params.freesurfer_license ) {
             error "recon-all (run_cortical_thickness, run_cortical_surface_metrics or volume_source = 'reconall') " +
                   "requires params.freesurfer_license."
@@ -426,8 +456,31 @@ workflow SF_TRACTOMICS {
             .flatMap { _meta, metas, recon_all -> metas.collect { m -> [m, recon_all] } }
     }
 
+    // Hippocampal subfields and amygdala nuclei: one segmentation per recon-all (distinct T1), then
+    // one table per DWI run sharing it, with FreeSurfer's eTIV for head size
+    ch_hippoamyg = channel.empty()
+    if ( do_subfields ) {
+        SEGMENTATION_HIPPOAMYG(
+            RECONALL_THICKNESS.out.recon_all_out_folder
+                .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
+        )
+        ch_versions = ch_versions.mix(SEGMENTATION_HIPPOAMYG.out.versions.first())
+        STATS_HIPPOAMYG(
+            ch_t1_recon
+                .map { meta, metas, _t1 -> [meta, metas] }
+                .join(SEGMENTATION_HIPPOAMYG.out.subfields)
+                .join(RECONALL_THICKNESS.out.recon_all_out_folder)
+                .flatMap { _meta, metas, subfields, recon_all -> metas.collect { m -> [m, subfields, recon_all] } }
+        )
+        ch_versions = ch_versions.mix(STATS_HIPPOAMYG.out.versions.first())
+        ch_hippoamyg = STATS_HIPPOAMYG.out.volumes
+        collectSampleCsvs(ch_hippoamyg, "space-native_seg-reconall_desc-hippoamyg_volumes.csv", "${params.outdir}/metrics/")
+    }
+
     if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes || do_hoc || do_subject_metrics) ) {
-        if ( volume_source == "samseg_long" ) {
+        // [meta, source, segmentation, segmenter's volume table, QC table], one item per source
+        def ch_subject_seg = channel.empty()
+        if ( "samseg_long" in subject_sources ) {
             if ( !params.freesurfer_license ) {
                 error "run_longitudinal_volumes = true requires params.freesurfer_license (SAMSEG runs from the FreeSurfer container)."
             }
@@ -467,11 +520,11 @@ workflow SF_TRACTOMICS {
             // (distinctT1s): the segmentation is in that file's space, so it serves each of them.
             // A run with another T1 file of the session gets none: its T1-to-DWI transform starts from
             // its own T1. Those runs are listed at startup and left out of the per-run checks.
-            ch_subject_seg = ch_samseg_seg
+            ch_subject_seg = ch_subject_seg.mix(ch_samseg_seg
                 .join(ch_t1_vol)
                 .map { m, seg, icv, qc, t1 -> [t1SampleKey(m, t1), seg, icv, qc] }
                 .join(distinctT1s(ch_t1_vol).map { meta, metas, t1 -> [t1SampleKey(meta, t1), metas] })
-                .flatMap { _key, seg, icv, qc, metas -> metas.collect { m -> [m, seg, icv, qc] } }
+                .flatMap { _key, seg, icv, qc, metas -> metas.collect { m -> [m, "samseg_long", seg, icv, qc] } })
             ch_t1_vol.toList().subscribe { items ->
                 def skipped = samsegUnsegmented(items)
                 if (skipped) {
@@ -482,7 +535,7 @@ workflow SF_TRACTOMICS {
                 }
             }
         }
-        else if ( volume_source == "synthseg" ) {
+        if ( "synthseg" in subject_sources ) {
             if ( !params.freesurfer_license ) {
                 error "volume_source = 'synthseg' requires params.freesurfer_license (SynthSeg runs from the FreeSurfer container)."
             }
@@ -497,28 +550,28 @@ workflow SF_TRACTOMICS {
             )
             ch_versions = ch_versions.mix(SYNTHSEG_VOLUMES.out.versions.first())
 
-            ch_subject_seg = ch_t1_unique
+            ch_subject_seg = ch_subject_seg.mix(ch_t1_unique
                 .map { meta, metas, _t1 -> [meta, metas] }
                 .join(SYNTHSEG_VOLUMES.out.aparc_aseg.join(SYNTHSEG_VOLUMES.out.volume).join(SYNTHSEG_VOLUMES.out.qc_score))
-                .flatMap { _meta, metas, seg, seg_volumes, qc -> metas.collect { m -> [m, seg, seg_volumes, qc] } }
+                .flatMap { _meta, metas, seg, seg_volumes, qc -> metas.collect { m -> [m, "synthseg", seg, seg_volumes, qc] } })
         }
-        else if ( volume_source == "reconall" ) {
+        if ( "reconall" in subject_sources ) {
             // recon-all's own aparc+aseg, one per distinct T1 (the run shared with the thickness),
             // with FreeSurfer's eTIV as intracranial volume
             SEGMENTATION_RECONALLSEG(RECONALL_THICKNESS.out.recon_all_out_folder)
             ch_versions = ch_versions.mix(SEGMENTATION_RECONALLSEG.out.versions.first())
-            ch_subject_seg = ch_t1_recon
+            ch_subject_seg = ch_subject_seg.mix(ch_t1_recon
                 .map { meta, metas, _t1 -> [meta, metas] }
                 .join(SEGMENTATION_RECONALLSEG.out.seg)
-                .flatMap { _meta, metas, seg, icv -> metas.collect { m -> [m, seg, icv, []] } }
+                .flatMap { _meta, metas, seg, icv -> metas.collect { m -> [m, "reconall", seg, icv, []] } })
         }
-        else {
+        if ( "freesurfer" in subject_sources ) {
             // Native-space aparc+aseg given as input (samplesheet or BIDS FreeSurfer derivatives),
             // before TractoFlow warps it to DWI space.
-            ch_subject_seg = ch_aparc_aseg
+            ch_subject_seg = ch_subject_seg.mix(ch_aparc_aseg
                 .filter { it -> it[1] }
                 .join(ch_t1_annotated.map { orig, meta, _t1 -> [orig, meta] })
-                .map { _orig, aparc_aseg, meta -> [meta, aparc_aseg, [], []] }
+                .map { _orig, aparc_aseg, meta -> [meta, "freesurfer", aparc_aseg, [], []] })
 
             // Without its aparc+aseg a sample would just be missing from the volume files.
             ch_t1
@@ -533,44 +586,50 @@ workflow SF_TRACTOMICS {
                 }
         }
 
-        def subjectVolumesInput = { lut_path ->
-            ch_subject_seg
-                .combine(channel.fromPath(lut_path, checkIfExists: true))
-                .map { meta, seg, seg_volumes, qc, lut -> [meta, seg, lut, seg_volumes, qc] }
+        // One task per sample and source; the source is an input of the task (its files and rows
+        // carry it), so adding a source to a later run leaves the tasks of the others cached.
+        def subjectVolumesInput = { lut_of ->
+            ch_subject_seg.map { meta, source, seg, seg_volumes, qc -> [meta, source, seg, file(lut_of.call(source), checkIfExists: true), seg_volumes, qc] }
         }
 
         if ( do_gm_volumes ) {
             // SAMSEG has no Desikan parcels: its GM file holds the cortex totals instead of 68
             // parcels that would all read 0.
-            def gm_lut = volume_source == "samseg_long" ? "freesurfer_gm_samseg_lut.json" : "freesurfer_gm_lut.json"
-            STATS_SUBJECT_GM_VOLUMES(subjectVolumesInput.call("${projectDir}/assets/${gm_lut}"))
+            STATS_SUBJECT_GM_VOLUMES(subjectVolumesInput.call { source ->
+                "${projectDir}/assets/" + (source == "samseg_long" ? "freesurfer_gm_samseg_lut.json" : "freesurfer_gm_lut.json")
+            })
             ch_versions = ch_versions.mix(STATS_SUBJECT_GM_VOLUMES.out.versions.first())
-            ch_gm_volumes = STATS_SUBJECT_GM_VOLUMES.out.volumes
+            ch_subject_gm_volumes = STATS_SUBJECT_GM_VOLUMES.out.volumes
         }
         if ( do_csf_volumes ) {
-            STATS_SUBJECT_CSF_VOLUMES(subjectVolumesInput.call(params.atlas_csf_lut ?: "${projectDir}/assets/freesurfer_csf_lut.json"))
+            STATS_SUBJECT_CSF_VOLUMES(subjectVolumesInput.call { _source -> params.atlas_csf_lut ?: "${projectDir}/assets/freesurfer_csf_lut.json" })
             ch_versions = ch_versions.mix(STATS_SUBJECT_CSF_VOLUMES.out.versions.first())
-            ch_csf_volumes = STATS_SUBJECT_CSF_VOLUMES.out.volumes
+            ch_subject_csf_volumes = STATS_SUBJECT_CSF_VOLUMES.out.volumes
         }
         if ( do_cmp_volumes ) {
-            STATS_SUBJECT_COMPARISON_VOLUMES(subjectVolumesInput.call(params.atlas_csf_comparison_lut ?: "${projectDir}/assets/freesurfer_comparison_lut.json"))
+            STATS_SUBJECT_COMPARISON_VOLUMES(subjectVolumesInput.call { _source -> params.atlas_csf_comparison_lut ?: "${projectDir}/assets/freesurfer_comparison_lut.json" })
             ch_versions = ch_versions.mix(STATS_SUBJECT_COMPARISON_VOLUMES.out.versions.first())
-            ch_cmp_volumes = STATS_SUBJECT_COMPARISON_VOLUMES.out.volumes
+            ch_subject_cmp_volumes = STATS_SUBJECT_COMPARISON_VOLUMES.out.volumes
         }
         if ( do_hoc ) {
-            STATS_HOC(ch_subject_seg.map { meta, seg, _seg_volumes, _qc -> [meta, seg] })
+            STATS_HOC(ch_subject_seg.map { meta, source, seg, _seg_volumes, _qc -> [meta, source, seg] })
             ch_versions = ch_versions.mix(STATS_HOC.out.versions.first())
             ch_hoc = STATS_HOC.out.hoc
-            collectSampleCsvs(ch_hoc, "space-native_desc-hoc.csv", "${params.outdir}/metrics/")
+            subject_sources.each { source ->
+                collectSampleCsvs(ch_hoc.filter { _meta, s, _csv -> s == source }.map { meta, _s, csv -> [meta, csv] },
+                                  "space-native_seg-${sourceLabel(source)}_desc-hoc.csv", "${params.outdir}/metrics/")
+            }
         }
         if ( do_subject_metrics ) {
             // The segmentation is in native T1 space. Its labels go to diffusion space through
             // TractoFlow's T1-to-DWI transform, as fractions of the acquired DWI voxels (the raw DWI
             // grid), so each metric is averaged with every voxel weighted by how much of it lies in
             // the region (see IMAGE_LABELFRACTION). The GM LUT gives the region names of the GM files.
-            def subject_lut = volume_source == "samseg_long" ? "freesurfer_gm_samseg_lut.json" : "freesurfer_gm_lut.json"
+            // One segmentation only: the first subject source listed (roi_metrics_source).
+            def subject_lut = roi_metrics_source == "samseg_long" ? "freesurfer_gm_samseg_lut.json" : "freesurfer_gm_lut.json"
             def ch_seg_tractoflow_meta = ch_subject_seg
-                .map { meta, seg, _seg_volumes, _qc -> [meta, seg] }
+                .filter { _meta, source, _seg, _seg_volumes, _qc -> source == roi_metrics_source }
+                .map { meta, _source, seg, _seg_volumes, _qc -> [meta, seg] }
                 .join(ch_t1_annotated.map { orig, meta, _t1 -> [meta, orig] })
                 .map { _meta, seg, orig -> [orig, seg] }
             SUBJECT_ROI_FRACTIONS(
@@ -596,9 +655,9 @@ workflow SF_TRACTOMICS {
             )
             ch_versions = ch_versions.mix(STATS_SUBJECT_ROI_METRICS.out.versions.first())
             ch_subject_roi_stats = STATS_SUBJECT_ROI_METRICS.out.stats_mean
-            def seg_name = volume_source == "samseg_long" ? "samseg" : volume_source
-            collectStatsFiles(ch_subject_roi_stats, "space-native_seg-${seg_name}_label-mean_desc-roi_stats.tsv",
-                              "${params.outdir}/metrics/", "GM_subject")
+            def seg_name = sourceLabel(roi_metrics_source)
+            ch_subject_roi_collected = collectStatsFiles(ch_subject_roi_stats, "space-native_seg-${seg_name}_label-mean_desc-roi_stats.tsv",
+                                                         "${params.outdir}/metrics/", "GM_subject")
             collectSampleCsvs(SUBJECT_ROI_FRACTIONS.out.sums, "space-native_seg-${seg_name}_desc-roi_fractions.csv",
                               "${params.outdir}/metrics/")
         }
@@ -690,7 +749,7 @@ workflow SF_TRACTOMICS {
             .subscribe { ids ->
                 log.warn "Longitudinal data detected: ${ids.size()} subject(s) have several sessions " +
                          "(e.g. ${ids.take(3).join(', ')}), but run_longitudinal_volumes is not activated (false). " +
-                         "Volumes are computed for each session independently (volume_source = '${volume_source}'), " +
+                         "Volumes are computed for each session independently (volume_source = '${volume_sources.join(',')}'), " +
                          "which adds session-to-session noise comparable to yearly atrophy. " +
                          "Set run_longitudinal_volumes = true to measure atrophy over time. See docs/usage.md."
             }
@@ -740,14 +799,16 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_gm_metrics ) {
-            if ( do_gm_volumes ) {
+            // Only the atlas's own GM volumes join its metrics: a subject segmentation's volumes are
+            // in their own files (one row = one method)
+            if ( do_gm_atlas_volumes ) {
                 ch_collection_gm_mean = collectStatsFilesWithVolumes(
                     ATLAS_ROIMETRICS.out.labelmap_stats_tab_mean,
                     ch_gm_volumes,
                     "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "GM_region",
-                    volume_source
+                    "atlas"
                 )
             } else {
                 ch_collection_gm_mean = collectStatsFiles(
@@ -760,14 +821,17 @@ workflow SF_TRACTOMICS {
             ch_global_multiqc_files = ch_global_multiqc_files.mix(ch_collection_gm_mean)
         }
 
-        if ( do_wm_volumes && !do_wm_metrics ) {
-            ch_wm_vols_collected = ATLAS_ROIMETRICS.out.mask_volumes
-                .map { _meta, csv -> csv }
-                .collectFile(
-                    storeDir: "${params.outdir}/metrics/",
-                    name: "space-native_atlas-iit-wm_desc-roi_volumes.csv",
-                    skip: 1, keepHeader: true, sort: true
-                )
+        // Every volume type has its own file, also when its metrics table carries the volumes: an
+        // independent copy to check the merged tables against
+        if ( do_wm_volumes ) {
+            ch_wm_vols_collected = collectVolumeFiles(
+                ch_wm_volumes,
+                "space-native_atlas-iit-wm_desc-roi_volumes.csv",
+                "${params.outdir}/metrics/",
+                "atlas",
+                params.volume_icv_drift,
+                pipeline_revision
+            )
         }
 
         if ( params.harmonization_reference ) {
@@ -800,17 +864,38 @@ workflow SF_TRACTOMICS {
         }
     }
 
-    // GM volumes alone may come from the subject's segmentation without running ATLAS_ROIMETRICS,
-    // so they are collected outside its block.
-    if ( do_gm_volumes && !do_gm_metrics ) {
+    // Atlas GM volumes: their own file, also when the atlas GM metrics table carries them
+    if ( do_gm_atlas_volumes ) {
         ch_gm_vols_collected = collectVolumeFiles(
             ch_gm_volumes,
             "space-native_atlas-iit-gm_desc-roi_volumes.csv",
             "${params.outdir}/metrics/",
-            volume_source,
+            "atlas",
             params.volume_icv_drift,
             pipeline_revision
         )
+    }
+
+    // Volumes of each subject segmentation: one file per source and type, named after the source,
+    // with the source in every row. [type, source, collected file] for the combined table.
+    def subject_vols_collected = []
+    subject_sources.each { source ->
+        def label = sourceLabel(source)
+        [["GM_region", do_gm_volumes, ch_subject_gm_volumes, "metrics", "space-native_seg-${label}_label-gm_desc-roi_volumes.csv"],
+         ["CSF_region", do_csf_volumes, ch_subject_csf_volumes, "metrics", "space-native_seg-${label}_label-csf_desc-roi_volumes.csv"],
+         ["comparison", do_cmp_volumes, ch_subject_cmp_volumes, "metrics/comparison", "space-native_seg-${label}_label-comparison_desc-roi_volumes.csv"]]
+            .findAll { entry -> entry[1] }
+            .each { entry ->
+                def collected = collectVolumeFiles(
+                    entry[2].filter { _meta, s, _csv -> s == source }.map { meta, _s, csv -> [meta, csv] },
+                    entry[4],
+                    "${params.outdir}/${entry[3]}/",
+                    source,
+                    params.volume_icv_drift,
+                    pipeline_revision
+                )
+                subject_vols_collected << [entry[0], source, collected]
+            }
     }
 
     if ( do_csf_metrics || do_csf_atlas_volumes || params.run_csf_comparison_roimetrics || do_cmp_atlas_volumes ) {
@@ -838,14 +923,14 @@ workflow SF_TRACTOMICS {
         }
 
         if ( do_csf_metrics ) {
-            if ( do_csf_volumes ) {
+            if ( do_csf_atlas_volumes ) {
                 ch_csf_stats_merged = collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.stats_tab_mean,
                     ch_csf_volumes,
                     "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "CSF_region",
-                    volume_source
+                    "atlas"
                 )
             } else {
                 ch_csf_stats_merged = collectStatsFiles(
@@ -862,14 +947,14 @@ workflow SF_TRACTOMICS {
             def comparison_type_map = new groovy.json.JsonSlurper()
                 .parse(new File("${projectDir}/assets/freesurfer_comparison_type_map.json"))
                 .collectEntries { k, v -> [(k): v] }
-            if ( do_cmp_volumes ) {
+            if ( do_cmp_atlas_volumes ) {
                 collectStatsFilesWithVolumes(
                     ATLAS_CSF_ROIMETRICS.out.comparison_stats_tab_mean,
                     ch_cmp_volumes,
                     "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/comparison/",
                     comparison_type_map,
-                    volume_source
+                    "atlas"
                 )
             } else {
                 collectStatsFiles(
@@ -886,21 +971,30 @@ workflow SF_TRACTOMICS {
     // memory, bad image) dropped under errorStrategy 'ignore' would otherwise just be missing
     // from the CSVs. SAMSEG segments one T1 per session, so the volume checks are per session.
     def ch_expected_sessions = ch_t1_vol.map { meta, _t1 -> volumeSampleKey(meta)[0..1] }.unique().toList()
-    [["WM bundle", do_wm_volumes ? ch_wm_volumes : null],
-     ["GM", do_gm_volumes ? ch_gm_volumes : null],
-     ["CSF", do_csf_volumes ? ch_csf_volumes : null],
-     ["comparison", do_cmp_volumes ? ch_cmp_volumes : null],
-     ["HOC", do_hoc ? ch_hoc : null],
-     ["cortical thickness", do_thickness ? ch_thickness : null],
-     ["cortical surface metrics", do_surface_metrics ? ch_surface_stats : null]].findAll { entry -> entry[1] != null }.each { entry ->
+    def bySource = { ch, source -> ch.filter { _meta, s, _f -> s == source }.map { meta, _s, f -> [meta, f] } }
+    // Atlas volumes and surface metrics need the DWI: not expected when it is not processed
+    def coverage = [["WM bundle", do_wm_volumes && do_dwi ? ch_wm_volumes : null],
+                    ["atlas GM", do_gm_atlas_volumes && do_dwi ? ch_gm_volumes : null],
+                    ["atlas CSF", do_csf_atlas_volumes && do_dwi ? ch_csf_volumes : null],
+                    ["atlas comparison", do_cmp_atlas_volumes && do_dwi ? ch_cmp_volumes : null],
+                    ["cortical thickness", do_thickness ? ch_thickness : null],
+                    ["hippocampal subfields", do_subfields ? ch_hippoamyg : null],
+                    ["cortical surface metrics", do_surface_metrics && do_dwi ? ch_surface_stats : null]]
+    subject_sources.each { source ->
+        coverage << ["${source} GM", do_gm_volumes ? bySource.call(ch_subject_gm_volumes, source) : null]
+        coverage << ["${source} CSF", do_csf_volumes ? bySource.call(ch_subject_csf_volumes, source) : null]
+        coverage << ["${source} comparison", do_cmp_volumes ? bySource.call(ch_subject_cmp_volumes, source) : null]
+        coverage << ["${source} HOC", do_hoc ? bySource.call(ch_hoc, source) : null]
+    }
+    coverage.findAll { entry -> entry[1] != null }.each { entry ->
         checkVolumeCoverage(entry[0], entry[1], ch_expected_sessions, "${params.outdir}/metrics", params.allow_missing_volumes == true)
     }
     // Subject-region metrics are diffusion values of one DWI run each, so they are checked per run:
     // a second run of a session missing them would pass a per-session check. Runs SAMSEG cannot
     // serve (another T1 file than the session's first run, warned at startup) are not expected.
-    if ( do_subject_metrics ) {
+    if ( do_subject_metrics && do_dwi ) {
         def ch_expected_runs = ch_t1_vol.toList().map { items ->
-            def unserved = volume_source == "samseg_long" ? samsegUnsegmented(items) as Set : [] as Set
+            def unserved = roi_metrics_source == "samseg_long" ? samsegUnsegmented(items) as Set : [] as Set
             items.findAll { item -> !(item[0] in unserved) }.collect { item -> volumeSampleKey(item[0]) }.unique()
         }
         checkVolumeCoverage("subject-region metrics", ch_subject_roi_stats, ch_expected_runs, "${params.outdir}/metrics",
@@ -913,10 +1007,15 @@ workflow SF_TRACTOMICS {
     // --run_fibre_cross_section computes FC for every DWI run with an fODF, on --fc_template or on
     // the template built in the same run.
     //
-    def do_fc = params.run_fibre_cross_section == true
-    def build_fc_template = params.fc_build_template == true
+    def do_fc = params.run_fibre_cross_section == true && do_dwi
+    def build_fc_template = params.fc_build_template == true && do_dwi
     if ( do_fc || build_fc_template ) {
         def fc_template_keys = build_fc_template ? readFcTemplateSessions(params.fc_template_sessions) : (params.fc_template ? fcTemplateKeys(params.fc_template) : [] as Set)
+        if ( !params.manual_frf && !params.mean_frf ) {
+            log.warn "Fibre cross-section with a fibre response per subject (manual_frf and mean_frf unset): FD and FDC " +
+                     "scale with each subject's response and are not comparable between subjects (log FC is). " +
+                     "Set manual_frf or mean_frf = true."
+        }
         RECONST_FODTOMRTRIX(TRACTOFLOW.out.fodf)
         ch_versions = ch_versions.mix(RECONST_FODTOMRTRIX.out.versions.first())
         def ch_fod = RECONST_FODTOMRTRIX.out.fod
@@ -992,25 +1091,24 @@ workflow SF_TRACTOMICS {
         }
     }
 
-    // CSF and comparison volumes alone may come from the subject's segmentation without
-    // running ATLAS_CSF_ROIMETRICS, so they are collected outside its block.
-    if ( do_csf_volumes && !do_csf_metrics ) {
+    // Atlas CSF and comparison volumes: their own files, also when a metrics table carries them
+    if ( do_csf_atlas_volumes ) {
         ch_csf_vols_collected = collectVolumeFiles(
             ch_csf_volumes,
             "space-native_atlas-freesurfer-csf_desc-roi_volumes.csv",
             "${params.outdir}/metrics/",
-            volume_source,
+            "atlas",
             params.volume_icv_drift,
             pipeline_revision
         )
     }
 
-    if ( do_cmp_volumes && !params.run_csf_comparison_roimetrics ) {
+    if ( do_cmp_atlas_volumes ) {
         collectVolumeFiles(
             ch_cmp_volumes,
             "space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv",
             "${params.outdir}/metrics/comparison/",
-            volume_source,
+            "atlas",
             params.volume_icv_drift,
             pipeline_revision
         )
@@ -1018,37 +1116,33 @@ workflow SF_TRACTOMICS {
 
     if ( params.run_merge_all_stats ) {
         def ch_for_unified = channel.empty()
-        // For each region type: use the collected stats TSV when metrics are enabled
-        // (already includes volumes if collectStatsFilesWithVolumes was used),
-        // otherwise fall back to the volumes-only CSV when only volumes are enabled.
+        // Items "<KIND>_<region type>|<source>:::<file>". Atlas rows: the collected stats TSV when
+        // metrics are enabled (it carries the atlas volumes when they are enabled too), else the
+        // atlas volume CSV. Each subject segmentation adds its own rows: its volumes, and the
+        // subject-region metrics of the segmentation they were computed on.
+        def encode = { kind, source, ch -> ch.map { p -> "${kind}|${source}:::${toAbsFile(p.toString()).absolutePath}" } }
         if ( params.run_atlas_roimetrics ) {
             if ( do_wm_metrics ) {
-                ch_for_unified = ch_for_unified.mix(
-                    ch_collection_mean_input.map { p -> "STATS_WM_bundle:::${toAbsFile(p.toString()).absolutePath}" }
-                )
+                ch_for_unified = ch_for_unified.mix(encode.call("STATS_WM_bundle", "atlas", ch_collection_mean_input))
             } else if ( do_wm_volumes ) {
-                ch_for_unified = ch_for_unified.mix(
-                    ch_wm_vols_collected.map { p -> "VOLS_WM_bundle:::${toAbsFile(p.toString()).absolutePath}" }
-                )
+                ch_for_unified = ch_for_unified.mix(encode.call("VOLS_WM_bundle", "atlas", ch_wm_vols_collected))
             }
         }
         if ( do_gm_metrics ) {
-            ch_for_unified = ch_for_unified.mix(
-                ch_collection_gm_mean.map { p -> "STATS_GM_region:::${toAbsFile(p.toString()).absolutePath}" }
-            )
-        } else if ( do_gm_volumes ) {
-            ch_for_unified = ch_for_unified.mix(
-                ch_gm_vols_collected.map { p -> "VOLS_GM_region:::${toAbsFile(p.toString()).absolutePath}" }
-            )
+            ch_for_unified = ch_for_unified.mix(encode.call("STATS_GM_region", "atlas", ch_collection_gm_mean))
+        } else if ( do_gm_atlas_volumes ) {
+            ch_for_unified = ch_for_unified.mix(encode.call("VOLS_GM_region", "atlas", ch_gm_vols_collected))
         }
         if ( do_csf_metrics ) {
-            ch_for_unified = ch_for_unified.mix(
-                ch_csf_stats_merged.map { p -> "STATS_CSF_region:::${toAbsFile(p.toString()).absolutePath}" }
-            )
-        } else if ( do_csf_volumes ) {
-            ch_for_unified = ch_for_unified.mix(
-                ch_csf_vols_collected.map { p -> "VOLS_CSF_region:::${toAbsFile(p.toString()).absolutePath}" }
-            )
+            ch_for_unified = ch_for_unified.mix(encode.call("STATS_CSF_region", "atlas", ch_csf_stats_merged))
+        } else if ( do_csf_atlas_volumes ) {
+            ch_for_unified = ch_for_unified.mix(encode.call("VOLS_CSF_region", "atlas", ch_csf_vols_collected))
+        }
+        subject_vols_collected.findAll { entry -> entry[0] in ["GM_region", "CSF_region"] }.each { entry ->
+            ch_for_unified = ch_for_unified.mix(encode.call("VOLS_${entry[0]}", entry[1], entry[2]))
+        }
+        if ( do_subject_metrics ) {
+            ch_for_unified = ch_for_unified.mix(encode.call("STATS_GM_region", roi_metrics_source, ch_subject_roi_collected))
         }
         collectUnifiedFiles(
             ch_for_unified,
@@ -1280,6 +1374,12 @@ def sampleLabel(meta) {
     return [meta.id, meta.session, meta.run].findAll { x -> x }.join("_")
 }
 
+// Name of a volume source in file names (seg-<label>): samseg for SAMSEG longitudinal, as the
+// subject-region files have always been named, else the source itself
+def sourceLabel(String source) {
+    return source == "samseg_long" ? "samseg" : source
+}
+
 // Concatenate per-sample CSVs that share one header into <dir>/<name>, in file name order
 // (sid, session, run), so the global file is the same from run to run.
 def collectSampleCsvs(ch_csvs, String name, String dir) {
@@ -1292,8 +1392,9 @@ def collectSampleCsvs(ch_csvs, String name, String dir) {
 // run- prefixes (absent run = 1), so a template session list may be written with or without them;
 // and as a file label (<id>_<session>_run-N, as the pipeline names the run)
 def fcKey(sid, session, run) {
+    def bare_run = (run ?: "1").toString().replaceFirst(/^run-/, "")
     return [sid.toString().replaceFirst(/^sub-/, ""), (session ?: "").toString().replaceFirst(/^ses-/, ""),
-            (run ?: "1").toString().replaceFirst(/^run-/, "")]
+            bare_run.isInteger() ? (bare_run as int).toString() : bare_run]
 }
 
 def fcSampleKey(meta) {
@@ -1330,6 +1431,13 @@ def fcTemplateKeys(String dir) {
         !f.exists() || fileSha256(f) != sha
     }.collect { name, _sha -> name }
     if (changed) error "fc_template (${dir}): ${changed.size()} file(s) missing or changed since the template was built (${changed.take(5).join(', ')})"
+    // The fODFs registered to the template must be computed as the template's were. Its voxel size
+    // is a property of the template itself, not of this run.
+    def differing = (manifest.parameters ?: [:]).findAll { name, value ->
+        name != "fc_template_voxel_size" && params.containsKey(name) && params[name]?.toString() != value?.toString()
+    }.collect { name, value -> "${name} = ${params[name]} here, ${value} in the template" }
+    if (differing) error "fc_template (${dir}) was built from fODFs computed differently: ${differing.join('; ')}. " +
+                         "Use the template's parameters or build a template with this run's."
     return manifest.sessions.collect { label ->
         def m = (label =~ /^(.+?)(?:_(ses-[^_]+))?(?:_run-(\d+))?$/)
         m.matches() ? fcKey(m.group(1), m.group(2), m.group(3)) : fcKey(label, "", "1")
@@ -1865,18 +1973,21 @@ def collectVolumeFiles(ch_volumes, name, storeDir, volumeSource, icvDrift = 0.03
 }
 
 // Merge WM bundle stats, GM region stats, CSF region stats, and optional volumes into one
-// wide TSV where each row is a (subject × ROI) and each metric is a column.
+// wide TSV where each row is a (subject × source × ROI) and each metric is a column.
 //
-// Encoded items in ch_files:
-//   "STATS_WM_bundle:::abs_path"  — TSV: rows=bundles, cols=metrics (fa, md, …)
-//   "STATS_GM_region:::abs_path"  — TSV: rows=GM regions, cols=metrics
-//   "STATS_CSF_region:::abs_path" — TSV: rows=CSF regions, cols=metrics
-//   "VOLS_WM_bundle:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
-//   "VOLS_GM_region:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
-//   "VOLS_CSF_region:::abs_path"  — CSV: sid,session,run,roi,volume_voxels,volume_mm3
+// Encoded items in ch_files, "<KIND>_<region type>|<source>:::abs_path" (source: the method that
+// produced every value of the row: atlas, synthseg, reconall, freesurfer, samseg_long):
+//   "STATS_WM_bundle|atlas:::abs_path"  — TSV: rows=bundles, cols=metrics (fa, md, …)
+//   "STATS_GM_region|<source>:::abs_path"  — TSV: rows=GM regions, cols=metrics
+//   "STATS_CSF_region|atlas:::abs_path" — TSV: rows=CSF regions, cols=metrics
+//   "VOLS_WM_bundle|atlas:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
+//   "VOLS_GM_region|<source>:::abs_path"   — CSV: sid,session,run,roi,volume_voxels,volume_mm3
+//   "VOLS_CSF_region|<source>:::abs_path"  — CSV: sid,session,run,roi,volume_voxels,volume_mm3
 //   VOLS_* CSVs may also carry volume_source and icv_mm3 (collectVolumeFiles); both are kept.
+// Rows of different sources are never merged. Two files giving different values for one cell of
+// one row stop the run: that would be one method's value overwriting another's.
 //
-// Output schema: sid  session  run  roi  region_type  [covariates]  [metrics as cols]
+// Output schema: sid  session  run  roi  region_type  source  [covariates]  [metrics as cols]
 //
 // ch_cov_metas: metas carrying the participants.tsv covariates. Volume CSVs have no covariate
 // columns, so a sample whose rows are all volumes takes its covariates from there.
@@ -1905,12 +2016,19 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
 
             def subjects    = new LinkedHashSet<String>()
             def all_metrics = new LinkedHashSet<String>()
-            def wm_bundles  = new LinkedHashSet<String>()
-            def gm_regions  = new LinkedHashSet<String>()
-            def csf_regions = new LinkedHashSet<String>()
+            // region type -> source -> ROIs in the order first read
+            def regions     = ["WM_bundle": [:], "GM_region": [:], "CSF_region": [:]]
 
-            // data[subject_key][roi][metric] = value_string
+            // data[subject_key]["<region type>\t<source>\t<roi>"][metric] = value_string
             def data     = [:]
+            def cell = { sample, key, metric, value, file ->
+                def current = data[sample][key][metric]
+                if (current != null && current != "" && value != "" && current != value) {
+                    throw new IllegalStateException("collectUnifiedFiles: ${file} gives ${metric} = ${value} for " +
+                        "${sample} ${key.replace('\t', ' ')}, another file gave ${current}")
+                }
+                if (current == null || current == "") data[sample][key][metric] = value
+            }
             def cov_data = [:]  // subject_key → covariate col → value
             // subject_key → [sid, session, run] as actually read from the input files.
             // Stored directly rather than re-derived later from the joined sample string
@@ -1920,9 +2038,12 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
             def sample_meta = [:]
 
             encoded_list.each { encoded ->
-                def parts = encoded.toString().split(':::')
-                def type  = parts[0]
-                def f     = new File(parts[1])
+                def parts  = encoded.toString().split(':::')
+                def tag    = parts[0].split('\\|')
+                def type   = tag[0]
+                def source = tag.size() > 1 ? tag[1] : ""
+                def f      = new File(parts[1])
+                def region_type = type.replaceFirst(/^(STATS|VOLS)_/, "")
                 def lines = f.readLines()
                 if (lines.size() < 2) {
                     log.warn("collectUnifiedFiles: no data rows in ${f}, skipping")
@@ -1971,6 +2092,7 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
                             sample = (sam_idx >= 0 && sam_idx < vals.size()) ? vals[sam_idx] : ""
                         }
                         def roi = (roi_idx >= 0 && roi_idx < vals.size()) ? vals[roi_idx] : ""
+                        def key = "${region_type}\t${source}\t${roi}"
 
                         if (!data.containsKey(sample))     data[sample]     = [:]
                         if (!cov_data.containsKey(sample)) cov_data[sample] = [:]
@@ -1984,16 +2106,15 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
                             }
                         }
 
-                        // Add ROI to its type-specific set and store metric values keyed by roi
-                        if (type == "STATS_WM_bundle")       wm_bundles.add(roi)
-                        else if (type == "STATS_GM_region")  gm_regions.add(roi)
-                        else                                 csf_regions.add(roi)
+                        // Add ROI to its type and source, and store metric values keyed by source and roi
+                        if (!regions[region_type].containsKey(source)) regions[region_type][source] = new LinkedHashSet<String>()
+                        regions[region_type][source].add(roi)
 
-                        if (!data[sample].containsKey(roi)) data[sample][roi] = [:]
+                        if (!data[sample].containsKey(key)) data[sample][key] = [:]
                         data_names.eachWithIndex { metric, mi ->
                             def idx = data_indices[mi]
                             def val = (idx < vals.size()) ? vals[idx] : ""
-                            data[sample][roi][metric] = val
+                            cell.call(sample, key, metric, val, f)
                         }
                     }
 
@@ -2025,6 +2146,7 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
                             sample_meta[sample] = [sid: sid, session: ses, run: run]
                         }
                         def roi    = (roi_idx >= 0 && roi_idx < vals.size()) ? vals[roi_idx] : ""
+                        def key    = "${region_type}\t${source}\t${roi}"
                         def vox    = (vox_idx >= 0 && vox_idx < vals.size()) ? vals[vox_idx] : ""
                         def mm3    = (mm3_idx >= 0 && mm3_idx < vals.size()) ? vals[mm3_idx] : ""
 
@@ -2035,28 +2157,27 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
                             if (!cov_data[sample][cov]) cov_data[sample][cov] = value
                         }
 
-                        if (type == "VOLS_WM_bundle")       wm_bundles.add(roi)
-                        else if (type == "VOLS_GM_region")  gm_regions.add(roi)
-                        else                                 csf_regions.add(roi)
+                        if (!regions[region_type].containsKey(source)) regions[region_type][source] = new LinkedHashSet<String>()
+                        regions[region_type][source].add(roi)
 
-                        if (!data[sample].containsKey(roi)) data[sample][roi] = [:]
-                        data[sample][roi]["volume_voxels"] = vox
-                        data[sample][roi]["volume_mm3"]    = mm3
-                        extra.each { c, i -> if (i < vals.size()) data[sample][roi][c] = vals[i] }
+                        if (!data[sample].containsKey(key)) data[sample][key] = [:]
+                        cell.call(sample, key, "volume_voxels", vox, f)
+                        cell.call(sample, key, "volume_mm3", mm3, f)
+                        extra.each { c, i -> if (i < vals.size()) cell.call(sample, key, c, vals[i], f) }
                     }
                 }
             }
 
-            // Build roi_type_map: roi → "WM_bundle" / "GM_region" / "CSF_region"
-            def roi_type_map = [:]
-            wm_bundles.each  { roi -> roi_type_map[roi] = "WM_bundle" }
-            gm_regions.each  { roi -> roi_type_map[roi] = "GM_region" }
-            csf_regions.each { roi -> roi_type_map[roi] = "CSF_region" }
-
-            // Build ordered ROI list: WM bundles first, then GM, then CSF
-            def all_rois     = wm_bundles.toList() + gm_regions.toList() + csf_regions.toList()
+            // Ordered (region type, source, roi): WM bundles first, then GM, then CSF; sources in
+            // name order within a type, so the order does not depend on which file came first
+            def all_rows = []
+            regions.each { region_type, by_source ->
+                by_source.keySet().sort().each { source ->
+                    by_source[source].each { roi -> all_rows << [region_type, source, roi] }
+                }
+            }
             def all_m_sorted = all_metrics.sort().toList()
-            def header       = ["sid", "session", "run", "roi", "region_type"] + covariate_cols + all_m_sorted
+            def header       = ["sid", "session", "run", "roi", "region_type", "source"] + covariate_cols + all_m_sorted
 
             def output_file = new File(output_file_path).absoluteFile
             output_file.getParentFile().mkdirs()
@@ -2087,13 +2208,14 @@ def collectUnifiedFiles(ch_files, name, storeDir, List covariate_cols = [], ch_c
                     session = m_ses ? m_ses[0][1] : ""
                     run     = m_run ? m_run[0][1] : ""
                 }
-                all_rois.each { roi ->
-                    if (!data[sample]?.containsKey(roi)) return
-                    def roi_data    = data[sample][roi]
-                    def region_type = roi_type_map.getOrDefault(roi, "")
+                all_rows.each { row ->
+                    def (region_type, source, roi) = row
+                    def key = "${region_type}\t${source}\t${roi}"
+                    if (!data[sample]?.containsKey(key)) return
+                    def roi_data    = data[sample][key]
                     def covs        = covariate_cols.collect { cov -> cov_data[sample]?.get(cov) ?: "" }
                     def metric_vals = all_m_sorted.collect { metric -> roi_data?.get(metric) ?: "" }
-                    fw.write(([sid, session, run, roi, region_type] + covs + metric_vals).join('\t') + '\n')
+                    fw.write(([sid, session, run, roi, region_type, source] + covs + metric_vals).join('\t') + '\n')
                 }
             }
 

@@ -17,18 +17,18 @@ process STATS_HOC {
     container "${ 'community.wave.seqera.io/library/nibabel_numpy:4148b92a8cbc6976' }"
 
     input:
-    tuple val(meta), path(labelmap)
+    tuple val(meta), val(volume_source), path(labelmap)
 
     output:
-    tuple val(meta), path("*_hoc.csv"), emit: hoc
+    tuple val(meta), val(volume_source), path("*_hoc.csv"), emit: hoc
     path "versions.yml",                emit: versions
 
     when:
     task.ext.when == null || task.ext.when
 
     script:
-    def prefix        = task.ext.prefix ?: "${meta.id}"
-    def volume_source = task.ext.volume_source ?: "subject"
+    // <prefix>__seg-<source>_hoc.csv: one file per source
+    def prefix        = (task.ext.prefix ?: "${meta.id}") + "__seg-" + (volume_source == "samseg_long" ? "samseg" : volume_source)
     def subject_id    = meta.id ?: ""
     def session_id    = meta.session ?: ""
     // Same run convention as the other stats files: bare run number, absent run = 1
@@ -64,7 +64,7 @@ PYEOF
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${meta.id}"
+    def prefix = (task.ext.prefix ?: "${meta.id}") + "__seg-" + (volume_source == "samseg_long" ? "samseg" : volume_source)
     """
     echo "sid,session,run,roi,hoc,hippocampus_mm3,inf_lat_vent_mm3,volume_source,t1_shared_with" > ${prefix}_hoc.csv
 

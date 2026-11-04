@@ -147,7 +147,7 @@ Reuses the warped FreeSurfer atlas from the CSF pipeline to extract metrics acro
 
 ### Volume source: atlas or subject segmentation
 
-`--volume_source` chooses where the GM, CSF/ventricle and comparison volumes come from. WM bundle volumes are always atlas-based.
+`--volume_source` chooses where the GM, CSF/ventricle and comparison volumes come from: one source, or several separated by commas to compare them (e.g. `atlas,synthseg,reconall`). WM bundle volumes are always atlas-based.
 
 | Value | What is counted | Suitable for atrophy |
 |---|---|---|
@@ -164,9 +164,16 @@ Reuses the warped FreeSurfer atlas from the CSF pipeline to extract metrics acro
 --freesurfer_license /path/to/license.txt
 ```
 
-The output files are the same as with `atlas`, with the same region names, plus two columns:
+Each source writes its own files, so the methods can be compared and are never mixed:
 
-- `volume_source`: `atlas`, `synthseg`, `reconall` or `freesurfer`.
+| Source | Per sample | All samples (`metrics/`) |
+|---|---|---|
+| `atlas` | `dwi/<sample>_atlas-iit-gm_desc-roi_volumes.csv`, `_atlas-freesurfer-csf_`, `comparison/..._atlas-freesurfer-comparison_` | `space-native_atlas-iit-gm_desc-roi_volumes.csv`, `space-native_atlas-freesurfer-csf_desc-roi_volumes.csv`, `comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv` |
+| `synthseg`, `reconall`, `freesurfer`, `samseg_long` | `anat/<sample>_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv`, `anat/comparison/<sample>_seg-<source>_label-comparison_desc-roi_volumes.csv`, `anat/<sample>_seg-<source>_desc-hoc.csv` | `space-native_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv`, `comparison/space-native_seg-<source>_label-comparison_desc-roi_volumes.csv`, `space-native_seg-<source>_desc-hoc.csv` |
+
+(`samseg_long` files are named `seg-samseg`.) The region names are the same for every source, and every row carries its source:
+
+- `volume_source`: `atlas`, `synthseg`, `reconall`, `freesurfer` or `samseg_long`.
 - `icv_mm3`: total intracranial volume (head size) from SynthSeg, FreeSurfer's eTIV with `reconall`, or SAMSEG with `--run_longitudinal_volumes`. Empty for `atlas` and `freesurfer`.
 - `volume_icv_fraction`: `volume_mm3 / icv_mm3`, the region's share of the intracranial volume, to compare people with different head sizes (a small head has a small hippocampus without atrophy). Empty when `icv_mm3` is.
 
@@ -174,7 +181,7 @@ SynthSeg segments the raw T1, not the brain-extracted one, so the CSF outside th
 
 With `reconall`, one recon-all per T1 gives the volumes, the HOC, the subject-region metrics, the cortical thickness and the surface metrics, all from one segmentation. Its `aparc+aseg` is converted to NIfTI without resampling (`anat/<subject>_desc-reconall_dseg.nii.gz`, on recon-all's 1 mm conformed grid, in the T1's world coordinates) and its eTIV is in `anat/<subject>_desc-reconall_icv.csv`. Volumes are voxel counts of `aparc+aseg`, not the partial-volume-corrected values of FreeSurfer's `aseg.stats`: on 4 OASIS-3 T1s the hippocampus counts 5 to 8 % more voxels than `aseg.stats` reports, while cortical parcels match the surface-based grey-matter volume of the thickness file (`gm_volume_mm3`, median ratio 1.00). Compare subjects within one source only. recon-all has choroid plexus and WM hypointensity labels, so no row is left empty. recon-all takes about 2 h per T1 with 4 CPUs (up to 7 h on one) and can fail on poor T1s (skull stripping): check `anat/freesurfer/<subject>/scripts/recon-all.log` of any subject with implausible values.
 
-GM or CSF diffusion metrics still use the warped atlases. Volumes from the subject segmentation are joined to them by region name.
+GM or CSF diffusion metrics on the warped atlases carry the atlas volumes only (when `atlas` is a source); the volumes of a subject segmentation stay in their own files and rows. The HOC is computed for every subject source; the subject-region diffusion metrics (`--run_subject_roi_metrics`) use the first subject source listed. In the combined table (`--run_merge_all_stats`), each row is one sample, region and source (`source` column): an atlas row holds the atlas metrics and atlas volume, a subject-source row that segmentation's volume and, for the first subject source, its subject-region metrics. Two files giving different values for one cell of one row stop the run rather than overwrite each other. The per-source files above are written whatever the combined table holds, as an independent copy to check it against.
 
 > [!WARNING]
 > These volumes are **cross-sectional**: each session is segmented on its own. When a subject has several sessions, the session-to-session segmentation noise is of the order of yearly atrophy. When volumes are requested and a subject has several sessions, the pipeline warns at startup that `--run_longitudinal_volumes` is not activated.
@@ -199,7 +206,7 @@ params {
 }
 ```
 
-- The option overrides `--volume_source` for the GM, CSF and comparison volumes. WM bundle volumes stay atlas-based.
+- The option adds the source `samseg_long` to `--volume_source` (it replaces it when `--volume_source` is the default `atlas` alone), with its own files (`seg-samseg`). WM bundle volumes stay atlas-based.
 - SAMSEG has no Desikan cortical parcels: the GM file holds `Left-Cerebral-Cortex` and `Right-Cerebral-Cortex` totals instead of the 68 `ctx-*` regions. When GM diffusion metrics are enabled too, those two rows have no IIT GM metric to join to and appear only in the volumes file.
 - A subject with a single session is segmented with cross-sectional `run_samseg`.
 - Several DWI runs in one session: the segmentation of the first run's T1 is given to every run that uses the same T1 file (volumes, HOC and subject-region metrics for each run, as with SynthSeg). A run with another T1 file of the session gets none, since SAMSEG segments one T1 per session and that run's T1-to-DWI transform starts from its own T1: such runs are listed in a startup warning. Use `--volume_source synthseg` to segment every T1.
@@ -208,9 +215,36 @@ params {
 - A scanner or protocol change during follow-up shifts volumes on its own, and no segmentation method removes that bias. Record the scanner per session (the BIDS JSON `ManufacturersModelName`) and model it as a covariate in the statistics.
 - Per-session outputs: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`.
 
+### Hippocampal subfields and amygdala nuclei
+
+`--run_hippocampal_subfields` (default `false`) segments the hippocampal subfields and amygdala nuclei on the recon-all of each T1 with FreeSurfer 7 `segment_subregions hippo-amygdala` (Iglesias et al. 2015, Saygin et al. 2017; the Python version, no MATLAB runtime). It shares the recon-all of `--run_cortical_thickness`, `--run_cortical_surface_metrics` and `--volume_source reconall`, runs it when none of those does (hours per T1), then takes about 5 minutes per T1 with 4 threads (OASIS-3). Requires `--freesurfer_license`.
+
+- Per sample: `anat/<sample>_seg-reconall_desc-hippoamyg_volumes.csv`, one row per side and structure: 19 hippocampal subfields (CA1, CA3, CA4, subiculum, presubiculum, molecular layer, GC-ML-DG, fimbria, HATA, tail, fissure..., head and body parts) and 9 amygdala nuclei, plus the `Whole_*` totals (sums of the others, not separate structures), with `icv_mm3` (FreeSurfer eTIV) and `volume_icv_fraction`. All samples: `metrics/space-native_seg-reconall_desc-hippoamyg_volumes.csv`.
+- The label maps (0.33 mm, and on recon-all's grid) are in `anat/freesurfer/<T1>_hippoamyg/`.
+- Subfields at 1 mm T1 resolution are a model fit more than a measurement: the whole-hippocampus and head/body/tail volumes are robust, single subfields much less (Wisse et al. 2021). Prefer the large structures for classification, and check the label maps of any outlier.
+
+### Computing the T1 outputs first (`--run_dwi_processing false`)
+
+`--run_dwi_processing false` skips TractoFlow and everything built on the DWI. Only the T1 branch runs: subject-segmentation volumes and HOC, recon-all with the cortical thickness and the hippocampal subfields. Atlas volumes, diffusion metrics, surface metrics and fibre cross-section need the DWI: they are skipped and not reported missing.
+
+This makes a staged analysis possible: for example SynthSeg GM volumes first, in minutes per T1, and everything else later.
+
+```bash
+# 1. GM volumes only
+nextflow run sf-tractomics -profile docker -params-file params.yaml -resume --run_dwi_processing false
+# 2. Everything, later, from the same directory
+nextflow run sf-tractomics -profile docker -params-file params.yaml -resume
+```
+
+The second run reuses every task of the first, because their inputs do not depend on `run_dwi_processing`, provided that:
+
+- it is launched from the same directory (Nextflow's cache is in `.nextflow/` there) with the same work directory, and nothing was cleaned in between;
+- the pipeline is at the same commit (a changed module or sample metadata recomputes its tasks);
+- the parameters and input files used by those tasks are the same. Adding outputs (`run_wm_metrics`, `run_fibre_cross_section`, another source in `volume_source`...) is fine: the tasks of a source do not depend on the other sources.
+
 ### Volume quality control
 
-Volumes from the subject's own segmentation (`synthseg`, `freesurfer`, longitudinal SAMSEG) carry columns that make bad or non-independent samples visible instead of silently entering the statistics:
+Volumes from the subject's own segmentation (`synthseg`, `reconall`, `freesurfer`, longitudinal SAMSEG) carry columns that make bad or non-independent samples visible instead of silently entering the statistics:
 
 | Column | Content |
 |---|---|

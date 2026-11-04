@@ -72,9 +72,9 @@ nextflow_pipeline {
                          ls[1..-1].collect { l -> [h, l.split(sep, -1).toList()].transpose().collectEntries() } }
             def out = "$outputDir/out/metrics"
             def files = [
-                [f: "${out}/space-native_atlas-iit-gm_desc-roi_volumes.csv", n: 84],
-                [f: "${out}/space-native_atlas-freesurfer-csf_desc-roi_volumes.csv", n: 9],
-                [f: "${out}/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv", n: 33]
+                [f: "${out}/space-native_seg-freesurfer_label-gm_desc-roi_volumes.csv", n: 84],
+                [f: "${out}/space-native_seg-freesurfer_label-csf_desc-roi_volumes.csv", n: 9],
+                [f: "${out}/comparison/space-native_seg-freesurfer_label-comparison_desc-roi_volumes.csv", n: 33]
             ]
             assert workflow.success
             files.each { spec ->
@@ -97,7 +97,9 @@ nextflow_pipeline {
                 }
                 assert rows.size() == samples.size() * spec.n : "${spec.f}: unexpected extra rows"
             }
-            def hoc = read("${out}/space-native_desc-hoc.csv", ",")
+            // No atlas volume file: 'freesurfer' alone was asked for
+            assert !path("${out}/space-native_atlas-iit-gm_desc-roi_volumes.csv").exists()
+            def hoc = read("${out}/space-native_seg-freesurfer_desc-hoc.csv", ",")
             assert hoc.size() == samples.size() * 3 : "HOC: ${hoc.size()} rows, expected ${samples.size() * 3}"
             samples.each { s ->
                 def mine = hoc.findAll { r -> r.sid == s.sid && r.session == s.session && r.run == s.run }
@@ -109,12 +111,14 @@ nextflow_pipeline {
                 assert mine.every { r -> r.t1_shared_with == sharedWith(s) } : "HOC: t1_shared_with of ${s}"
                 def prefix = [s.sid, s.session, s.run == "1" && s.sid != "sub-INTB" ? "" : "run-${s.run}"].findAll { x -> x }.join("_")
                 def dir = s.session ? "${s.sid}/${s.session}" : s.sid
-                assert path("$outputDir/out/${dir}/anat/${prefix}_desc-hoc.csv").exists() : "HOC: no per-sample file for ${s}"
+                assert path("$outputDir/out/${dir}/anat/${prefix}_seg-freesurfer_desc-hoc.csv").exists() : "HOC: no per-sample file for ${s}"
+                assert path("$outputDir/out/${dir}/anat/${prefix}_seg-freesurfer_label-gm_desc-roi_volumes.csv").exists() : "GM: no per-sample file for ${s}"
             }
             def combined = read("${out}/space-native_all-regions_desc-roi_combined.tsv", "\t")
             samples.each { s ->
                 def mine = combined.findAll { r -> r.sid == s.sid && r.session == s.session && r.run == s.run }
                 assert mine.size() == 84 + 9 : "combined: ${s} has ${mine.size()} rows"
+                assert mine.every { r -> r.source == "freesurfer" } : "combined: source of ${s}"
                 assert mine.every { r -> r.age == "${s.age ?: 60 + s.i}" } : "combined: covariates of ${s} are not its own"
                 expected(s.i).each { roi, v ->
                     def r = mine.find { x -> x.roi == roi }
@@ -153,8 +157,8 @@ nextflow_pipeline {
 
         then {
             assert !workflow.success
-            assert workflow.stdout.any { l -> l.contains("no GM volumes") } || workflow.stderr.any { l -> l.contains("no GM volumes") }
-            assert path("$outputDir/out/metrics/volumes_missing_samples.txt").readLines() == ["GM\tsub-INTC"]
+            assert workflow.stdout.any { l -> l.contains("no freesurfer GM volumes") } || workflow.stderr.any { l -> l.contains("no freesurfer GM volumes") }
+            assert path("$outputDir/out/metrics/volumes_missing_samples.txt").readLines() == ["freesurfer GM\tsub-INTC"]
         }
     }
 
@@ -187,8 +191,8 @@ nextflow_pipeline {
 
         then {
             assert workflow.success
-            assert path("$outputDir/out/metrics/volumes_missing_samples.txt").readLines() == ["GM\tsub-INTC"]
-            def rows = path("$outputDir/out/metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv").readLines()
+            assert path("$outputDir/out/metrics/volumes_missing_samples.txt").readLines() == ["freesurfer GM\tsub-INTC"]
+            def rows = path("$outputDir/out/metrics/space-native_seg-freesurfer_label-gm_desc-roi_volumes.csv").readLines()
             assert rows.size() == 1 + 84 && rows[1..-1].every { r -> r.startsWith("sub-INTA,ses-01,1,") }
         }
     }

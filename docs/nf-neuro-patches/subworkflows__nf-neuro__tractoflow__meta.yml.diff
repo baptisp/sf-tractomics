@@ -9,3 +9,26 @@
            type: boolean
            description: If 'true', the anatomical image will be resampled using the resample method from DIPY.
            default: true
+@@ -606,6 +606,22 @@
+           type: boolean
+           description: If 'true', the fiber response function will be averaged across all subjects. If 'false', the fiber response function will be estimated for each subject independently.
+           default: false
++        fodf_shells:
++          type: string
++          description: Shells of the fODF fit (b-values separated by commas or spaces), as given to the fODF step. A sample whose b-values hold none of them (within dwi_shell_tolerance) gets no fibre response and no fODF. Unset, fodf_min_bvalue decides.
++          default: null
++        fodf_min_bvalue:
++          type: number
++          description: Smallest b-value of the fODF fit when fodf_shells is unset. A sample with no b-value from it gets no fibre response and no fODF.
++          default: 100
++        dwi_shell_tolerance:
++          type: number
++          description: Tolerance on b-values when matching fodf_shells.
++          default: 20
++        b0_thr_extract_b0:
++          type: number
++          description: b-values at or below this value are b0 volumes, ignored when looking for an fODF shell.
++          default: 10
+         run_qball:
+           type: boolean
+           description: If 'true', the Q-Ball model will be fitted on the DWI data and used for fODF reconstruction and tracking.

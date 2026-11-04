@@ -62,7 +62,7 @@ the voxel size: compare across sites only after harmonisation, and keep the scan
 | Values | Limitations |
 |---|---|
 | DTI: FA, MD, RD, AD, GA, mode, tensor (also free-water corrected: `fat`, `mdt`, ...) | Fitted on the b0 and the shells up to `max_dti_shell_value` (1200 by default): the values depend on the b-values used. Gibbs ringing is removed with MRtrix `mrdegibbs` (`run_gibbs_correction`, on by default), which assumes full k-space coverage; OASIS-3 DWI is partial Fourier (0.75 on Biograph and TrioTim, down to 0.37 on Vida), so part of the ringing next to CSF (hippocampus, fornix) remains, by an amount that depends on the protocol. Without a reverse phase-encoding scan, `topup` is skipped and the susceptibility distortion (frontal and temporal poles) is only absorbed by the T1-to-DWI registration. Acquisitions with one direction per b-value (b-series, as in 2126 OASIS-3 scans) are not supported: eddy fails on them, so they are skipped with their T1 (`--dwi_min_shell_directions`). The parts of a split series (OASIS-3 Vida, 3 parts) are concatenated into one DWI (`--merge_split_dwi`); a session with a missing or duplicated part is skipped. Every decision is in `metrics/dwi_input_report.tsv`. |
-| fODF and AFD (total, sum, max), NuFO, peaks | Fitted on the shells from `min_fodf_shell_value` (700). The spherical harmonic order `sh_order` (8 by default, 45 coefficients) needs about 45 diffusion directions or more: fine for OASIS-3 Biograph (about 64), too high for ADNI2 (about 41), where the fit becomes unstable; when datasets are combined, use one order for all (6 needs 28 directions), otherwise AFD differs by method. The fibre response is fixed by default for every subject (`manual_frf = "15,4,4"`: eigenvalues 1.5, 0.4, 0.4 ×10⁻³ mm²/s; only the mean b0 is the subject's), which keeps AFD comparable across subjects; report it as such in methods, or set `manual_frf` to null (and `mean_frf`) for an estimated response. `afd_max`, `afd_sum` and NuFO are 0 where no fibre peak is found (most grey-matter voxels), with a peak threshold set per subject from its ventricles (`fodf_metrics_a_factor` x the largest fODF peak there). Larger ventricles (atrophy) give more voxels to take that maximum over, so the threshold, and with it `afd_max`, `afd_sum`, NuFO and the peaks, can depend on the diagnosis: use `afd_total` in grey matter, or set `--fodf_absolute_threshold` to one value for all subjects (for example the mean of the `dwi/*_desc-fodfthreshold.csv` thresholds of a first run). |
+| fODF and AFD (total, sum, max), NuFO, peaks | Fitted on the shells from `min_fodf_shell_value` (700). When single- and multi-shell protocols are mixed (ADNI), `--fodf_shells 1000` fits every sample on the same shell, so fODF shapes and AFD do not differ by protocol; a sample without that shell gets no fODF, AFD or NuFO (`no fODF shell` in the DWI input report). The spherical harmonic order `sh_order` (8 by default, 45 coefficients) needs about 45 diffusion directions or more: fine for OASIS-3 Biograph (about 64), too high for ADNI2 (about 41), where the fit becomes unstable; when datasets are combined, use one order for all (6 needs 28 directions), otherwise AFD differs by method. The fibre response is fixed by default for every subject (`manual_frf = "15,4,4"`: eigenvalues 1.5, 0.4, 0.4 ×10⁻³ mm²/s; only the mean b0 is the subject's), which keeps AFD comparable across subjects; report it as such in methods, or set `manual_frf` to null (and `mean_frf`) for an estimated response. `afd_max`, `afd_sum` and NuFO are 0 where no fibre peak is found (most grey-matter voxels), with a peak threshold set per subject from its ventricles (`fodf_metrics_a_factor` x the largest fODF peak there). Larger ventricles (atrophy) give more voxels to take that maximum over, so the threshold, and with it `afd_max`, `afd_sum`, NuFO and the peaks, can depend on the diagnosis: use `afd_total` in grey matter, or set `--fodf_absolute_threshold` to one value for all subjects (for example the mean of the `dwi/*_desc-fodfthreshold.csv` thresholds of a first run). |
 | Free-water fraction (`fwf`) | Reliable with several b-values. From a single shell the fit is driven by its regularisation and its fixed diffusivity priors (`para_diff` 1.5, `iso_diff` 3.0, `perp_diff` 0.1 to 0.7 ×10⁻³ mm²/s, the same for every subject; `average_diff_priors` has no effect while these are set) and cannot fully separate free water from tissue MD: treat single-shell free water as exploratory (the run warns). Where the corrected fit fails (0.3 to 1% of brain voxels on OASIS-3, mostly at CSF borders), scilpy's outlier removal sets `adt`, `rdt` and `mdt` to 0 (`fat` keeps the failed value). Atlas regions skip these zeros; subject regions and surfaces average them in, which lowers the corrected values by about the share reported in `fwc_failed_fraction` (under 1.2% of a region on OASIS-3, the highest in parahippocampal cortex). Neither keeping nor dropping these voxels is independent of atrophy: check the share between groups, and prefer the uncorrected metrics and `fwf` for the main analyses. |
 | NODDI (ICVF, ODI, ISOVF) | Needs multi-shell data with a high b-value (about 2000 s/mm² or more). Not valid on single-shell b = 1000 data such as OASIS-3 Biograph or ADNI2. |
 | Tractography, bundles, tractometry | See the TractoFlow and RecoBundles documentation; bundle profiles inherit the limitations of the maps above. |
@@ -83,6 +83,100 @@ the voxel size: compare across sites only after harmonisation, and keep the scan
 | Volumes from the subject's segmentation: SynthSeg, FreeSurfer `aparc+aseg`, or SAMSEG longitudinal (`--volume_source`, `--run_longitudinal_volumes`), with `icv_mm3` and QC columns | Repeat-scan error is about 0.1 to 3% (about 1% for the hippocampus), while healthy hippocampal loss is about 0.35% per year: one subject's change over one or two years is mostly noise, and cross-sectional segmentations of several sessions add more (use SAMSEG longitudinal). A scanner change shifts volumes by several % at once. Absolute volumes differ between methods: never mix them. Compare people through `volume_icv_fraction` (volume / intracranial volume, `icv_mm3`) or with the intracranial volume as a covariate: raw volumes mix atrophy with head size. SynthSeg has no choroid plexus and no lesion label; SAMSEG has no Desikan cortical parcels. QC flags point to likely failures; a clean flag does not prove a segmentation right. See [the validation report](./docs/volumes_validation/README.md). |
 | Hippocampal occupancy score, left, right and bilateral (`--run_hoc`) | A ratio of two volumes of the same segmentation, so independent of voxel size and less dependent on head size; it inherits the noise of the small inferior lateral ventricle (repeat differences up to 16% for that structure) and differs between segmentation methods. |
 | Cortical thickness, area, grey matter volume per Desikan region (`--run_cortical_thickness`) | FreeSurfer `recon-all` 7.4.1, about 7 h per scan. Biased on T1s coarser than about 1 mm (voxel side above 1.2 mm flagged `coarse_t1`); mean thickness outside 1 to 4.5 mm flagged `implausible`, usually a surface failure in the temporal pole or entorhinal cortex. Not normalised by head size. |
+
+### Fibre cross-section (WM bundle atrophy)
+
+`--run_fibre_cross_section` gives, for every DWI run with an fODF and every IIT bundle, the mean
+log fibre cross-section (log FC), with fibre density (FD) and their product (FDC), on a study
+fODF template built once with `--fc_build_template` (outputs and options in
+[usage](./docs/usage.md#fibre-cross-section) and [output](./docs/output.md#fibre-cross-section)).
+
+**What FC measures, and what to expect biologically.** FC (Raffelt et al. 2017) is the change in a
+bundle's cross-sectional area needed to bring the subject onto the template, read from the
+subject-to-template deformation perpendicular to each fibre direction: log FC > 0 where the
+subject's bundle is wider than the template's, < 0 where it is thinner. Axon loss thins a bundle
+without necessarily changing the diffusion signal of the axons that remain, so FC is the
+macroscopic, atrophy-like counterpart of FD (the density of the remaining axons). In Alzheimer's
+disease, published fixel-based analyses find reduced FC (and FDC) first in the bundles next to the
+medial temporal lobe and the ventricles: posterior cingulum and its temporal part, fornix, splenium
+and posterior corpus callosum, then more widely with severity (Mito et al. 2018; Dewenter et al.
+2023 on ADNI3). Expect log FC near 0 in healthy controls of the template's age, lower in patients,
+lower with age, and strongly tied to global atrophy and head size: the full deformation includes
+the affine scaling, so compare people with intracranial volume as a covariate. In this pipeline FC
+is averaged per IIT bundle, so it can only show bundles that thin as a whole.
+
+**How it is computed.** One study template, then the same steps for every run:
+
+1. TractoFlow's fODF, fitted on b0 + b1000 for every protocol (`--fodf_shells 1000`, one
+   `--sh_order` and the fixed fibre response for the whole study), is rewritten for MRtrix
+   (`RECONST_FODTOMRTRIX`): RAS voxel order and the MRtrix (tournier07) basis. scilpy fits the
+   spherical harmonics in the image's voxel frame; MRtrix reads them in its scanner frame, so on
+   an LAS image a plain basis conversion mirrors every oblique fibre. The reorientation is checked
+   against each run's own DWI (tensor main eigenvector vs fODF peak, `orientation_agreement`); a
+   run below `--fc_min_orientation_agreement` (0.8) fails.
+2. Template (`--fc_build_template`, once): MRtrix `population_template` on the fODFs of the
+   sessions listed in `--fc_template_sessions` (1.25 mm), template fixels (`fod2fixel`), the mean
+   b0 of those sessions in template space, one ANTs SyN registration of the IIT mean b0 onto it, and
+   the IIT bundle masks (thresholded at the IIT recommended values, as for `use_binary_masks`)
+   carried onto the template fixels: a fixel belongs to a bundle when its voxel is in the mask.
+   The directory has a `manifest.json` with the SHA-256 of every file; a run given
+   `--fc_template` stops when a file changed, and each CSV row carries the template's hash.
+3. Per run (`REGISTRATION_FODTEMPLATE`, `STATS_FIBRECROSSSECTION`): `mrregister` (affine then
+   non-linear) of the fODF onto the template; then the fixel-based analysis steps of the MRtrix
+   guide: `mrtransform` without reorientation, `fod2fixel`, `fixelreorient`, `fixelcorrespondence`
+   (FD), `warp2metric -fc` (FC), log FC, FDC; mean and median over each bundle's template fixels
+   inside the run's warped brain mask, with QC columns (registration correlation, minimum
+   Jacobian, coverage, unmatched fixels).
+
+**Why this implementation.** The atlas bundle volumes (`--run_wm_volumes`) count a template mask
+warped by a b0 registration, which has almost no contrast inside the white matter, so they measure
+the registration rather than the bundle. FC also comes from a deformation, but one computed on
+fODFs, which carry fibre orientation inside the white matter, and it keeps only the change
+perpendicular to each fibre. No subject tractography is needed (FC is read on template fixels),
+and the bundles stay the IIT bundles used by the other features. The fODF is TractoFlow's, so FC
+and AFD come from one fit; fitting on b1000 only removes the shell differences between single- and
+multi-shell protocols. The template is a separate, checksummed step because every value depends on
+it: one template per study, built from healthy controls kept out of any test set (`in_template = 1`
+marks its sessions).
+
+**Limitations.**
+- A registration measure: where the fODF has no contrast along a bundle (a long straight stretch
+  of one bundle), the deformation there is interpolated from its surroundings, as with any
+  registration. Susceptibility distortion that topup could not correct (most ADNI sessions have no
+  reverse phase-encoding scan) is absorbed into FC near the temporal poles and the orbitofrontal
+  cortex.
+- Bundle membership is by voxel (v1): in a crossing voxel every fixel counts for every bundle
+  passing there, so crossing bundles share part of their values. Selecting only the fixels aligned
+  with each bundle needs a template tractogram (not implemented).
+- FC depends on the template: values from two templates are not comparable (the template hash in
+  every row prevents pooling them unknowingly). A small template (the run warns under 10 sessions)
+  is for testing only; the MRtrix guide uses about 30 to 40 subjects.
+- Protocols: b1000-only fitting removes the shell differences, not those of resolution and number
+  of directions (ADNI2 vs ADNI3); harmonise like the other diffusion features and check the
+  distributions by protocol. Runs without a b1000 shell get no fODF and therefore no FC.
+- FD and FDC depend on the fODF amplitude, hence on the fixed fibre response and the b0
+  normalisation; FC does not. Use FC first.
+- Mean FC per bundle is strongly tied to global atrophy and head size: adjust for intracranial
+  volume, and test whether it adds to whole-brain measures before reading it bundle by bundle.
+- Validated on synthetic data with known answers and on real sessions with a known scaling (below),
+  not yet for its diagnostic value, which needs a cohort.
+- Cost: about 12 to 14 min of registration on 4 CPUs (5 GB) and 7 min of fixel steps per run, so
+  about 1 CPU-hour per run (about 3,500 CPU-hours for the 3,600 ADNI sessions); the template,
+  once, took 1 h on 16 CPUs for 4 sessions and grows with their number.
+
+**Checks.**
+- Synthetic (`tests/known_answer/fibre_cross_section.nf.test`): with a deformation that scales by
+  1.2 in every direction, log FC = 0.3646 = 2 ln 1.2 on every fixel; scaling along x only gives 0 on
+  fibres along x and 0.1823 = ln 1.2 on fibres along y; an fODF stored LAS with a lobe along voxel
+  axes (1, 1, 0) is read by MRtrix along (-1, 1, 0) after conversion, as it should.
+- Real data (`tests/known_answer/fibre_cross_section/run_real_data.sh`, 4 OASIS-3 sessions as
+  template, plus copies of two of them with the voxel size scaled by 1.05 and 0.95, i.e. brains 5%
+  larger or smaller): log FC of each copy minus its original, over the 42 bundles, median +0.0974
+  and -0.1024 against +0.0976 and -0.1026 expected (5 to 95% of bundles within 0.0006 of it).
+  fODF peak vs tensor: 0.92 to 0.96 (0.59 for the same session with the basis converted but the
+  axes not reordered, about 0.5 at random); registration correlation 0.95; minimum Jacobian 0.44
+  to 0.67 (no folding); every bundle fully covered. Per-session median log FC ranged from -0.10 to
+  +0.11 across these 4 people, the size of head-size differences: hence the ICV covariate.
 
 ### Validation status
 

@@ -299,6 +299,106 @@ nextflow_pipeline {
         }
     }
 
+    test("a sample with no fODF shell is processed without fibre response, fODF or AFD") {
+
+        // The test DWI has b300, b1000 and b2000: no b1300. Eddy and topup off, so the fODF step
+        // reads the real b-values (their stubs write empty ones).
+        when {
+            params {
+                outdir         = "$outputDir"
+                fodf_shells    = "1300"
+                run_eddy       = false
+                run_topup      = false
+                // NODDI's own b-value check fails without eddy (bval.text in reconst_fw_noddi):
+                // a separate, older issue
+                run_noddi      = false
+                run_freewater  = false
+                run_wm_metrics = true
+            }
+        }
+
+        then {
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) } }
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("RECONST_FRF").isEmpty() },
+                { assert tasks("RECONST_FODF").isEmpty() },
+                { assert tasks("RECONST_DTIMETRICS").size() == 1 },
+                // The other metrics still reach the bundle statistics
+                { assert tasks("STATS_MASK_METRICS").size() == 1 },
+                { assert path("${params.outdir}/metrics/dwi_input_report.tsv").text.contains("no fODF shell") },
+                { assert new File("${launchDir}/meta/nextflow.log").text.contains("have no fODF shell") }
+            )
+        }
+    }
+
+    test("run_fibre_cross_section = true without a template stops with a clear message") {
+
+        when {
+            params {
+                outdir                  = "$outputDir"
+                run_fibre_cross_section = true
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert new File("${launchDir}/meta/nextflow.log").text.contains("run_fibre_cross_section = true needs a study template")
+        }
+    }
+
+    test("fc_build_template with run_fibre_cross_section builds the template and writes the FC files") {
+
+        when {
+            params {
+                def sessions = new File("${outputDir}/fc_sessions.tsv")
+                sessions.parentFile.mkdirs()
+                sessions.text = "sid\tsession\trun\nsub-test-1\t\t\n"
+                outdir                  = "$outputDir/out"
+                run_fibre_cross_section = true
+                fc_build_template       = true
+                fc_template_sessions    = sessions.absolutePath
+            }
+        }
+
+        then {
+            def tasks = { name -> workflow.trace.tasks().findAll { t -> t.name.contains(name) } }
+            assertAll(
+                { assert workflow.success },
+                { assert tasks("RECONST_FODTOMRTRIX").size() == 1 },
+                { assert tasks("TEMPLATE_FODPOPULATION").size() == 1 },
+                { assert tasks("TEMPLATE_IITBUNDLES").size() == 1 },
+                { assert tasks("TEMPLATE_FCBUNDLEFIXELS").size() == 1 },
+                { assert tasks("REGISTRATION_FODTEMPLATE").size() == 1 },
+                { assert tasks("STATS_FIBRECROSSSECTION").size() == 1 },
+                { assert path("${params.outdir}/fc_template/manifest.json").exists() },
+                { assert path("${params.outdir}/sub-test-1/dwi/sub-test-1_space-fctemplate_desc-fc_stats.csv").exists() },
+                { assert path("${params.outdir}/metrics/space-template_desc-fc_stats.csv").exists() },
+                { assert new File("${launchDir}/meta/nextflow.log").text.contains("this one is for testing only") }
+            )
+        }
+    }
+
+    test("fc_template whose files changed since it was built stops with a clear message") {
+
+        when {
+            params {
+                def dir = new File("${outputDir}/old_template")
+                dir.mkdirs()
+                new File(dir, "fod_template.mif").text = "edited"
+                new File(dir, "manifest.json").text = '{"parameters": {}, "sessions": ["sub-a"], "files": {"fod_template.mif": "0000"}}'
+                outdir                  = "$outputDir/out"
+                run_fibre_cross_section = true
+                fc_template             = dir.absolutePath
+            }
+        }
+
+        then {
+            assert workflow.failed
+            assert new File("${launchDir}/meta/nextflow.log").text.contains("1 file(s) missing or changed since the template was built (fod_template.mif)")
+        }
+    }
+
     test("parameters set in a -c config file reach the steps") {
 
         // Loaded with -c, after nextflow.config: the module settings must still see these values

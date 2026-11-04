@@ -29,6 +29,7 @@ python3 docs/nf-neuro-patches/make_patches.py ../modules
 | `atlas_roimetrics/nextflow.config` | GM atlas warp with `GenericLabel` | `MultiLabel` changes label volumes even under an identity transform (known-answer test in `tests/known_answer/applytransforms.nf.test`) | To propose |
 | `preproc_t1/main.nf` | Fall back to the image before brain extraction when `BETCROP_ANTSBET` fails | Nextflow 26 emits `null` outputs for ignored failures, which then crashed the registration | To propose |
 | `reconst_fw_noddi/main.nf` | `format_input` moved from a closure to a function | Nextflow 26 strict syntax | To propose |
+| `tractoflow/main.nf`, `meta.yml` | Samples whose b-values hold no fODF shell skip `RECONST_FRF` and `RECONST_FODF` (`hasFodfShell`; options `fodf_shells`, `fodf_min_bvalue`, `dwi_shell_tolerance`, `b0_thr_extract_b0`) | With `fodf_shells 1000`, an ADNI GE b1300 run failed in the shell extraction and stopped the run; it now gets everything but the fODF (test: `tests/options.nf.test`) | To propose |
 | `tractoflow/meta.yml` | The defaults key `preproc_t1_run_resample` renamed `preproc_t1_run_resampling` | The code reads `preproc_t1_run_resampling`, so T1 resampling never ran whatever the option (test: `tests/options.nf.test`) | To propose |
 | `tractoflow/modules.config` | `aparc+aseg` and `wmparc` warps with `GenericLabel` | Same as `atlas_roimetrics` | To propose |
 | `tractoflow/nextflow.config` | Default parameter list (SH fit, topup, eddy, T1 and DWI preprocessing, tracking) | Local defaults of the pipeline | Local only |

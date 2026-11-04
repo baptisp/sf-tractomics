@@ -1209,6 +1209,37 @@
                     "description": "Segment all sessions of each subject jointly with FreeSurfer SAMSEG longitudinal, to measure atrophy over time. Overrides volume_source for GM, CSF and comparison volumes.",
                     "help_text": "Sessions are rigidly aligned with mri_robust_template and segmented jointly (run_samseg_long), which removes most of the session-to-session noise of independent segmentations. Volumes are counted in each session's native T1 space and written to the same files, with volume_source = 'samseg_long'. SAMSEG has no Desikan cortical parcels: the GM file holds Left/Right-Cerebral-Cortex totals instead. Requires freesurfer_license. When false and subjects have several sessions, the pipeline warns that this option is not activated.",
                     "default": false
+                },
+                "run_fibre_cross_section": {
+                    "type": "boolean",
+                    "description": "Compute the fibre cross-section (log FC, FD, FDC) of every DWI run with an fODF, per IIT bundle, on a study fODF template.",
+                    "help_text": "Needs fc_template, or fc_build_template in the same run. Per run: <id>/<session>/dwi/*_space-fctemplate_desc-fc_stats.csv and *_desc-logfc.mif; all runs: metrics/space-template_desc-fc_stats.csv. See docs/usage.md.",
+                    "default": false
+                },
+                "fc_template": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Study fODF template directory written by fc_build_template; its files are checked against its manifest.json."
+                },
+                "fc_build_template": {
+                    "type": "boolean",
+                    "description": "Build the study fODF template from the sessions of fc_template_sessions, published to <outdir>/fc_template.",
+                    "default": false
+                },
+                "fc_template_sessions": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "TSV of the sessions that build the fibre cross-section template: columns sid, session and run (sub-/ses-/run- prefixes optional)."
+                },
+                "fc_template_voxel_size": {
+                    "type": "number",
+                    "description": "Voxel size of the fibre cross-section template (mm).",
+                    "default": 1.25
+                },
+                "fc_min_orientation_agreement": {
+                    "type": "number",
+                    "description": "Minimum agreement between the fODF peak and the tensor main eigenvector (mean |cos| where FA > 0.7) below which a session fails.",
+                    "default": 0.8
                 }
             }
         },

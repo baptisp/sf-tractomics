@@ -40,6 +40,13 @@ fODF volumes, decision, reason, warning):
 - A warning when the fODF shells hold fewer volumes than the `(sh_order + 1)(sh_order + 2) / 2`
   coefficients of the fit (45 for `sh_order` 8): the fODF and AFD of those samples are unstable.
   OASIS-3 Vida (28 fODF volumes) and TrioTim (23 to 24) need `sh_order` 4 or 6.
+- A sample with no fODF shell at all (none within `--dwi_shell_tolerance` of `--fodf_shells`, or
+  none from `--min_fodf_shell_value` when `--fodf_shells` is unset) is kept and processed (DTI,
+  free water, NODDI, volumes), but gets no fibre response, fODF, AFD, NuFO or fODF peaks; the
+  report says so (`no fODF shell`). This is the case of ADNI GE sessions with a b1000 run and a
+  b1300 run under `--fodf_shells 1000`: the fODF comes from the b1000 run only, the same shell as
+  every other session, instead of mixing b-values. Its bundle and region statistics have no AFD
+  columns.
 
 Two kept samples with the same subject, session and run stop the run. Samples of one session
 that are not split parts (for example two runs of the same DTI) are all kept, each with its run.
@@ -310,6 +317,36 @@ To merge all available data (metrics TSVs and/or volume CSVs) across WM, GM, and
 Output: `metrics/space-native_all-regions_desc-roi_combined.tsv`
 
 For each region type, the pipeline uses the metrics TSV when metrics are enabled (which already includes volume columns if volumes are also active), and falls back to the volume CSV when only volumes are enabled. All inputs are merged with a union column set; missing values are left empty.
+
+## Fibre cross-section
+
+Log fibre cross-section (FC), fibre density (FD) and FDC per IIT bundle, on a study fODF template
+(what it measures, how, and its limits: [README](../README.md#fibre-cross-section-wm-bundle-atrophy)).
+Fit every fODF on the same shell and order first, for example `--fodf_shells 1000 --sh_order 6`.
+
+1. Build the template once, from healthy controls (about 40; `in_template = 1` marks them, keep
+   them out of test sets):
+
+   ```bash
+   --fc_build_template true --fc_template_sessions template_sessions.tsv
+   ```
+
+   `template_sessions.tsv`: columns `sid`, `session`, `run` (tab-separated; `sub-`, `ses-`,
+   `run-` prefixes optional, empty run = run 1). Every listed run must be in the input and have
+   an fODF. The template is written to `<outdir>/fc_template/` (`--fc_template_voxel_size`, 1.25 mm).
+   Adding `--run_fibre_cross_section true` computes FC in the same run.
+2. Compute FC on any data with that template:
+
+   ```bash
+   --run_fibre_cross_section true --fc_template /path/to/fc_template
+   ```
+
+   The template's files are checked against its `manifest.json` at startup.
+
+Each run's fODF orientation is checked against its own tensor (`--fc_min_orientation_agreement`,
+0.8): a run below it fails rather than giving FC on mirrored fibres. Runs without an fODF (no fODF
+shell) get no FC. Every run with an fODF must have its FC rows, as for the volumes
+(`--allow_missing_volumes`).
 
 ## Covariates
 

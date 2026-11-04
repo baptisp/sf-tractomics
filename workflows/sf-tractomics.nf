@@ -36,6 +36,13 @@ include { OUTPUT_TEMPLATE_SPACE  } from '../subworkflows/nf-neuro/output_templat
 include { HARMONIZATION          } from '../subworkflows/nf-neuro/harmonization/main'
 include { mergeCovariatesIntoMeta } from '../subworkflows/local/utils_nfcore_sf-tractomics_pipeline/main'
 include { DWI_INPUT_CHECK        } from '../subworkflows/local/dwi_input_check/main'
+include { ATLAS_IIT as FC_ATLAS_IIT } from '../subworkflows/nf-neuro/atlas_iit/main'
+include { RECONST_FODTOMRTRIX    } from '../modules/local/reconst/fodmrtrix/main'
+include { TEMPLATE_FODPOPULATION } from '../modules/local/template/fodpopulation/main'
+include { TEMPLATE_IITBUNDLES    } from '../modules/local/template/iitbundles/main'
+include { TEMPLATE_FCBUNDLEFIXELS } from '../modules/local/template/fcbundlefixels/main'
+include { REGISTRATION_FODTEMPLATE } from '../modules/local/registration/fodtemplate/main'
+include { STATS_FIBRECROSSSECTION } from '../modules/local/stats/fibrecrosssection/main'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -144,6 +151,11 @@ workflow SF_TRACTOMICS {
             "preproc_t1_run_ants_bet": params.run_t1_ants_bet,
             "preproc_t1_run_crop": params.run_t1_crop,
             "frf_average_from_data": params.mean_frf,
+            // Samples without an fODF shell skip the fibre response and fODF (see DWI_INPUT_CHECK)
+            "fodf_shells": params.fodf_shells,
+            "fodf_min_bvalue": params.min_fodf_shell_value,
+            "dwi_shell_tolerance": params.dwi_shell_tolerance,
+            "b0_thr_extract_b0": params.b0_thr_extract_b0,
             "run_qball": params.run_qball,
             "use_qball_for_tracking": params.use_qball_for_tracking,
             "run_pft_tracking": params.run_pft_tracking,
@@ -215,14 +227,15 @@ workflow SF_TRACTOMICS {
     }
 
     // Prepare volume ROI metric extraction
-    // Start by collecting DTI metrics
+    // Start by collecting DTI metrics. AFD is absent for a sample with no fODF shell (see
+    // DWI_INPUT_CHECK): its other metrics are kept, without AFD columns.
     ch_input_metrics = TRACTOFLOW.out.dti_fa
         .join(TRACTOFLOW.out.dti_md)
         .join(TRACTOFLOW.out.dti_rd)
         .join(TRACTOFLOW.out.dti_ad)
-        .join(TRACTOFLOW.out.afd_total)
-        .join(TRACTOFLOW.out.afd_sum)
-        .join(TRACTOFLOW.out.afd_max)
+        .join(TRACTOFLOW.out.afd_total, remainder: true)
+        .join(TRACTOFLOW.out.afd_sum, remainder: true)
+        .join(TRACTOFLOW.out.afd_max, remainder: true)
 
     // Free-water-corrected AD, RD, MD: their zeros mark voxels where the corrected fit failed
     def ch_fwc_maps = channel.empty()
@@ -320,6 +333,16 @@ workflow SF_TRACTOMICS {
     }
     if ( do_surface_metrics && !params.freesurfer_license ) {
         error "run_cortical_surface_metrics = true requires params.freesurfer_license (recon-all runs from the FreeSurfer container)."
+    }
+    if ( params.run_fibre_cross_section && !params.fc_template && !params.fc_build_template ) {
+        error "run_fibre_cross_section = true needs a study template: give --fc_template (a directory written by " +
+              "--fc_build_template), or build one in this run with --fc_build_template and --fc_template_sessions."
+    }
+    if ( params.fc_template && params.fc_build_template ) {
+        error "fc_template and fc_build_template are both set: use an existing template or build one, not both."
+    }
+    if ( params.fc_build_template && !params.fc_template_sessions ) {
+        error "fc_build_template = true needs --fc_template_sessions, a TSV of the sessions that build the template (columns sid, session, run)."
     }
     if ( do_hoc && !subject_volumes ) {
         error "run_hoc = true needs the subject's own segmentation: set volume_source to 'synthseg' or " +
@@ -862,6 +885,91 @@ workflow SF_TRACTOMICS {
                             params.allow_missing_volumes == true, 3)
     }
 
+    //
+    // Fibre cross-section (FC) per IIT bundle, on a study fODF template (docs/plans/fibre_cross_section.md).
+    // --fc_build_template builds the template from the sessions of --fc_template_sessions;
+    // --run_fibre_cross_section computes FC for every DWI run with an fODF, on --fc_template or on
+    // the template built in the same run.
+    //
+    def do_fc = params.run_fibre_cross_section == true
+    def build_fc_template = params.fc_build_template == true
+    if ( do_fc || build_fc_template ) {
+        def fc_template_keys = build_fc_template ? readFcTemplateSessions(params.fc_template_sessions) : (params.fc_template ? fcTemplateKeys(params.fc_template) : [] as Set)
+        RECONST_FODTOMRTRIX(TRACTOFLOW.out.fodf)
+        ch_versions = ch_versions.mix(RECONST_FODTOMRTRIX.out.versions.first())
+        def ch_fod = RECONST_FODTOMRTRIX.out.fod
+
+        def ch_fc_template
+        if ( build_fc_template ) {
+            def ch_template_sessions = ch_fod
+                .join(TRACTOFLOW.out.b0_mask)
+                .join(TRACTOFLOW.out.b0)
+                .filter { meta, _fod, _mask, _b0 -> fcSampleKey(meta) in fc_template_keys }
+                .toSortedList { a, b -> fcSampleLabel(a[0]) <=> fcSampleLabel(b[0]) }
+                .map { items ->
+                    def found = items.collect { item -> fcSampleKey(item[0]) } as Set
+                    def missing = (fc_template_keys - found).collect { k -> k.findAll { x -> x }.join("_") }.sort()
+                    if (missing) error "fc_template_sessions lists ${missing.size()} DWI run(s) with no fODF in this run: ${missing.take(5).join(', ')}"
+                    [items.collect { item -> fcSampleLabel(item[0]) }, items.collect { item -> item[1] },
+                     items.collect { item -> item[2] }, items.collect { item -> item[3] }]
+                }
+            TEMPLATE_FODPOPULATION(ch_template_sessions)
+            ch_versions = ch_versions.mix(TEMPLATE_FODPOPULATION.out.versions)
+
+            // IIT bundle masks thresholded at the IIT recommended values, placed on the template
+            FC_ATLAS_IIT(
+                [
+                    threshold_bundles: true,
+                    atlas_iit_b0: params.atlas_iit_b0,
+                    atlas_iit_bundle_masks_dir: params.atlas_iit_bundle_masks_dir,
+                    fetch_gm_desikan: false
+                ]
+            )
+            ch_versions = ch_versions.mix(FC_ATLAS_IIT.out.versions)
+            TEMPLATE_IITBUNDLES(
+                TEMPLATE_FODPOPULATION.out.template
+                    .map { _fod, _mask, b0, _fixels, _sessions -> b0 }
+                    .combine(FC_ATLAS_IIT.out.b0)
+                    .combine(FC_ATLAS_IIT.out.bundles.map { masks -> [masks] })
+            )
+            ch_versions = ch_versions.mix(TEMPLATE_IITBUNDLES.out.versions)
+            TEMPLATE_FCBUNDLEFIXELS(
+                TEMPLATE_FODPOPULATION.out.template
+                    .combine(TEMPLATE_IITBUNDLES.out.masks)
+                    .combine(TEMPLATE_IITBUNDLES.out.iit_b0)
+            )
+            ch_versions = ch_versions.mix(TEMPLATE_FCBUNDLEFIXELS.out.versions)
+            ch_fc_template = TEMPLATE_FCBUNDLEFIXELS.out.template
+        }
+        else {
+            ch_fc_template = channel.value(file(params.fc_template, checkIfExists: true))
+        }
+
+        if ( do_fc ) {
+            REGISTRATION_FODTEMPLATE(
+                ch_fod
+                    .join(TRACTOFLOW.out.b0_mask)
+                    .join(TRACTOFLOW.out.dwi)
+                    .combine(ch_fc_template)
+            )
+            ch_versions = ch_versions.mix(REGISTRATION_FODTEMPLATE.out.versions.first())
+            STATS_FIBRECROSSSECTION(
+                ch_fod
+                    .join(TRACTOFLOW.out.b0_mask)
+                    .join(REGISTRATION_FODTEMPLATE.out.warp)
+                    .join(REGISTRATION_FODTEMPLATE.out.qc)
+                    .map { meta, fod, mask, warp, qc -> [meta, fod, mask, warp, qc, fcSampleKey(meta) in fc_template_keys ? 1 : 0] }
+                    .combine(ch_fc_template)
+            )
+            ch_versions = ch_versions.mix(STATS_FIBRECROSSSECTION.out.versions.first())
+            collectSampleCsvs(STATS_FIBRECROSSSECTION.out.stats, "space-template_desc-fc_stats.csv", "${params.outdir}/metrics/")
+            // Every run with an fODF must have its FC rows (runs without an fODF shell have none)
+            checkVolumeCoverage("fibre cross-section", STATS_FIBRECROSSSECTION.out.stats,
+                                TRACTOFLOW.out.fodf.map { meta, _fodf -> volumeSampleKey(meta) }.unique().toList(),
+                                "${params.outdir}/metrics", params.allow_missing_volumes == true, 3)
+        }
+    }
+
     // CSF and comparison volumes alone may come from the subject's segmentation without
     // running ATLAS_CSF_ROIMETRICS, so they are collected outside its block.
     if ( do_csf_volumes && !do_csf_metrics ) {
@@ -1156,6 +1264,60 @@ def collectSampleCsvs(ch_csvs, String name, String dir) {
     return ch_csvs
         .map { _meta, csv -> csv }
         .collectFile(storeDir: dir, name: name, skip: 1, keepHeader: true, sort: { csv -> csv.name })
+}
+
+// Fibre cross-section: a DWI run as subject, session and bare run number, without the sub-/ses-/
+// run- prefixes (absent run = 1), so a template session list may be written with or without them;
+// and as a file label (<id>_<session>_run-N, as the pipeline names the run)
+def fcKey(sid, session, run) {
+    return [sid.toString().replaceFirst(/^sub-/, ""), (session ?: "").toString().replaceFirst(/^ses-/, ""),
+            (run ?: "1").toString().replaceFirst(/^run-/, "")]
+}
+
+def fcSampleKey(meta) {
+    return fcKey(meta.id, meta.session, meta.run)
+}
+
+def fcSampleLabel(meta) {
+    return [meta.id, meta.session ?: "", "run-${fcSampleKey(meta)[2]}"].findAll { x -> x }.join("_")
+}
+
+// Template sessions from --fc_template_sessions: a TSV with columns sid, session and (optional) run
+def readFcTemplateSessions(path) {
+    def lines = file(path, checkIfExists: true).readLines().findAll { l -> l.trim() }
+    def header = lines[0].split("\t", -1).collect { h -> h.trim() }
+    if (!("sid" in header)) error "fc_template_sessions (${path}) needs a 'sid' column, and 'session' and 'run' when the data has them"
+    def keys = lines[1..-1].collect { l ->
+        def row = [header, l.split("\t", -1).collect { x -> x.trim() }].transpose().collectEntries()
+        fcKey(row.sid, row.session, row.run)
+    } as Set
+    if (!keys) error "fc_template_sessions (${path}) lists no session"
+    if (keys.size() < 10) log.warn "fc_template_sessions lists ${keys.size()} session(s): a study template is usually built from tens of sessions (about 40 healthy controls); this one is for testing only"
+    return keys
+}
+
+// An existing template (--fc_template): its manifest must list every file with the SHA-256 it was
+// built with, so that FC values of two templates are never pooled by mistake. Returns the
+// sessions that built it (their in_template column is 1).
+def fcTemplateKeys(String dir) {
+    def manifest_file = file("${dir}/manifest.json")
+    if (!manifest_file.exists()) error "fc_template (${dir}) has no manifest.json: give a directory written by --fc_build_template"
+    def manifest = new groovy.json.JsonSlurper().parseText(manifest_file.text)
+    def changed = manifest.files.findAll { name, sha ->
+        def f = new File("${dir}/${name}")
+        !f.exists() || fileSha256(f) != sha
+    }.collect { name, _sha -> name }
+    if (changed) error "fc_template (${dir}): ${changed.size()} file(s) missing or changed since the template was built (${changed.take(5).join(', ')})"
+    return manifest.sessions.collect { label ->
+        def m = (label =~ /^(.+?)(?:_(ses-[^_]+))?(?:_run-(\d+))?$/)
+        m.matches() ? fcKey(m.group(1), m.group(2), m.group(3)) : fcKey(label, "", "1")
+    } as Set
+}
+
+def fileSha256(File f) {
+    def md = java.security.MessageDigest.getInstance("SHA-256")
+    f.eachByte(1 << 16) { buffer, n -> md.update(buffer, 0, n) }
+    return md.digest().encodeHex().toString()
 }
 
 // Sample key used by the volume checks: subject, session, bare run number (absent run = 1)

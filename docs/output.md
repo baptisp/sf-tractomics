@@ -139,6 +139,18 @@ With `--run_cortical_surface_metrics true`:
 
 These rows are not added to the combined TSV (same region names as the atlas GM rows).
 
+## Fibre cross-section
+
+With `--fc_build_template true`:
+
+- `fc_template/` — the study template, given to later runs with `--fc_template`: `fod_template.mif`, `template_mask.mif`, `template_b0.nii.gz` (mean b0 of the template sessions), `iit_b0_in_template.nii.gz` (the IIT b0 after its registration, for a visual check), `fixels/` (template fixels, `fd.mif`, and `bundle-<name>.mif` = 1 on the fixels of each IIT bundle), `bundles.tsv` (fixels per bundle), `sessions.tsv`, `manifest.json` (parameters, sessions, SHA-256 of every file)
+
+With `--run_fibre_cross_section true`:
+
+- `dwi/<sample>_space-fctemplate_desc-fc_stats.csv` — one row per IIT bundle: `sid, session, run, bundle, log_fc_mean, log_fc_median, fd_mean, fdc_mean, n_fixels, covered_fraction, unmatched_fraction, registration_corr, min_jacobian, orientation_agreement, qc_flags, in_template, template_hash`. Statistics over the bundle's template fixels inside the run's warped brain mask (`covered_fraction` of the bundle); `unmatched_fraction`: share with no subject fixel matched (FD 0 there, FC defined); `registration_corr`: correlation of the warped fODF's l = 0 term with the template's; `min_jacobian` of the deformation; `orientation_agreement`: mean \|cos\| between fODF peak and tensor main eigenvector where FA > 0.7. `qc_flags`: `folding` (minimum Jacobian ≤ 0), `uncovered` (coverage < 0.9), `empty`. `in_template = 1` for the sessions that built the template; `template_hash`: first 12 characters of the SHA-256 of its `manifest.json`.
+- `dwi/<sample>_space-fctemplate_desc-logfc.mif` — log FC on the template fixels (fixel data file of `fc_template/fixels`)
+- `metrics/space-template_desc-fc_stats.csv` — all runs merged
+
 ## Hippocampal occupancy score
 
 With `--run_hoc true`:

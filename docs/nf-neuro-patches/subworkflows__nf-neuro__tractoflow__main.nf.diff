@@ -1,0 +1,44 @@
+--- upstream d50587b7/subworkflows/nf-neuro/tractoflow/main.nf
++++ sf-tractomics/subworkflows/nf-neuro/tractoflow/main.nf
+@@ -31,6 +31,23 @@
+ include { IMAGE_CONVERT as CONVERT3D_REV_B0  } from '../../../modules/nf-neuro/image/convert/main'
+ 
+ // ** UTILITY FUNCTIONS ** //
++
++// True when the b-values hold an fODF shell: a value within dwi_shell_tolerance of one of
++// fodf_shells, or, when fodf_shells is unset, a value from fodf_min_bvalue (b0 volumes, at or below
++// b0_thr_extract_b0, are ignored). Same rule as the fODF step's shell extraction. Empty b-values
++// (stub runs) count as holding one.
++def hasFodfShell ( bval, options ) {
++    // A list of b-value files (several series of one sample) counts as their union
++    def b = [bval].flatten().collectMany { f -> file(f).text.tokenize() }
++        .collect { x -> x as double }
++        .findAll { v -> v > (options.b0_thr_extract_b0 as double) }
++    if ( !b ) return true
++    def wanted = options.fodf_shells ? options.fodf_shells.toString().tokenize(", ").collect { x -> x as double } : null
++    def tolerance = options.dwi_shell_tolerance as double
++    return wanted
++        ? b.any { v -> wanted.any { w -> Math.abs(v - w) <= tolerance } }
++        : b.any { v -> v >= (options.fodf_min_bvalue as double) }
++}
+ 
+ def group_frf ( label, ch_frf ) {
+     return ch_frf
+@@ -263,6 +280,9 @@
+             .join(ANATOMICAL_SEGMENTATION.out.wm_mask)
+             .join(ANATOMICAL_SEGMENTATION.out.gm_mask)
+             .join(ANATOMICAL_SEGMENTATION.out.csf_mask)
++            // A sample without an fODF shell (an ADNI GE b1300 run fitted with fodf_shells 1000)
++            // gets no fibre response and no fODF, instead of failing in the shell extraction
++            .filter { it -> hasFodfShell(it[2], options) }
+ 
+         RECONST_FRF( ch_reconst_frf )
+         ch_versions = ch_versions.mix(RECONST_FRF.out.versions.first())
+@@ -320,6 +340,7 @@
+             : ch_reconst_fodf.map{ it + [[]] }
+ 
+         ch_reconst_fodf = ch_reconst_fodf
++            .filter { it -> hasFodfShell(it[2], options) }
+             .join(RECONST_DTIMETRICS.out.fa)
+             .join(RECONST_DTIMETRICS.out.md)
+             .join(ch_fiber_response)

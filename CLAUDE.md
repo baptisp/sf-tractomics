@@ -30,6 +30,11 @@ modules/local/stats/thickness/              Desikan thickness table from a recon
 modules/local/image/labelfraction/          Per-region fractions of the acquired DWI voxels (run_subject_roi_metrics)
 modules/local/stats/surfacemetrics/         Diffusion metrics on the recon-all surfaces per Desikan region (run_cortical_surface_metrics)
 docs/nf-neuro-patches/                      Diffs of every vendored nf-neuro file changed here (make_patches.py)
+modules/local/reconst/fodmrtrix/            TractoFlow fODF to MRtrix: RAS order + tournier07 basis (fibre cross-section)
+modules/local/template/                     FC study template: population_template, IIT bundles on it, bundle fixels + manifest
+modules/local/registration/fodtemplate/     mrregister of a run's fODF to the FC template + fODF orientation check
+modules/local/stats/fibrecrosssection/      log FC, FD, FDC per IIT bundle on the template fixels (run_fibre_cross_section)
+conf/modules/fibre_cross_section.config     FC module settings and resources
 assets/freesurfer_gm_samseg_lut.json        GM LUT for SAMSEG (subcortical + cerebral cortex totals)
 ```
 
@@ -236,6 +241,7 @@ result is fanned out to every DWI run sharing it. The flag is checked with
 | `run_cortical_thickness` | false | recon-all (RECONALL_THICKNESS) per distinct T1, then STATS_THICKNESS; needs `freesurfer_license` |
 | `run_cortical_surface_metrics` | false | recon-all shared with thickness, then STATS_SURFACEMETRICS (maps to T1 space, sampled at mid-thickness, mean per Desikan region); needs `freesurfer_license`; own files, not in the combined TSV |
 | `run_hoc` | false | Hippocampal occupancy score (STATS_HOC on `ch_subject_seg`); needs a subject segmentation |
+| `run_fibre_cross_section` | false | FC per IIT bundle (REGISTRATION_FODTEMPLATE, STATS_FIBRECROSSSECTION) on `fc_template` or on the template built with `fc_build_template` + `fc_template_sessions`; fODFs must share one shell and order (`fodf_shells`, `sh_order`) |
 | `run_merge_all_stats` | false | Produce `metrics/space-native_all-regions_desc-roi_combined.tsv` — wide format with ROIs as columns |
 | `tractometry_covariates` | `'site,age,sex,handedness,disease'` | Comma-separated covariate column names embedded in stats TSVs via `ext.meta_columns` and used by `collectUnifiedFiles` to separate covariates from data columns |
 | `use_binary_masks` | false | Use binary masks instead of TDI-weighted for WM extraction |

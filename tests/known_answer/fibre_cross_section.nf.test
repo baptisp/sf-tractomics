@@ -1,0 +1,47 @@
+// Known-answer test of fibre cross-section (see fibre_cross_section/main.nf for the data)
+nextflow_workflow {
+
+    name "Known-answer test of fibre cross-section"
+    script "./fibre_cross_section/main.nf"
+    workflow "FC_KNOWN_ANSWER"
+    config "./fibre_cross_section/nextflow.config"
+    tag "known_answer"
+
+    test("log FC follows the warp's cross-section, and MRtrix reads the fODF orientation of an LAS image") {
+        when {
+            workflow { "" }
+        }
+        then {
+            assert workflow.success
+            def rows = { f ->
+                def lines = path(f.toString()).readLines()
+                def header = lines[0].split(",", -1).toList()
+                lines[1..-1].collect { l -> [header, l.split(",", -1).toList()].transpose().collectEntries() }
+            }
+            def stats = workflow.out.stats.collectEntries { e -> [e[0].id, rows(e[1]).collectEntries { r -> [r.bundle, r] }] }
+            def s = 1.2d
+            def close = { v, expected -> Math.abs((v as double) - expected) < 0.01 }
+            // Uniform scaling: cross-section x s^2 on every fixel
+            assert close(stats.iso.X.log_fc_mean, 2 * Math.log(s))
+            assert close(stats.iso.Y.log_fc_mean, 2 * Math.log(s))
+            // Scaling along x only: unchanged across fibres along x, x s across fibres along y
+            assert close(stats.xonly.X.log_fc_mean, 0)
+            assert close(stats.xonly.Y.log_fc_mean, Math.log(s))
+            // One fibre per voxel: 8 x 8 x 4 fixels per bundle, all covered
+            assert stats.iso.X.n_fixels == "256" && stats.iso.Y.n_fixels == "256"
+            assert stats.iso.X.covered_fraction == "1.0000"
+            assert stats.iso.X.in_template == "0"
+            assert stats.iso.X.template_hash.size() == 12
+
+            def tpl = workflow.out.template[0].toString()
+            assert path("${tpl}/bundles.tsv").readLines() == ["bundle\tn_fixels", "X\t256", "Y\t256"]
+            assert path("${tpl}/manifest.json").text.contains("\"fixels/bundle-X.mif\"")
+
+            // Peak of the converted LAS fODF: (-1, 1, 0) / sqrt 2 up to sign, in MRtrix's frame
+            def p = path(workflow.out.peak[0].toString()).text.tokenize().collect { x -> x as double }
+            def n = Math.sqrt(p.sum { x -> x * x })
+            def cosine = Math.abs((-p[0] + p[1]) / Math.sqrt(2) / n)
+            assert cosine > 0.99
+        }
+    }
+}

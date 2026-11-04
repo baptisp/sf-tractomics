@@ -20,7 +20,7 @@ Checks (any failure is printed and the exit code is 1):
              SynthSeg segmentation of its own session better than any other session's
 
 Usage (nibabel and numpy are needed, e.g. in the pipeline's nibabel_numpy container):
-  python3 check_outputs.py --outdir OUT --bids bids.json --method synthseg|samseg_long \
+  python3 check_outputs.py --outdir OUT --bids bids.json --method synthseg|reconall|samseg_long \
       [--participants participants.tsv] [--fs-lut FreeSurferColorLUT.txt] [--other-outdir SYNTHSEG_OUT]
 """
 import argparse
@@ -43,6 +43,7 @@ COMBINED = "space-native_all-regions_desc-roi_combined.tsv"
 REGION_TYPE = {"gm": "GM_region", "csf": "CSF_region"}
 # Labels SynthSeg cannot produce (choroid plexus, WM hypointensities): written empty
 MISSING = {"synthseg": {"gm": set(), "csf": {31, 63}, "comparison": {31, 63, 77}},
+           "reconall": {"gm": set(), "csf": set(), "comparison": set()},
            "samseg_long": {"gm": set(), "csf": set(), "comparison": set()}}
 COVARIATES = ["site", "age", "sex", "handedness", "disease"]
 NUMERIC = {"volume_voxels", "volume_mm3", "icv_mm3", "qc_score"}
@@ -58,7 +59,7 @@ def lut(typ, method):
 
 def seg_path(outdir, sid, ses, method):
     # Published under the name of one run of the session when it has several
-    tag = "samseglong" if method == "samseg_long" else "synthseg"
+    tag = {"samseg_long": "samseglong", "reconall": "reconall"}.get(method, "synthseg")
     hits = glob.glob(f"{outdir}/{sid}/{ses}/anat/{sid}_{ses}*_desc-{tag}_dseg.nii.gz")
     return hits[0] if len(hits) == 1 else None
 
@@ -224,7 +225,7 @@ def check(args):
         data = np.round(np.asarray(img.dataobj)).astype(np.int32)
         counts = np.bincount(data[data >= 0].ravel())
         voxel = float(np.prod(img.header.get_zooms()[:3]))
-        if args.method == "samseg_long":
+        if args.method in ("samseg_long", "reconall"):
             icv = float(first_row(path.replace("_dseg.nii.gz", "_icv.csv"))["total intracranial"])
             qc = None
         else:
@@ -347,7 +348,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--outdir", required=True)
     parser.add_argument("--bids", required=True, help="the bids_config JSON the run was given")
-    parser.add_argument("--method", required=True, choices=["synthseg", "samseg_long"])
+    parser.add_argument("--method", required=True, choices=["synthseg", "reconall", "samseg_long"])
     parser.add_argument("--participants", help="the participants_tsv the run was given")
     parser.add_argument("--fs-lut", help="FreeSurferColorLUT.txt, to check the region names")
     parser.add_argument("--other-outdir", help="SynthSeg output of the same inputs, for the pairing check")

@@ -100,8 +100,8 @@ Reuses the warped FreeSurfer atlas to extract metrics across GM subcortical stru
 The GM, CSF and comparison volume files above are filled according to `--volume_source`:
 
 - `atlas` (default): voxel count of the warped template in DWI space. The volumes reflect the registration and are not suited to measuring atrophy.
-- `synthseg` / `freesurfer`: voxel count of the subject's own segmentation in native T1 space.
-- `samseg_long` (`--run_longitudinal_volumes`): voxel count of the SAMSEG longitudinal segmentation, all sessions of a subject segmented jointly. The GM file holds cortex totals (`Left/Right-Cerebral-Cortex`) instead of the Desikan parcels. Per session: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`. The files keep their names, region names and columns, and add `volume_source` and `icv_mm3` (intracranial volume, `synthseg` only).
+- `synthseg` / `reconall` / `freesurfer`: voxel count of the subject's own segmentation in native T1 space (`reconall`: `aparc+aseg` of the pipeline's recon-all).
+- `samseg_long` (`--run_longitudinal_volumes`): voxel count of the SAMSEG longitudinal segmentation, all sessions of a subject segmented jointly. The GM file holds cortex totals (`Left/Right-Cerebral-Cortex`) instead of the Desikan parcels. Per session: `anat/<subject>_<session>_desc-samseglong_dseg.nii.gz` and `_desc-samseglong_icv.csv`. The files keep their names, region names and columns, and add `volume_source` and `icv_mm3` (intracranial volume: SynthSeg's, FreeSurfer eTIV with `reconall`, SAMSEG sbTIV; empty with `freesurfer`).
 
 The global volume files (`metrics/...desc-roi_volumes.csv`) always carry `volume_source` and `icv_mm3`.
 
@@ -113,7 +113,13 @@ With `synthseg`, the segmentation itself is published per subject:
 
 ## Diffusion metrics in the subject's own regions
 
-With `--run_subject_roi_metrics true` (`<seg>` = `synthseg`, `freesurfer` or `samseg`):
+With `volume_source reconall`, per subject:
+
+- `anat/<subject>_desc-reconall_dseg.nii.gz` — recon-all `aparc+aseg` (1 mm conformed grid, T1 world coordinates)
+- `anat/<subject>_desc-reconall_icv.csv` — FreeSurfer eTIV, the `icv_mm3` of the volume files
+- `anat/freesurfer/<subject>/` — the recon-all directory (also with `--run_cortical_thickness`)
+
+With `--run_subject_roi_metrics true` (`<seg>` = `synthseg`, `reconall`, `freesurfer` or `samseg`):
 
 - `dwi/<subject>_seg-<seg>_desc-roi_stats.tsv` — fraction-weighted mean of each metric per region, same layout as the GM file (`sid, session, run, roi, covariates..., metrics...`); `dwi/<subject>_seg-<seg>_label-std_desc-roi_stats.tsv` holds the standard deviations
 - `dwi/<subject>_seg-<seg>_desc-roi_fractions.csv` — effective size of each region: `acq_voxels` (sum of the voxel fractions), `volume_mm3`, `in_mask_fraction`, the share of the region inside the DWI brain mask (the statistics use only that part; a low value, e.g. a frontal pole cut by the mask, means a less reliable region), and `small_region` (1 when `acq_voxels` is below `--subject_roi_small_region_voxels`, 50 by default: a mean over so few acquired voxels is noisy; a flag only), and `fwc_failed_fraction` (with free water: share of the region's weight on brain voxels where the free-water-corrected fit failed and scilpy set AD, RD or MD to 0; these zeros stay in the `adt`, `rdt`, `mdt` means, which they lower by about that share; empty without free water)

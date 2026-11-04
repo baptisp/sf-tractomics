@@ -25,6 +25,7 @@ include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_CSF_VOLUMES        } from '../mo
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_HOC              } from '../modules/local/stats/hoc/main'
 include { SEGMENTATION_FSRECONALL as RECONALL_THICKNESS } from '../modules/nf-neuro/segmentation/fsreconall/main'
+include { SEGMENTATION_RECONALLSEG } from '../modules/local/segmentation/reconallseg/main'
 include { STATS_THICKNESS        } from '../modules/local/stats/thickness/main'
 include { STATS_SURFACEMETRICS   } from '../modules/local/stats/surfacemetrics/main'
 include { IMAGE_LABELFRACTION as SUBJECT_ROI_FRACTIONS } from '../modules/local/image/labelfraction/main'
@@ -301,11 +302,12 @@ workflow SF_TRACTOMICS {
     def do_cmp_volumes = params.run_csf_comparison_volumes
 
     // Where GM, CSF and comparison volumes come from. 'atlas' counts voxels of a template warped
-    // onto the subject B0, so it only reflects the registration. 'synthseg' and 'freesurfer'
+    // onto the subject B0, so it only reflects the registration. 'synthseg', 'reconall' (recon-all
+    // run here, shared with the cortical thickness) and 'freesurfer' (aparc+aseg given as input)
     // count the subject's own segmentation in native T1 space. WM bundles are always atlas-based.
     def volume_source = params.volume_source ?: "atlas"
-    if ( !(volume_source in ["atlas", "synthseg", "freesurfer"]) ) {
-        error "volume_source must be 'atlas', 'synthseg' or 'freesurfer', but got '${volume_source}'."
+    if ( !(volume_source in ["atlas", "synthseg", "reconall", "freesurfer"]) ) {
+        error "volume_source must be 'atlas', 'synthseg', 'reconall' or 'freesurfer', but got '${volume_source}'."
     }
     // run_longitudinal_volumes segments all sessions of a subject jointly (SAMSEG longitudinal)
     // and takes precedence over volume_source for the GM, CSF and comparison volumes.
@@ -325,8 +327,8 @@ workflow SF_TRACTOMICS {
     // Diffusion metrics in the subject's own GM regions, weighted by voxel fraction
     def do_subject_metrics = params.run_subject_roi_metrics == true
     if ( do_subject_metrics && !subject_volumes ) {
-        error "run_subject_roi_metrics = true needs the subject's own segmentation: set volume_source to 'synthseg' " +
-              "or 'freesurfer', or run_longitudinal_volumes = true."
+        error "run_subject_roi_metrics = true needs the subject's own segmentation: set volume_source to 'synthseg', " +
+              "'reconall' or 'freesurfer', or run_longitudinal_volumes = true."
     }
     if ( do_thickness && !params.freesurfer_license ) {
         error "run_cortical_thickness = true requires params.freesurfer_license (recon-all runs from the FreeSurfer container)."
@@ -345,8 +347,8 @@ workflow SF_TRACTOMICS {
         error "fc_build_template = true needs --fc_template_sessions, a TSV of the sessions that build the template (columns sid, session, run)."
     }
     if ( do_hoc && !subject_volumes ) {
-        error "run_hoc = true needs the subject's own segmentation: set volume_source to 'synthseg' or " +
-              "'freesurfer', or run_longitudinal_volumes = true."
+        error "run_hoc = true needs the subject's own segmentation: set volume_source to 'synthseg', " +
+              "'reconall' or 'freesurfer', or run_longitudinal_volumes = true."
     }
     // Code revision written into the volume CSVs, so results of different versions are never mixed
     // unknowingly: the git commit when run from a repository, else the pipeline version.
@@ -400,6 +402,29 @@ workflow SF_TRACTOMICS {
     ch_t1_annotated = ch_t1.toList().flatMap { items -> annotateT1s(items) }
     ch_t1_vol       = ch_t1_annotated.map { _orig, meta, t1 -> [meta, t1] }
     ch_t1_annotated.toList().subscribe { items -> warnT1Annotations(items) }
+
+    // FreeSurfer recon-all on the raw T1, shared by the cortical thickness, the surface sampling
+    // and volume_source = 'reconall'. recon-all takes hours per scan: run each distinct T1 once,
+    // share it with every run
+    def ch_t1_recon = channel.empty()
+    def ch_recon_per_sample = channel.empty()
+    if ( do_thickness || do_surface_metrics || volume_source == "reconall" ) {
+        if ( !params.freesurfer_license ) {
+            error "recon-all (run_cortical_thickness, run_cortical_surface_metrics or volume_source = 'reconall') " +
+                  "requires params.freesurfer_license."
+        }
+        ch_t1_recon = distinctT1s(ch_t1_vol)
+        RECONALL_THICKNESS(
+            ch_t1_recon
+                .map { meta, _metas, t1 -> [meta, t1] }
+                .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
+        )
+        ch_versions = ch_versions.mix(RECONALL_THICKNESS.out.versions.first())
+        ch_recon_per_sample = ch_t1_recon
+            .map { meta, metas, _t1 -> [meta, metas] }
+            .join(RECONALL_THICKNESS.out.recon_all_out_folder)
+            .flatMap { _meta, metas, recon_all -> metas.collect { m -> [m, recon_all] } }
+    }
 
     if ( subject_volumes && (do_gm_volumes || do_csf_volumes || do_cmp_volumes || do_hoc || do_subject_metrics) ) {
         if ( volume_source == "samseg_long" ) {
@@ -476,6 +501,16 @@ workflow SF_TRACTOMICS {
                 .map { meta, metas, _t1 -> [meta, metas] }
                 .join(SYNTHSEG_VOLUMES.out.aparc_aseg.join(SYNTHSEG_VOLUMES.out.volume).join(SYNTHSEG_VOLUMES.out.qc_score))
                 .flatMap { _meta, metas, seg, seg_volumes, qc -> metas.collect { m -> [m, seg, seg_volumes, qc] } }
+        }
+        else if ( volume_source == "reconall" ) {
+            // recon-all's own aparc+aseg, one per distinct T1 (the run shared with the thickness),
+            // with FreeSurfer's eTIV as intracranial volume
+            SEGMENTATION_RECONALLSEG(RECONALL_THICKNESS.out.recon_all_out_folder)
+            ch_versions = ch_versions.mix(SEGMENTATION_RECONALLSEG.out.versions.first())
+            ch_subject_seg = ch_t1_recon
+                .map { meta, metas, _t1 -> [meta, metas] }
+                .join(SEGMENTATION_RECONALLSEG.out.seg)
+                .flatMap { _meta, metas, seg, icv -> metas.collect { m -> [m, seg, icv, []] } }
         }
         else {
             // Native-space aparc+aseg given as input (samplesheet or BIDS FreeSurfer derivatives),
@@ -569,23 +604,10 @@ workflow SF_TRACTOMICS {
         }
     }
 
-    // FreeSurfer recon-all on the raw T1, for cortical thickness and surface sampling
+    // Cortical thickness and surface sampling, on the recon-all run above
     ch_thickness = channel.empty()
     ch_surface_stats = channel.empty()
     if ( do_thickness || do_surface_metrics ) {
-        // recon-all takes hours per scan: run each distinct T1 once, share it with every run
-        def ch_t1_recon = distinctT1s(ch_t1_vol)
-        RECONALL_THICKNESS(
-            ch_t1_recon
-                .map { meta, _metas, t1 -> [meta, t1] }
-                .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
-        )
-        ch_versions = ch_versions.mix(RECONALL_THICKNESS.out.versions.first())
-        def ch_recon_per_sample = ch_t1_recon
-            .map { meta, metas, _t1 -> [meta, metas] }
-            .join(RECONALL_THICKNESS.out.recon_all_out_folder)
-            .flatMap { _meta, metas, recon_all -> metas.collect { m -> [m, recon_all] } }
-
         // Thickness per Desikan region, read from the recon-all stats
         if ( do_thickness ) {
             STATS_THICKNESS(ch_recon_per_sample)

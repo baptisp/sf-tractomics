@@ -25,6 +25,7 @@ assets/freesurfer_gm_lut.json               FreeSurfer ids → IIT GM region nam
 modules/local/stats/subjectvolumes/         Volumes of a subject segmentation (+ volume_source, icv_mm3)
 conf/modules/stats_subjectvolumes.config    SynthSeg/SAMSEG + subject volume config (volume_source != atlas)
 modules/local/segmentation/samseglong/      SAMSEG longitudinal segmentation of all sessions of a subject
+modules/local/segmentation/reconallseg/     aparc+aseg (NIfTI) + eTIV from a recon-all folder (volume_source reconall)
 modules/local/stats/hoc/                    Hippocampal occupancy score from the subject segmentation (run_hoc)
 modules/local/stats/thickness/              Desikan thickness table from a recon-all folder (run_cortical_thickness)
 modules/local/image/labelfraction/          Per-region fractions of the acquired DWI voxels (run_subject_roi_metrics)
@@ -170,13 +171,16 @@ The ROI column is named `roi` in **both** modes — labels mode (`use_label = fa
 
 ## Volume source (`volume_source`)
 
-`params.volume_source` = `atlas` (default) | `synthseg` | `freesurfer` picks where GM, CSF and
+`params.volume_source` = `atlas` (default) | `synthseg` | `reconall` | `freesurfer` picks where GM, CSF and
 comparison volumes come from. WM bundle volumes are always atlas-based.
 
 - `atlas`: `STATS_ROIVOLUMES` on the warped template (DWI space). Only reflects the registration.
 - `synthseg`: `SYNTHSEG_VOLUMES` (SEGMENTATION_SYNTHSEG alias, `--parc --robust --vol --qc`) on the
   **raw** `ch_t1` (not `t1_native`: BET would drop extra-cerebral CSF from the ICV), then
   `STATS_SUBJECT_{GM,CSF,COMPARISON}_VOLUMES` count labels in native T1 space.
+- `reconall`: `SEGMENTATION_RECONALLSEG` converts the `aparc+aseg.mgz` of `RECONALL_THICKNESS` (the
+  recon-all shared with thickness and surface metrics, now invoked before the subject branch) to NIfTI
+  without resampling and writes eTIV as `total intracranial`; same counting.
 - `freesurfer`: same counting on the input `ch_aparc_aseg` (native space, before TractoFlow's warp).
 
 The subject branch fills `ch_gm_volumes` / `ch_csf_volumes` / `ch_cmp_volumes`, which replace the
@@ -234,7 +238,7 @@ result is fanned out to every DWI run sharing it. The flag is checked with
 | `run_wm_volumes` | false | WM bundle volumes only |
 | `run_gm_volumes` | false | GM Desikan region volumes only |
 | `run_csf_volumes` | false | CSF/ventricle region volumes only |
-| `volume_source` | `'atlas'` | GM/CSF/comparison volumes from `atlas`, `synthseg` or `freesurfer` (see above) |
+| `volume_source` | `'atlas'` | GM/CSF/comparison volumes from `atlas`, `synthseg`, `reconall` or `freesurfer` (see above) |
 | `run_longitudinal_volumes` | false | SAMSEG longitudinal GM/CSF/comparison volumes; overrides `volume_source` |
 | `run_subject_roi_metrics` | false | SUBJECT_ROI_FRACTIONS (labels to acquisition-grid fractions) then STATS_SUBJECT_ROI_METRICS (weighted means); own files, not in the combined TSV |
 | `subject_roi_min_fraction` | 0 | > 0: binary masks of voxels at least that much inside, unweighted |

@@ -1144,9 +1144,9 @@
                 },
                 "volume_source": {
                     "type": "string",
-                    "description": "Source of the GM, CSF and comparison volumes: 'atlas' (warped template), 'synthseg' (SynthSeg on the subject's T1) or 'freesurfer' (the subject's aparc+aseg given as input).",
-                    "help_text": "'atlas' counts the voxels of a template warped onto the subject B0, so its volumes reflect the registration and are not suited to measuring atrophy. 'synthseg' and 'freesurfer' count the subject's own segmentation in native T1 space and write the same output files, with extra volume_source and icv_mm3 columns (icv_mm3 is only available with 'synthseg'). WM bundle volumes are always atlas-based. Volumes are cross-sectional: for several sessions per subject, a longitudinal method is recommended.",
-                    "enum": ["atlas", "synthseg", "freesurfer"],
+                    "description": "Source of the GM, CSF and comparison volumes: 'atlas' (warped template), 'synthseg' (SynthSeg on the subject's T1), 'reconall' (FreeSurfer recon-all run on the subject's T1, shared with the cortical thickness) or 'freesurfer' (the subject's aparc+aseg given as input).",
+                    "help_text": "'atlas' counts the voxels of a template warped onto the subject B0, so its volumes reflect the registration and are not suited to measuring atrophy. 'synthseg', 'reconall' and 'freesurfer' count the subject's own segmentation in native T1 space and write the same output files, with extra volume_source and icv_mm3 columns (icv_mm3: SynthSeg's intracranial volume with 'synthseg', FreeSurfer's eTIV with 'reconall', empty with 'freesurfer'). 'reconall' takes hours per T1 (one recon-all, also used by run_cortical_thickness and run_cortical_surface_metrics) and requires freesurfer_license. WM bundle volumes are always atlas-based. Volumes are cross-sectional: for several sessions per subject, a longitudinal method is recommended.",
+                    "enum": ["atlas", "synthseg", "reconall", "freesurfer"],
                     "default": "atlas"
                 },
                 "volume_qc_threshold": {
@@ -1182,7 +1182,7 @@
                 "run_subject_roi_metrics": {
                     "type": "boolean",
                     "description": "Compute diffusion metrics in the subject's own GM regions (the 84 GM regions of SynthSeg/FreeSurfer, 18 with SAMSEG), weighted by the fraction of each acquired DWI voxel inside the region.",
-                    "help_text": "Needs volume_source = 'synthseg' or 'freesurfer', or run_longitudinal_volumes = true. Per sample: dwi/*_seg-<source>_desc-roi_stats.tsv and dwi/*_seg-<source>_desc-roi_fractions.csv (effective size of each region); all samples: metrics/space-native_seg-<source>_label-mean_desc-roi_stats.tsv and metrics/space-native_seg-<source>_desc-roi_fractions.csv. Cortical regions are only a few DWI voxels thick: treat them as exploratory.",
+                    "help_text": "Needs volume_source = 'synthseg', 'reconall' or 'freesurfer', or run_longitudinal_volumes = true. Per sample: dwi/*_seg-<source>_desc-roi_stats.tsv and dwi/*_seg-<source>_desc-roi_fractions.csv (effective size of each region); all samples: metrics/space-native_seg-<source>_label-mean_desc-roi_stats.tsv and metrics/space-native_seg-<source>_desc-roi_fractions.csv. Cortical regions are only a few DWI voxels thick: treat them as exploratory.",
                     "default": false
                 },
                 "subject_roi_min_fraction": {
@@ -1201,7 +1201,7 @@
                 "run_hoc": {
                     "type": "boolean",
                     "description": "Compute the hippocampal occupancy score (hippocampus / (hippocampus + inferior lateral ventricle)), left, right and bilateral.",
-                    "help_text": "Counted on the subject's own segmentation, so it needs volume_source = 'synthseg' or 'freesurfer', or run_longitudinal_volumes = true. Per sample: <id>/<session>/anat/*_desc-hoc.csv; all samples: metrics/space-native_desc-hoc.csv.",
+                    "help_text": "Counted on the subject's own segmentation, so it needs volume_source = 'synthseg', 'reconall' or 'freesurfer', or run_longitudinal_volumes = true. Per sample: <id>/<session>/anat/*_desc-hoc.csv; all samples: metrics/space-native_desc-hoc.csv.",
                     "default": false
                 },
                 "run_longitudinal_volumes": {

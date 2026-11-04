@@ -153,6 +153,7 @@ Reuses the warped FreeSurfer atlas from the CSF pipeline to extract metrics acro
 |---|---|---|
 | `atlas` (default) | Voxels of a template parcellation warped onto the subject B0 (IIT for GM, FreeSurfer `cvs_avg35_inMNI152` for CSF/comparison) | No: the volume is the template region scaled by the registration |
 | `synthseg` | SynthSeg (`--parc --robust`) run on the subject's raw T1, counted in native T1 space. Requires `--freesurfer_license` | Yes |
+| `reconall` | `aparc+aseg` of FreeSurfer recon-all run on the subject's raw T1 (the same recon-all as `--run_cortical_thickness` and `--run_cortical_surface_metrics`), counted on recon-all's 1 mm grid. Hours per T1. Requires `--freesurfer_license` | Yes |
 | `freesurfer` | The subject's own `aparc+aseg` given as input (samplesheet or BIDS FreeSurfer derivatives), counted in native T1 space | Yes |
 
 ```bash
@@ -165,11 +166,13 @@ Reuses the warped FreeSurfer atlas from the CSF pipeline to extract metrics acro
 
 The output files are the same as with `atlas`, with the same region names, plus two columns:
 
-- `volume_source`: `atlas`, `synthseg` or `freesurfer`.
-- `icv_mm3`: total intracranial volume (head size) from SynthSeg, or SAMSEG with `--run_longitudinal_volumes`. Empty for `atlas` and `freesurfer`.
+- `volume_source`: `atlas`, `synthseg`, `reconall` or `freesurfer`.
+- `icv_mm3`: total intracranial volume (head size) from SynthSeg, FreeSurfer's eTIV with `reconall`, or SAMSEG with `--run_longitudinal_volumes`. Empty for `atlas` and `freesurfer`.
 - `volume_icv_fraction`: `volume_mm3 / icv_mm3`, the region's share of the intracranial volume, to compare people with different head sizes (a small head has a small hippocampus without atrophy). Empty when `icv_mm3` is.
 
 SynthSeg segments the raw T1, not the brain-extracted one, so the CSF outside the brain stays in the intracranial volume. It has no choroid plexus label, so the two choroid plexus rows of the CSF and comparison files have empty volumes with `synthseg` (not measured, rather than a misleading 0). Its segmentation, soft volumes and QC score are written to `anat/<subject>_desc-synthseg_{dseg.nii.gz,volumes.csv,qc.csv}`; check the QC score before using a subject.
+
+With `reconall`, one recon-all per T1 gives the volumes, the HOC, the subject-region metrics, the cortical thickness and the surface metrics, all from one segmentation. Its `aparc+aseg` is converted to NIfTI without resampling (`anat/<subject>_desc-reconall_dseg.nii.gz`, on recon-all's 1 mm conformed grid, in the T1's world coordinates) and its eTIV is in `anat/<subject>_desc-reconall_icv.csv`. Volumes are voxel counts of `aparc+aseg`, not the partial-volume-corrected values of FreeSurfer's `aseg.stats`: on 4 OASIS-3 T1s the hippocampus counts 5 to 8 % more voxels than `aseg.stats` reports, while cortical parcels match the surface-based grey-matter volume of the thickness file (`gm_volume_mm3`, median ratio 1.00). Compare subjects within one source only. recon-all has choroid plexus and WM hypointensity labels, so no row is left empty. recon-all takes about 2 h per T1 with 4 CPUs (up to 7 h on one) and can fail on poor T1s (skull stripping): check `anat/freesurfer/<subject>/scripts/recon-all.log` of any subject with implausible values.
 
 GM or CSF diffusion metrics still use the warped atlases. Volumes from the subject segmentation are joined to them by region name.
 
@@ -234,8 +237,8 @@ bilaterally (both hippocampi over both sums). It captures hippocampal shrinkage 
 enlargement of the temporal horn next to it, and depends less on head size than the hippocampal
 volume.
 
-It is counted on the subject's own segmentation, so it needs `--volume_source synthseg` or
-`freesurfer`, or `--run_longitudinal_volumes true`; the run stops otherwise. It needs no other
+It is counted on the subject's own segmentation, so it needs `--volume_source synthseg`,
+`reconall` or `freesurfer`, or `--run_longitudinal_volumes true`; the run stops otherwise. It needs no other
 volume option. As a ratio of two volumes of one segmentation, it does not depend on the voxel size.
 It inherits the noise of the small inferior lateral ventricle, and, like the volumes, it must not be
 compared across segmentation methods.
@@ -264,7 +267,7 @@ are kept in the `adt`, `rdt`, `mdt` means and pull them down by about that share
 because removing them would select voxels in a way that can depend on atrophy; check instead whether
 the share differs between groups, and use it as a covariate or an exclusion criterion.
 
-Needs `--volume_source synthseg` or `freesurfer`, or `--run_longitudinal_volumes true`. The atlas
+Needs `--volume_source synthseg`, `reconall` or `freesurfer`, or `--run_longitudinal_volumes true`. The atlas
 GM metrics are still computed when requested, in their own files.
 
 Cortical regions are 2 to 3 mm thick, about one DWI voxel, so their values are dominated by partial

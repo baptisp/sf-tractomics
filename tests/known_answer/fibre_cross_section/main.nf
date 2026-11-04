@@ -136,4 +136,6 @@ workflow FC_KNOWN_ANSWER {
     stats    = STATS_FIBRECROSSSECTION.out.stats
     template = TEMPLATE_FCBUNDLEFIXELS.out.template
     peak     = READ_PEAK.out
+    // The pipeline parses every versions.yml as YAML at the end of a run
+    versions = RECONST_FODTOMRTRIX.out.versions.mix(TEMPLATE_FCBUNDLEFIXELS.out.versions, STATS_FIBRECROSSSECTION.out.versions)
 }

@@ -73,13 +73,13 @@ coefs = np.asarray(out.dataobj, dtype=np.float32)
 coefs = (coefs.reshape(-1, coefs.shape[-1]) @ M.astype(np.float32)).reshape(coefs.shape)
 nib.save(nib.Nifti1Image(coefs.astype(np.float32), out.affine), "${prefix}__fod_mrtrix.nii.gz")
 print(f"lmax {lmax}, axes {''.join(nib.aff2axcodes(img.affine))} -> RAS, {in_basis} -> tournier07")
-PYEOF
 
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        dipy: \$(python3 -c "import dipy; print(dipy.__version__)")
-        nibabel: \$(python3 -c "import nibabel; print(nibabel.__version__)")
-    END_VERSIONS
+# Written here: the Python above is not indented, so a <<- heredoc after it would keep its
+# indentation and never find its END_VERSIONS line
+import dipy
+with open("versions.yml", "w") as v:
+    v.write(f'"${task.process}":\\n    dipy: {dipy.__version__}\\n    nibabel: {nib.__version__}\\n')
+PYEOF
     """
 
     stub:

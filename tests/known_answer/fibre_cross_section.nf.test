@@ -42,6 +42,16 @@ nextflow_workflow {
             def n = Math.sqrt(p.sum { x -> x * x })
             def cosine = Math.abs((-p[0] + p[1]) / Math.sqrt(2) / n)
             assert cosine > 0.99
+
+            // Every versions.yml is valid YAML naming its process (an unclosed heredoc once left
+            // END_VERSIONS in one, which aborts the pipeline when it collects versions)
+            def yaml = new org.yaml.snakeyaml.Yaml()
+            assert workflow.out.versions.size() >= 3
+            workflow.out.versions.each { f ->
+                def parsed = yaml.load(path(f.toString()).text)
+                assert parsed instanceof Map && parsed.size() == 1
+                assert parsed.values()[0] instanceof Map
+            }
         }
     }
 }

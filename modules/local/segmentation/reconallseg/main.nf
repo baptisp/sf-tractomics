@@ -2,11 +2,11 @@
 // same recon-all that gives the cortical thickness and the surfaces, so volumes, HOC, thickness
 // and the subject-region metrics all come from one segmentation of the T1.
 //
-// aparc+aseg.mgz is converted to NIfTI without resampling: it stays on recon-all's 1 mm
-// conformed grid, in the T1's world coordinates (as the SynthSeg labelmap stays on its own 1 mm
-// grid). Labels are the FreeSurfer codes, so the FreeSurfer LUTs of the volume files apply.
-// Cortical parcels are the volume version of the surface parcellation: their voxel counts differ
-// from aparc.stats GrayVol (between the white and pial surfaces), which the thickness file reports.
+// aparc+aseg.mgz is converted to NIfTI without resampling (nibabel, so no FreeSurfer licence is
+// needed): it stays on recon-all's 1 mm conformed grid, in the T1's world coordinates (as the
+// SynthSeg labelmap stays on its own 1 mm grid). Labels are the FreeSurfer codes, so the
+// FreeSurfer LUTs of the volume files apply. Cortical parcels are the volume version of the
+// surface parcellation.
 //
 // Outputs (prefix = id_session[_run] of the T1):
 //   <prefix>__reconall_seg.nii.gz  aparc+aseg on the conformed grid
@@ -16,7 +16,7 @@ process SEGMENTATION_RECONALLSEG {
     tag "$meta.id"
     label 'process_single'
 
-    container "freesurfer/freesurfer:7.4.1"
+    container "community.wave.seqera.io/library/nibabel_numpy:4148b92a8cbc6976"
 
     input:
     tuple val(meta), path(recon_all)
@@ -31,18 +31,34 @@ process SEGMENTATION_RECONALLSEG {
     script:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    mri_convert --resample_type nearest ${recon_all}/mri/aparc+aseg.mgz ${prefix}__reconall_seg.nii.gz > /dev/null
-    etiv=\$(awk -F', ' '/^# Measure EstimatedTotalIntraCranialVol/ { print \$4 }' ${recon_all}/stats/aseg.stats)
-    if [ -z "\$etiv" ]; then
-        echo "No eTIV in ${recon_all}/stats/aseg.stats" >&2
-        exit 1
-    fi
-    printf "subject,total intracranial\\n%s,%s\\n" "${prefix}" "\$etiv" > ${prefix}__reconall_icv.csv
+    python3 << 'PYEOF'
+import re
 
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        freesurfer: \$(mri_convert -version | grep "freesurfer" | sed -E 's/.* ([0-9.]+).*/\\1/')
-    END_VERSIONS
+import nibabel as nib
+import numpy as np
+
+img = nib.load("${recon_all}/mri/aparc+aseg.mgz")
+labels = np.asarray(img.dataobj).astype(np.int32)
+out = nib.Nifti1Image(labels, img.affine)
+out.set_qform(img.affine, code=1)
+out.set_sform(img.affine, code=1)
+nib.save(out, "${prefix}__reconall_seg.nii.gz")
+
+etiv = None
+with open("${recon_all}/stats/aseg.stats") as f:
+    for line in f:
+        m = re.match(r"# Measure EstimatedTotalIntraCranialVol, eTIV, [^,]*, ([0-9.eE+-]+), mm\\^3", line)
+        if m:
+            etiv = float(m.group(1))
+if etiv is None:
+    raise SystemExit("No eTIV in ${recon_all}/stats/aseg.stats")
+with open("${prefix}__reconall_icv.csv", "w") as f:
+    f.write(f"subject,total intracranial\\n${prefix},{etiv}\\n")
+
+with open("versions.yml", "w") as v:
+    v.write('"${task.process}":\\n')
+    v.write(f"    nibabel: {nib.__version__}\\n")
+PYEOF
     """
 
     stub:
@@ -53,7 +69,7 @@ process SEGMENTATION_RECONALLSEG {
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
-        freesurfer: stub
+        nibabel: stub
     END_VERSIONS
     """
 }

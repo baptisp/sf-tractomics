@@ -46,12 +46,15 @@ img = nib.load("${fodf}")
 data = np.asarray(img.dataobj, dtype=np.float32)
 lmax = int(order_from_ncoef(data.shape[-1]))
 
-# Signed permutation R: new (RAS) voxel axis j = sign * old voxel axis i
 transform = nib.orientations.ornt_transform(nib.io_orientation(img.affine),
                                             nib.orientations.axcodes2ornt(("R", "A", "S")))
-R = np.zeros((3, 3))
-for i, (j, s) in enumerate(transform):
-    R[int(j), i] = s
+# Q: the input's voxel axes in scanner coordinates (the orthogonal part of its affine, which keeps
+# an oblique rotation as well as the axis order and flips). scilpy's coefficients are in that
+# voxel frame, MRtrix reads them in the scanner frame: a scanner direction u is Q^T u there.
+# For an axis-aligned image Q is the signed permutation of its axis codes.
+A = img.affine[:3, :3] / np.sqrt((img.affine[:3, :3] ** 2).sum(axis=0))
+W, _, Vt = np.linalg.svd(A)
+Q = W @ Vt
 
 def basis(dirs, name):
     legacy = name.endswith("_legacy")
@@ -64,8 +67,8 @@ try:
     sphere = get_sphere(name="repulsion724")
 except TypeError:
     sphere = get_sphere("repulsion724")
-U = sphere.vertices                 # directions in the new (RAS) voxel frame
-V = U @ R                           # the same directions in the old voxel frame (R^T u)
+U = sphere.vertices                 # directions in the scanner frame (MRtrix)
+V = U @ Q                           # the same directions in the input's voxel frame (Q^T u)
 M = basis(V, in_basis) @ np.linalg.pinv(basis(U, "tournier07"))
 
 out = img.as_reoriented(transform)

@@ -67,7 +67,7 @@ process STATS_FIBRECROSSSECTION {
     mrcalc -quiet l0_subject.mif l0_template.mif -mult l0_product.mif
     corr=\$(awk -v xy=\$(stat l0_product.mif overlap.mif mean) -v x=\$(stat l0_subject.mif overlap.mif mean) \\
                -v y=\$(stat l0_template.mif overlap.mif mean) -v sx=\$(stat l0_subject.mif overlap.mif std) \\
-               -v sy=\$(stat l0_template.mif overlap.mif std) 'BEGIN{ printf "%.4f", (xy - x * y) / (sx * sy) }')
+               -v sy=\$(stat l0_template.mif overlap.mif std) 'BEGIN{ if (sx * sy > 0) printf "%.4f", (xy - x * y) / (sx * sy) }')
     agreement=\$(awk '\$1 == "orientation_agreement" { print \$2 }' ${registration_qc})
     template_hash=\$(sha256sum \$T/manifest.json | cut -c 1-12)
 

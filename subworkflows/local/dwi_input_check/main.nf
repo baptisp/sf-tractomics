@@ -13,7 +13,8 @@
 //      (sh_order + 2) / 2 coefficients of the spherical harmonic fit. A sample with no fODF shell
 //      at all (fodf_shells "1000" on an ADNI GE b1300 run) is kept for everything else, and its
 //      fODF and fibre response are not fitted (hasFodfShell in the TractoFlow subworkflow, same
-//      shell rule): no fODF, AFD, NuFO or fODF peaks for it.
+//      shell rule): no fODF, AFD, NuFO or fODF peaks for it, so no tractogram, bundles,
+//      tractometry or fibre cross-section either.
 // Skipped samples are removed from every input channel (their T1 too). Every decision is
 // written to <report_dir>/dwi_input_report.tsv. Two kept samples with the same meta stop the run.
 include { PREPROC_DWICONCATENATE } from '../../../modules/local/preproc/dwiconcatenate/main'
@@ -105,7 +106,7 @@ def planDwiSession(entries, opts) {
             parts.each { p -> plans << [decision: "skipped", meta: p[0], row: row] }
         } else {
             if (fodf_volumes == 0) {
-                row.warning = "no fODF shell: no fODF, AFD, NuFO or fODF peaks for this sample"
+                row.warning = "no fODF shell: no fODF, AFD, NuFO, fODF peaks, tractogram, bundles or tractometry for this sample"
             } else if (fodf_volumes < needed) {
                 row.warning = "fODF shells hold ${fodf_volumes} volumes for the ${needed} coefficients of sh_order ${opts.sh_order}"
             }
@@ -183,7 +184,7 @@ workflow DWI_INPUT_CHECK {
             def low_fodf = sorted.findAll { r -> r[11] && !r[11].toString().startsWith("no fODF shell") }
             if (merged) log.warn("${merged.size()} DWI sample(s) built from the parts of a split series (e.g. ${merged[0][0]} ${merged[0][1]}): see ${out}")
             if (skipped) log.warn("${skipped.size()} DWI run(s) skipped, with their T1, e.g. ${skipped[0][0]} ${skipped[0][1]} run ${skipped[0][2]}: ${skipped[0][10]}. See ${out}")
-            if (no_fodf) log.warn("${no_fodf.size()} DWI sample(s) have no fODF shell (e.g. ${no_fodf[0][0]} ${no_fodf[0][1]} run ${no_fodf[0][2]}, shells ${no_fodf[0][6]}): processed without fODF, AFD, NuFO or fODF peaks. See ${out}")
+            if (no_fodf) log.warn("${no_fodf.size()} DWI sample(s) have no fODF shell (e.g. ${no_fodf[0][0]} ${no_fodf[0][1]} run ${no_fodf[0][2]}, shells ${no_fodf[0][6]}): processed without fODF, AFD, NuFO, fODF peaks, tractography, bundle segmentation or tractometry (no fibre cross-section either). See ${out}")
             if (low_fodf) log.warn("${low_fodf.size()} DWI sample(s) have fewer fODF volumes than sh_order ${opts.sh_order} needs (e.g. ${low_fodf[0][0]} ${low_fodf[0][1]}: ${low_fodf[0][11]}); their fODF fit is unstable: see ${out}")
         }
     ch_keep

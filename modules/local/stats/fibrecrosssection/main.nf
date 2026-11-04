@@ -7,9 +7,10 @@
 // template fixels (FD); FC comes from warp2metric; FDC = FD x FC.
 //
 // Output CSV, one row per bundle:
-//   sid,session,run,bundle,log_fc_mean,log_fc_median,fd_mean,fdc_mean,n_fixels,covered_fraction,
+//   sid,session,run,roi,log_fc_mean,log_fc_median,fd_mean,fdc_mean,n_fixels,covered_fraction,
 //   unmatched_fraction,registration_corr,min_jacobian,orientation_agreement,qc_flags,in_template,
 //   template_hash
+// roi: the IIT bundle, named as in the WM tractometry table (AC, AF_L, ...).
 // Statistics are over the bundle's template fixels inside the subject's warped brain mask
 // (covered_fraction = their share of the bundle). unmatched_fraction: share of those with no
 // subject fixel matched (FD = 0); FC is defined there too, FD and FDC are 0.
@@ -70,7 +71,7 @@ process STATS_FIBRECROSSSECTION {
     agreement=\$(awk '\$1 == "orientation_agreement" { print \$2 }' ${registration_qc})
     template_hash=\$(sha256sum \$T/manifest.json | cut -c 1-12)
 
-    echo "sid,session,run,bundle,log_fc_mean,log_fc_median,fd_mean,fdc_mean,n_fixels,covered_fraction,unmatched_fraction,registration_corr,min_jacobian,orientation_agreement,qc_flags,in_template,template_hash" > ${prefix}_fc_stats.csv
+    echo "sid,session,run,roi,log_fc_mean,log_fc_median,fd_mean,fdc_mean,n_fixels,covered_fraction,unmatched_fraction,registration_corr,min_jacobian,orientation_agreement,qc_flags,in_template,template_hash" > ${prefix}_fc_stats.csv
     for b in \$T/fixels/bundle-*.mif; do
         name=\$(basename "\$b" .mif); name=\${name#bundle-}
         mrcalc -quiet -force "\$b" covered/covered.mif -mult in_bundle.mif
@@ -96,7 +97,7 @@ process STATS_FIBRECROSSSECTION {
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    echo "sid,session,run,bundle,log_fc_mean,log_fc_median,fd_mean,fdc_mean,n_fixels,covered_fraction,unmatched_fraction,registration_corr,min_jacobian,orientation_agreement,qc_flags,in_template,template_hash" > ${prefix}_fc_stats.csv
+    echo "sid,session,run,roi,log_fc_mean,log_fc_median,fd_mean,fdc_mean,n_fixels,covered_fraction,unmatched_fraction,registration_corr,min_jacobian,orientation_agreement,qc_flags,in_template,template_hash" > ${prefix}_fc_stats.csv
     touch ${prefix}__logfc.mif
 
     cat <<-END_VERSIONS > versions.yml

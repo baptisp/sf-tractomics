@@ -18,7 +18,7 @@ nextflow_workflow {
                 def header = lines[0].split(",", -1).toList()
                 lines[1..-1].collect { l -> [header, l.split(",", -1).toList()].transpose().collectEntries() }
             }
-            def stats = workflow.out.stats.collectEntries { e -> [e[0].id, rows(e[1]).collectEntries { r -> [r.bundle, r] }] }
+            def stats = workflow.out.stats.collectEntries { e -> [e[0].id, rows(e[1]).collectEntries { r -> [r.roi, r] }] }
             def s = 1.2d
             def close = { v, expected -> Math.abs((v as double) - expected) < 0.01 }
             // Uniform scaling: cross-section x s^2 on every fixel

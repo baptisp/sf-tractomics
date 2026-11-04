@@ -56,7 +56,8 @@ big = tuple(2 * n for n in shape)
 big_affine = affine.copy(); big_affine[:3, 3] = -np.array(big) * 1.25 / 2
 nib.save(nib.Nifti1Image(np.ones(big, np.uint8), big_affine), "subject_mask.nii.gz")
 os.makedirs("bundles")
-for name, sl in (("X", slice(0, 8)), ("Y", slice(8, 16))):
+# Named like the IIT mask files (<bundle>_mask): the bundle names drop the suffix
+for name, sl in (("X_mask", slice(0, 8)), ("Y_mask", slice(8, 16))):
     m = np.zeros(shape, np.uint8); m[sl] = 1
     nib.save(nib.Nifti1Image(m, affine), f"bundles/{name}.nii.gz")
 

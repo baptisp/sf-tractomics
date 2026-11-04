@@ -32,7 +32,8 @@ process TEMPLATE_FCBUNDLEFIXELS {
     cp -rL ${fixels} fc_template/fixels
     printf "bundle\\tn_fixels\\n" > fc_template/bundles.tsv
     for m in ${bundle_masks}/*.nii.gz; do
-        name=\$(basename "\$m" .nii.gz)
+        # Bundle names as in the other tables (AC, not the mask file name AC_mask)
+        name=\$(basename "\$m" .nii.gz); name=\${name%_mask}
         voxel2fixel -quiet "\$m" fc_template/fixels fc_template/fixels bundle-\$name.mif
         n=\$(mrstats -quiet fc_template/fixels/bundle-\$name.mif -ignorezero -output count | tr -d " ")
         printf "%s\\t%s\\n" "\$name" "\$n" >> fc_template/bundles.tsv
@@ -63,7 +64,7 @@ process TEMPLATE_FCBUNDLEFIXELS {
     cp -L ${sessions} fc_template/
     printf "bundle\\tn_fixels\\n" > fc_template/bundles.tsv
     for m in ${bundle_masks}/*; do
-        name=\$(basename "\$m" .nii.gz)
+        name=\$(basename "\$m" .nii.gz); name=\${name%_mask}
         touch fc_template/fixels/bundle-\$name.mif
         printf "%s\\t0\\n" "\$name" >> fc_template/bundles.tsv
     done

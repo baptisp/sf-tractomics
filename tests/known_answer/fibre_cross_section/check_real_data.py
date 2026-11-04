@@ -16,7 +16,7 @@ rows = list(csv.DictReader(open(sys.argv[1])))
 scales = [s for s in sys.argv[2].split(",")]
 by = {}
 for r in rows:
-    by.setdefault(r["sid"], {})[r["bundle"]] = r
+    by.setdefault(r["sid"], {})[r["roi"]] = r
 
 print("session          orientation  corr    min_jac  uncovered  flags")
 for sid, bundles in sorted(by.items()):

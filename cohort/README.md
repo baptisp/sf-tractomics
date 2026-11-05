@@ -58,6 +58,14 @@ Setup does the following:
 Without batches it also copies every session into `data_bids/`. The setup job first checks that the
 compute node reaches the internet. Fir's compute nodes do.
 
+Rorqual's compute nodes do not (`OFFLINE=true` in `config.env`). Run setup on Fir first, then copy
+these items of its `cohort/` into the same place on Rorqual (Globus; about 16 GB, mostly images):
+`containers/`, `.nextflow_home/`, `bin/`, `.atlas_cache/`, `work/atlas_iit/` and
+`license_freesurfer.txt`. Nothing else: `config.env` and the scripts come from git, and the rest is
+Fir's runs. Setup on Rorqual then downloads nothing: it checks that each copied item is there, and
+runs the previews with `NXF_OFFLINE=true`, as every later run does. The pipeline skips an atlas
+download when the file is already there, and each batch takes the atlases from this folder.
+
 ## Passes
 
 Pass k runs with `params/shared.yaml` and passes 1 to k together. Every task of an earlier pass is

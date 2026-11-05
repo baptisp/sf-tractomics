@@ -9,19 +9,30 @@ export BATCH
 source scripts/lib.sh
 log "setup on $(hostname)${SLURM_JOB_ID:+, job $SLURM_JOB_ID}, BATCH=$BATCH"
 
-for url in https://get.nextflow.io https://registry-1.docker.io/v2/ https://www.nitrc.org; do
-    curl -s -o /dev/null -m 30 "$url" || die "no internet from $(hostname) ($url): download elsewhere and copy here"
-done
+# Offline (config.env OFFLINE): what setup downloads elsewhere must already be here
+COPY_HINT="copy bin/, .nextflow_home/, containers/, .atlas_cache/ and work/atlas_iit/ here from a folder where setup ran"
+if [ "$OFFLINE" = true ]; then
+    log "offline: nothing is downloaded, the copied files are checked"
+else
+    for url in https://get.nextflow.io https://registry-1.docker.io/v2/ https://www.nitrc.org; do
+        curl -s -o /dev/null -m 30 "$url" \
+            || die "no internet from $(hostname) ($url): set OFFLINE=true in config.env and $COPY_HINT"
+    done
+fi
 
 # Pipeline: the checkout this folder sits in, without uncommitted changes
 log "pipeline: $SFT_PIPELINE at $(pipeline_version) ($(git -C "$SFT_PIPELINE" rev-parse --abbrev-ref HEAD))"
 
 # Nextflow launcher and its jars at NXF_VER, in this folder
 if [ ! -x bin/nextflow ]; then
+    [ "$OFFLINE" = true ] && die "offline and no bin/nextflow: $COPY_HINT"
     mkdir -p bin
     (cd bin && curl -fsSL https://get.nextflow.io | bash) > logs/setup_nextflow.log 2>&1
 fi
 bin/nextflow -version | grep -q "$NXF_VER" || die "Nextflow $NXF_VER not installed"
+if [ "$OFFLINE" = true ]; then
+    ls -d "$NXF_HOME"/plugins/nf-schema-* > /dev/null 2>&1 || die "offline and no nf-schema plugin in $NXF_HOME/plugins: $COPY_HINT"
+fi
 
 # Images (clusters: Apptainer files under the names the tasks look up, e.g. docker.io/scilus/scilus:2.2.2
 # -> docker.io-scilus-scilus-2.2.2.img; vitalTour: Docker pulls them itself). One at a time, the
@@ -34,6 +45,7 @@ if [ "$MACHINE" != vitaltour ]; then
         [[ "${image%%/*}" == *.* ]] || image="docker.io/$image"
         file="containers/$(echo "$image" | tr '/:' '--').img"
         [ -s "$file" ] && continue
+        [ "$OFFLINE" = true ] && die "offline and $file missing: $COPY_HINT"
         log "pulling $image"
         rm -f "$file.part"
         taskset -c "$(taskset -cp $$ | awk '{ print $NF }')" \
@@ -59,6 +71,16 @@ else
     else
         copy_inputs "$SFT_ROOT" "${subjects[@]}"
     fi
+fi
+
+# Offline, the preview cannot download the atlases: every file it would fetch must be here
+if [ "$OFFLINE" = true ]; then
+    for f in work/atlas_iit/IITmean_b0.nii.gz work/atlas_iit/gm/IIT_GM_Desikan_atlas.nii.gz \
+             work/atlas_iit/gm/IIT_GM_Desikan_lut.json .atlas_cache/freesurfer/IITmean_b0.nii.gz; do
+        [ -s "$f" ] || die "offline and $f missing: $COPY_HINT"
+    done
+    n=$(find work/atlas_iit/bundles/tdi/bundle_maps/IIT_bundles -maxdepth 1 -name '*.nii.gz' 2>/dev/null | wc -l)
+    [ "$n" -gt 0 ] || die "offline and no bundle map in work/atlas_iit/bundles/tdi/bundle_maps/IIT_bundles: $COPY_HINT"
 fi
 
 # Parameters of every pass validated and the workflow built, no task run. Launched here, the

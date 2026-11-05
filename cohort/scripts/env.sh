@@ -14,6 +14,11 @@ export SFT_PIPELINE
 export SFT_ACCOUNT="$ACCOUNT"
 export NXF_HOME="$PWD/.nextflow_home"   # Nextflow jars and the nf-schema plugin (setup)
 export NXF_OPTS="-Xms1g -Xmx6g"         # the head job has 8 GB
+# No internet (config.env OFFLINE): Nextflow uses the jars and plugin of NXF_HOME, and the nf-core
+# institutional configs, otherwise fetched from GitHub at every start, are skipped
+if [ "${OFFLINE:-false}" = true ]; then
+    export NXF_OFFLINE=true
+fi
 
 if [ "$MACHINE" = vitaltour ]; then
     SFT_PROFILE="docker,iit_tractometry"

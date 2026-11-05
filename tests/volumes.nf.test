@@ -93,6 +93,7 @@ nextflow_pipeline {
                 run_csf_volumes    = true
                 run_hoc            = true
                 run_merge_all_stats = true
+                run_subject_roi_metrics = true
                 volume_source      = "atlas,synthseg,reconall"
                 freesurfer_license = "${projectDir}/tests/fake_freesurfer_license.txt"
             }
@@ -125,6 +126,12 @@ nextflow_pipeline {
                 { assert "metrics/space-native_seg-reconall_desc-hoc.csv" in files },
                 { assert "sub-test-1/anat/sub-test-1_seg-synthseg_label-gm_desc-roi_volumes.csv" in files },
                 { assert "sub-test-1/anat/sub-test-1_seg-reconall_label-gm_desc-roi_volumes.csv" in files },
+                // subject-region metrics on the first subject source only, named after it (never the list)
+                { assert tasks("STATS_SUBJECT_ROI_METRICS").size() == 1 },
+                { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_desc-roi_stats.tsv" in files },
+                { assert "sub-test-1/dwi/sub-test-1_seg-synthseg_desc-roi_fractions.csv" in files },
+                { assert "metrics/space-native_seg-synthseg_label-mean_desc-roi_stats.tsv" in files },
+                { assert files.findAll { f -> f.contains(",") }.isEmpty() },
                 { assert path("${params.outdir}/metrics/space-native_all-regions_desc-roi_combined.tsv").readLines()[0].split("\t").toList().take(6) ==
                          ["sid", "session", "run", "roi", "region_type", "source"] }
             )

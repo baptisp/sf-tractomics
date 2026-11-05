@@ -1,4 +1,4 @@
-"""Tests of scripts/passes.py and scripts/make_batches.py, each run on a copy of the repository's
+"""Tests of scripts/passes.py, scripts/make_batches.py and scripts/merge_batches.py, each run on a copy of the repository's
 layout in a temporary folder (the scripts find their files from their own location).
 
 Run: python3 tests/test_python.py      (no cluster, no pipeline needed)
@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parent.parent
 def make_root(tmp, shared, passes, participants=None):
     root = Path(tmp)
     (root / "scripts").mkdir()
-    for script in ("passes.py", "make_batches.py"):
+    for script in ("passes.py", "make_batches.py", "merge_batches.py"):
         shutil.copy(REPO / "scripts" / script, root / "scripts" / script)
     (root / "params" / "passes").mkdir(parents=True)
     (root / "params" / "shared.yaml").write_text(shared)
@@ -146,6 +146,48 @@ class TestBatches(unittest.TestCase):
             r = run(root, "make_batches.py", "5")
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("sub-B", r.stderr)
+
+
+class TestMerge(unittest.TestCase):
+    """merge_batches.py reads each batch's extracted_results.tar.gz, or out/metrics/ for a batch
+    packed before out/ was archived"""
+
+    def batch_with_extracted(self, root, name, tables):
+        import io
+        import tarfile
+        b = root / "batches" / name
+        b.mkdir(parents=True)
+        with tarfile.open(b / "extracted_results.tar.gz", "w:gz") as tar:
+            for rel, text in tables.items():
+                data = text.encode()
+                info = tarfile.TarInfo(rel)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+
+    def test_extracted_and_legacy_batches_are_merged_in_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, SHARED, {})
+            self.batch_with_extracted(root, "b0001", {
+                "metrics/vol.tsv": "sid\tv\nA\t1\n", "metrics/comparison/c.csv": "sid,c\nA,9\n",
+                "multiqc/report.html": "<html>"})
+            legacy = root / "batches" / "b0002" / "out" / "metrics"
+            legacy.mkdir(parents=True)
+            (legacy / "vol.tsv").write_text("sid\tv\nB\t2")   # no final newline
+            r = run(root, "merge_batches.py")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual((root / "merged" / "vol.tsv").read_text(), "sid\tv\nA\t1\nB\t2\n")
+            self.assertEqual((root / "merged" / "comparison" / "c.csv").read_text(), "sid,c\nA,9\n")
+            self.assertIn("missing in 1 batch(es): b0002", r.stdout)
+            self.assertFalse((root / "merged" / "report.html").exists())
+
+    def test_a_table_whose_header_differs_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, SHARED, {})
+            self.batch_with_extracted(root, "b0001", {"metrics/vol.tsv": "sid\tv\nA\t1\n"})
+            self.batch_with_extracted(root, "b0002", {"metrics/vol.tsv": "sid\tw\nB\t2\n"})
+            r = run(root, "merge_batches.py")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("headers differ between batches: vol.tsv", r.stdout)
 
 
 if __name__ == "__main__":

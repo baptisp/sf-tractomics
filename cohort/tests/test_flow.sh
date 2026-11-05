@@ -56,6 +56,7 @@ else
     printf '1\taa\tVOLUMES (sub-A)\tCOMPLETED\n' >> "$trace"
 fi
 echo "$name" > work/aa/out.txt
+mkdir -p out/metrics && ln -f work/aa/out.txt out/metrics/volumes.tsv
 exit "${FAKE_RC:-0}"
 EOF
 chmod +x "$R/bin/nextflow"
@@ -83,7 +84,8 @@ check "pass 1: a new session (no -resume)" bash -c "! grep -q -- '-resume' '$FAK
 check "pass 1: recorded as done" grep -qx 1_volumes "$D/meta/passes_done"
 check "pass 1: session recorded" [ -s "$D/meta/session_id" ]
 check "pass 1: packed" bash -c "[ \"\$(cat '$D/meta/state')\" = packed ] && [ ! -e '$D/work' ] && [ -s '$R/archives/b0001.tar' ]"
-check "pass 1: results kept in out/" [ -d "$D/out" ]
+check "pass 1: results packed (out/ in the archive, tables in extracted_results.tar.gz)" \
+    bash -c "[ ! -e '$D/out' ] && tar -tf '$R/archives/b0001.tar' | grep -qx out/metrics/volumes.tsv && tar -tzf '$D/extracted_results.tar.gz' | grep -qx metrics/volumes.tsv"
 check "pass 1: inputs checksummed" grep -q "data_bids/sub-A/ses-2/anat/T1w.nii.gz" "$D/meta/inputs.sha256"
 check "pass 1: publish as hard links in batch mode" grep -qx "publish_dir_mode: link" "$D/meta/params_1_volumes.yaml"
 session=$(cat "$D/meta/session_id")

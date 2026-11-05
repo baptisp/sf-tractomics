@@ -101,10 +101,16 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   3. run the pass;
   4. pack, even after a failure;
   5. unlock.
-- **What is packed.** `.nextflow/`, `work/`, `.atlas_cache/` and `data_bids/` go into
-  `archives/bNNNN.tar`. `meta/`, `logs/` and `out/` stay. Results are published as hard links into
-  `work/`, so they cost no inode of their own and remain valid once `work/` is gone. The inputs are
-  packed too: a batch's input data costs inodes only while it runs.
+- **What is packed.** `.nextflow/`, `work/`, `.atlas_cache/`, `data_bids/` and `out/` go into
+  `archives/bNNNN.tar`; `meta/` and `logs/` stay. Results are published as hard links into `work/`,
+  which tar stores once, so `out/` costs the archive almost nothing, and after an unpack its files
+  are hard links again. The inputs are packed too: a batch's input data costs inodes only while it
+  runs. A packed batch is about 25 files whatever its size.
+- **Extracted results.** Each pack also writes `batches/bNNNN/extracted_results.tar.gz`: the files of
+  `out/` matching `EXTRACT_PATTERNS` (`config.env`; by default the `metrics/` tables and the global
+  MultiQC report; add per-session patterns such as `**/*_desc-thickness.csv`). It is a copy, replaced
+  at every pack, so a later pass updates it; the full results stay in the archive
+  (`tar -xf archives/bNNNN.tar out/sub-.../file` in a job reads one).
 - **No two jobs in one folder.** `./run.sh submit` refuses while any job of this root folder is
   queued. Each batch also has a lock that holds even if two jobs take over a dead job's lock at the
   same moment.
@@ -122,8 +128,9 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
 - **Walltime.** 30 minutes before a job's walltime, Nextflow is asked to stop. It cancels its task
   jobs and keeps its cache, and the batch is still packed. Every task job carries the batch in its
   Slurm comment, so packing also cancels, and waits for, any task job left behind.
-- **Merging.** `./run.sh merge` concatenates the batches' `out/metrics` tables into `merged/`, one
-  header each. A table whose header differs between batches is refused.
+- **Merging.** `./run.sh merge` concatenates the batches' `metrics/` tables, read from their
+  `extracted_results.tar.gz`, into `merged/`, one header each. A table whose header differs between
+  batches is refused.
 - **Fixed paths.** A batch folder never moves, and is resumed only on the cluster where it was
   created: Nextflow's cache and links hold absolute paths.
 

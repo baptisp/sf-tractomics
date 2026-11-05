@@ -3,8 +3,10 @@
 #
 # A batch folder batches/bNNNN/ holds, while unpacked, everything Nextflow needs to resume it:
 # PACKED_ITEMS below. Packed, they are one archive file (archives/bNNNN.tar) and the folder keeps
-# only meta/, logs/ and out/ (results, hard links that cost no inode of their own once work/ is
-# gone). The folder never moves: Nextflow's cache and work folders hold absolute paths.
+# only meta/, logs/ and extracted_results.tar.gz (the results matching EXTRACT_PATTERNS of
+# config.env, rebuilt at every pack). out/ is in the archive: its files are hard links into work/,
+# which tar stores once, so it costs the archive almost nothing. The folder never moves: Nextflow's
+# cache and work folders hold absolute paths.
 #
 # meta/state, always written whole (temporary file, then rename):
 #   (absent)  never prepared            unpacked  PACKED_ITEMS are the truth
@@ -15,7 +17,10 @@
 # deleted, archive extracted, state unpacked. The archive is never deleted, only replaced by a newer
 # verified one, so a job killed at any step leaves a state the next job completes.
 
-PACKED_ITEMS=".nextflow work .atlas_cache data_bids"
+PACKED_ITEMS=".nextflow work .atlas_cache data_bids out"
+# What archives written before out/ was packed hold (out/ then stayed in the folder): never delete
+# a folder the archive does not hold. meta/packed_items records what each pack put in the archive.
+LEGACY_PACKED_ITEMS=".nextflow work .atlas_cache data_bids"
 
 state_get() { cat "$1/meta/state" 2>/dev/null || true; }
 
@@ -76,11 +81,38 @@ present_items() {
     return 0
 }
 
+# remove_items DIR: delete the items the archive holds (meta/packed_items), nothing else
 remove_items() {
-    local dir=$1 item
-    for item in $PACKED_ITEMS; do
+    local dir=$1 item items
+    items=$(cat "$dir/meta/packed_items" 2>/dev/null || echo "$LEGACY_PACKED_ITEMS")
+    for item in $items; do
         rm -rf "${dir:?}/$item"
     done
+}
+
+# write_extracted DIR: DIR/extracted_results.tar.gz, the files of DIR/out matching EXTRACT_PATTERNS
+# (globs relative to out/, ** for any depth), written to .part, checked and renamed. A copy of
+# results the archive also holds, so it is simply replaced each time; a failure is reported, never
+# fatal (the archive is the truth).
+write_extracted() {
+    local dir=$1 target=$1/extracted_results.tar.gz list n
+    [ -d "$dir/out" ] || return 0
+    list=$(cd "$dir/out" && shopt -s globstar nullglob && for p in ${EXTRACT_PATTERNS:-metrics/** multiqc/*.html}; do
+        for f in $p; do [ -f "$f" ] && echo "$f"; done; done | sort -u)
+    if [ -z "$list" ]; then
+        log "$dir: no result matches EXTRACT_PATTERNS yet"
+        return 0
+    fi
+    n=$(echo "$list" | wc -l)
+    if echo "$list" | tar -czf "$target.part" -C "$dir/out" -T - \
+        && [ "$(tar -tzf "$target.part" | wc -l)" = "$n" ]; then
+        mv -f "$target.part" "$target"
+        log "$dir: $n results in $(basename "$target")"
+    else
+        rm -f "$target.part"
+        log "WARNING: $dir: $(basename "$target") could not be written; the previous one is kept"
+    fi
+    return 0
 }
 
 # batch_unpack DIR ARCHIVE: the folder ready to run (prepared batches only)
@@ -125,6 +157,8 @@ batch_pack() {
         die "$archive.part holds $n_entries entries for $n_files files and folders: not packing"
     fi
     sync "$archive.part" 2>/dev/null || sync
+    write_extracted "$dir"
+    echo "$items" > "$dir/meta/packed_items.tmp" && mv -f "$dir/meta/packed_items.tmp" "$dir/meta/packed_items"
     mv -f "$archive.part" "$archive"
     state_set "$dir" packing
     remove_items "$dir"

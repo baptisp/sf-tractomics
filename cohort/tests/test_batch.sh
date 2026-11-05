@@ -32,14 +32,17 @@ make_batch() {
     echo t1 > "$d/data_bids/sub-1/T1w.nii.gz"
     echo b0 > "$d/.atlas_cache/fs/IIT.nii.gz"
     ln "$d/work/ab/123/vol.csv" "$d/out/sub-1/vol.csv"
+    mkdir -p "$d/out/metrics/comparison" "$d/out/multiqc/global_data"
+    echo "sid,v" > "$d/out/metrics/vol.csv"; echo "sid,c" > "$d/out/metrics/comparison/c.csv"
+    echo "<html>" > "$d/out/multiqc/global.html"; echo "<html>" > "$d/out/multiqc/global_data/part.html"
     echo "nextflow log" > "$d/.nextflow.log"
     state_set "$d" unpacked
 }
 
 # Everything of the packed items: path, type, size, content checksum, link target
 manifest() {
-    (cd "$1" && find .nextflow work .atlas_cache data_bids -printf '%p %y %s %l\n' | sort
-     cd "$1" && find .nextflow work .atlas_cache data_bids -type f -print0 | sort -z | xargs -0 sha256sum)
+    (cd "$1" && find .nextflow work .atlas_cache data_bids out -printf '%p %y %s %l\n' | sort
+     cd "$1" && find .nextflow work .atlas_cache data_bids out -type f -print0 | sort -z | xargs -0 sha256sum)
 }
 
 D=$T/batches/b0001
@@ -51,14 +54,19 @@ before=$(manifest "$D")
 ( batch_pack "$D" "$A" tag ) >/dev/null 2>&1
 check "pack: state packed" [ "$(state_get "$D")" = packed ]
 check "pack: archive written, no .part left" bash -c "[ -s '$A' ] && [ ! -e '$A.part' ]"
-check "pack: the packed items are gone" bash -c "[ -z \"\$(cd '$D' && ls -A | grep -vE '^(meta|logs|out)$')\" ]"
-check "pack: out/ still reads its result (hard link)" [ "$(cat "$D/out/sub-1/vol.csv")" = result ]
+check "pack: the packed items are gone, out/ included" bash -c "[ -z \"\$(cd '$D' && ls -A | grep -vE '^(meta|logs|extracted_results.tar.gz)$')\" ]"
+check "pack: out/ and work/ share their linked file in the archive (stored once)" \
+    bash -c "tar -tvf '$A' | grep -qE '^h.* out/sub-1/vol.csv link to work/ab/123/vol(_link)?.csv'"
+check "pack: extracted results hold the tables and the global report, nothing else" \
+    [ "$(tar -tzf "$D/extracted_results.tar.gz" | sort | tr '\n' ' ')" = "metrics/comparison/c.csv metrics/vol.csv multiqc/global.html " ]
 check "pack: the Nextflow log is kept in logs/" bash -c "ls '$D'/logs/.nextflow.log.* >/dev/null"
 ( batch_unpack "$D" "$A" ) >/dev/null 2>&1
 check "unpack: state unpacked" [ "$(state_get "$D")" = unpacked ]
 check "unpack: identical to the folder before packing (paths, types, sizes, links, contents)" \
     [ "$(manifest "$D")" = "$before" ]
 check "unpack: the archive is kept" [ -s "$A" ]
+check "unpack: out/ is a hard link into work/ again (no inode of its own)" \
+    [ "$(stat -c %i "$D/out/sub-1/vol.csv")" = "$(stat -c %i "$D/work/ab/123/vol.csv")" ]
 
 # 2. unpack of an unpacked folder does nothing; pack of a packed folder does nothing
 echo extra > "$D/work/ab/123/new.txt"
@@ -107,6 +115,28 @@ mv "$A.away" "$A"
 state_set "$D" weird
 ( batch_unpack "$D" "$A" ) >/dev/null 2>&1 && fail "unknown state refused" || ok "unknown state refused"
 state_set "$D" packed
+
+# 7b. an archive written before out/ was packed (out/ left in the folder): unpacking must not delete
+#     the loose out/, and the next pack moves it into the archive
+L=$T/batches/b0009; LA=$T/archives/b0009.tar
+make_batch "$L"
+legacy_before=$(manifest "$L")
+(cd "$L" && tar -cf "$LA" .nextflow work .atlas_cache data_bids && rm -rf .nextflow work .atlas_cache data_bids)
+state_set "$L" packed
+( batch_unpack "$L" "$LA" ) >/dev/null 2>&1
+check "legacy archive: unpack keeps the loose out/" [ "$(cat "$L/out/sub-1/vol.csv")" = result ]
+check "legacy archive: unpacked folder identical" [ "$(manifest "$L")" = "$legacy_before" ]
+( batch_pack "$L" "$LA" tag ) >/dev/null 2>&1
+check "legacy archive: repacked with out/" bash -c "tar -tf '$LA' | grep -qx out/metrics/vol.csv && [ ! -e '$L/out' ]"
+( batch_unpack "$L" "$LA" ) >/dev/null 2>&1
+check "legacy archive: unpacked again, identical" [ "$(manifest "$L")" = "$legacy_before" ]
+
+# 7c. extracted results follow EXTRACT_PATTERNS; a pattern matching nothing is not an error
+( batch_pack "$L" "$LA" tag ) >/dev/null 2>&1
+( batch_unpack "$L" "$LA" ) >/dev/null 2>&1
+( EXTRACT_PATTERNS="metrics/vol.csv **/vol.csv nothing/*" batch_pack "$L" "$LA" tag ) >/dev/null 2>&1
+check "extract patterns: ** reaches per-session files" \
+    [ "$(tar -tzf "$L/extracted_results.tar.gz" | sort | tr '\n' ' ')" = "metrics/vol.csv sub-1/vol.csv " ]
 
 # 8. locks: a second job is refused while the first holds the lock; a dead holder's lock is taken
 sleep 30 & holder=$!

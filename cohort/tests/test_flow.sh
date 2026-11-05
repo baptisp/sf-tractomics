@@ -117,7 +117,16 @@ echo "workflow v2" > "$P/main.nf" && gitc commit -qam two
 job 2_metrics 105; rc=$?
 check "another pipeline commit is refused" bash -c "[ $rc != 0 ] && grep -q 'ran with pipeline commit' '$T/job_105.log'"
 check "refused commit: packed anyway" [ "$(cat "$D/meta/state")" = packed ]
+# Accepted with ALLOW_COMMIT_CHANGE=1: the new commit becomes the pin, the old one in the history
+old_pin=$(cat "$D/meta/pipeline_commit")
+ALLOW_COMMIT_CHANGE=1 job 2_metrics 110; rc=$?
+check "an accepted commit change runs" [ "$rc" = 0 ]
+check "an accepted commit change becomes the pin" [ "$(cat "$D/meta/pipeline_commit")" = "$(git -C "$P" log -1 --format=%H)" ]
+check "an accepted commit change is kept in the history" grep -q "$old_pin -> " "$D/meta/pipeline_commit_history"
+job 2_metrics 111; rc=$?
+check "after an accepted change, the next run needs no override" [ "$rc" = 0 ]
 gitc reset -q --hard HEAD~1
+echo "$old_pin" > "$D/meta/pipeline_commit"
 
 # Inputs changed after preparation: refused
 tar -xf "$R/archives/b0001.tar" -C "$T" data_bids/participants.tsv

@@ -6,8 +6,9 @@
 # A launch folder keeps in meta/:
 #   inputs.sha256      checksums of data_bids/ (participants.tsv included), refused if they change:
 #                      the covariates are in every task's metadata, so any change recomputes all
-#   pipeline_commit    the pipeline version of its first pass; another is refused (ALLOW_COMMIT_CHANGE=1
-#                      to override): changed modules recompute, and the cohort would mix versions
+#   pipeline_commit    the pipeline version of its runs; another is refused (ALLOW_COMMIT_CHANGE=1 to
+#                      accept it: it becomes the pin, the change is kept in pipeline_commit_history):
+#                      changed modules recompute, and the cohort would mix versions
 #   session_id         the Nextflow session of its first run, resumed by every later run
 #   passes_done        the passes that ended with exit 0, in order
 #   params_<pass>.yaml the parameters of each pass (scripts/passes.py)
@@ -91,12 +92,14 @@ run_pass() {
     cd "$dir"
     mkdir -p meta logs
     head=$(pipeline_version)
-    if [ -s meta/pipeline_commit ]; then
-        [ "$(cat meta/pipeline_commit)" = "$head" ] || [ "${ALLOW_COMMIT_CHANGE:-0}" = 1 ] \
+    if [ -s meta/pipeline_commit ] && [ "$(cat meta/pipeline_commit)" != "$head" ]; then
+        [ "${ALLOW_COMMIT_CHANGE:-0}" = 1 ] \
             || die "$dir ran with pipeline commit $(cat meta/pipeline_commit), now $head (ALLOW_COMMIT_CHANGE=1 to override)"
-    else
-        echo "$head" > meta/pipeline_commit
+        # Accepted: the new commit is the pin from now on, the earlier ones stay in the history
+        log "$dir: pipeline commit $(cat meta/pipeline_commit) replaced by $head (ALLOW_COMMIT_CHANGE=1)"
+        echo "$(date '+%F %H:%M:%S') $(cat meta/pipeline_commit) -> $head" >> meta/pipeline_commit_history
     fi
+    echo "$head" > meta/pipeline_commit
     [ -s meta/inputs.sha256 ] || die "$dir has no input checksums"
     sha256sum --quiet -c meta/inputs.sha256 || die "$dir/data_bids changed since it was prepared"
     for p in $(passes_before "$pass"); do

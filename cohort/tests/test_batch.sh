@@ -154,6 +154,15 @@ check "legacy archive: unpacked again, identical" [ "$(manifest "$L")" = "$legac
 check "extract patterns: ** reaches per-session files" \
     [ "$(tar -tzf "$L/extracted_results.tar.gz" | sort | tr '\n' ' ')" = "metrics/vol.csv sub-1/vol.csv " ]
 
+# 7d. a pass that failed before any table: out/metrics/ empty. Packed under the job's own shell
+# options (set -euo pipefail), where a non-zero status inside write_extracted stopped the job
+E=$T/batches/b0007; EA=$T/archives/b0007.tar
+make_batch "$E"
+rm -rf "$E/out/metrics"/* "$E/out/multiqc"; mkdir -p "$E/out/pipeline_info"; echo r > "$E/out/pipeline_info/report.html"
+( set -euo pipefail; batch_pack "$E" "$EA" tag ) >/dev/null 2>&1
+check "empty metrics/ under set -euo pipefail: packed" [ "$(state_get "$E")" = packed ]
+check "empty metrics/ under set -euo pipefail: archive written, no .part" bash -c "[ -s '$EA' ] && [ ! -e '$EA.part' ]"
+
 # 8. locks: a second job is refused while the first holds the lock; a dead holder's lock is taken
 sleep 30 & holder=$!
 mkdir -p "$D/meta/lock"; echo "$holder" > "$D/meta/lock/job"

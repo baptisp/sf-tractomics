@@ -97,11 +97,13 @@ remove_items() {
 # (globs relative to out/, ** for any depth), written to .part, checked and renamed. A copy of
 # results the archive also holds, so it is simply replaced each time; a failure is reported, never
 # fatal (the archive is the truth).
+# The job scripts run under set -euo pipefail: no command here may end with a non-zero status that
+# is not an error (a pattern whose last match is a folder once stopped the job mid-pack, silently)
 write_extracted() {
     local dir=$1 target=$1/extracted_results.tar.gz list n
     [ -d "$dir/out" ] || return 0
     list=$(cd "$dir/out" && shopt -s globstar nullglob && for p in ${EXTRACT_PATTERNS:-metrics/** multiqc/*.html}; do
-        for f in $p; do [ -f "$f" ] && echo "$f"; done; done | sort -u)
+        for f in $p; do if [ -f "$f" ]; then echo "$f"; fi; done; done | sort -u)
     if [ -z "$list" ]; then
         log "$dir: no result matches EXTRACT_PATTERNS yet"
         return 0

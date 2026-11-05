@@ -12,6 +12,9 @@ export SFT_ROOT="$PWD"
 SFT_PIPELINE=$(cd .. && pwd)            # the sf-tractomics checkout this folder sits in
 export SFT_PIPELINE
 export SFT_ACCOUNT="$ACCOUNT"
+# config.env's ACCOUNT is the only one: a default account in the login environment (e.g.
+# SBATCH_ACCOUNT in ~/.bashrc) would override the --account Nextflow writes into each task script
+unset SBATCH_ACCOUNT SALLOC_ACCOUNT SLURM_ACCOUNT
 export NXF_HOME="$PWD/.nextflow_home"   # Nextflow jars and the nf-schema plugin (setup)
 export NXF_OPTS="-Xms1g -Xmx6g"         # the head job has 8 GB
 # No internet (config.env OFFLINE): Nextflow uses the jars and plugin of NXF_HOME, and the nf-core

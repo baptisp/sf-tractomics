@@ -150,5 +150,24 @@ check "a failed run is packed" [ "$(cat "$D/meta/state")" = packed ]
 check "a failed run is not recorded as done" bash -c "! grep -qx 2_metrics '$D/meta/passes_done'"
 check "the lock is released after every job" [ ! -e "$D/meta/lock" ]
 
+# Every pass done: the archive leaves scratch for ARCHIVE_STORE, with its extracted results and
+# meta/; a later run unpacks from the store and stores the new archive over the old one
+S=$T/store
+ARCHIVE_STORE=$S job 2_metrics 112; rc=$?
+check "store: the run that finishes every pass succeeds" [ "$rc" = 0 ]
+check "store: archive, extracted results and meta/ in the store" \
+    bash -c "[ -s '$S/b0001.tar' ] && [ -s '$S/b0001_extracted_results.tar.gz' ] && tar -tf '$S/b0001_meta.tar' | grep -qx meta/passes_done"
+check "store: the scratch archive is gone, no .part left" bash -c "[ ! -e '$R/archives/b0001.tar' ] && ! ls '$S'/*.part >/dev/null 2>&1"
+cp "$S/b0001.tar" "$T/stored_before.tar"
+FORCE=1 ARCHIVE_STORE=$S job 2_metrics 113; rc=$?
+check "store: a later run unpacks from the store" bash -c "[ $rc = 0 ] && grep -q 'unpacked from $S/b0001.tar' '$T/job_113.log'"
+check "store: the new archive replaces the stored one" bash -c "! cmp -s '$S/b0001.tar' '$T/stored_before.tar' && tar -tf '$S/b0001.tar' | grep -q work/aa/out.txt && [ ! -e '$R/archives/b0001.tar' ]"
+X=$T/x; ( cd "$R" && ARCHIVE_STORE=$S scripts/extract_results.sh b0001 "$X" 'out/metrics/*' ) >/dev/null 2>&1
+check "store: extract_results.sh reads a stored archive" [ -s "$X/out/metrics/volumes.tsv" ]
+mkdir -p "$T/nostore"; chmod 500 "$T/nostore"
+ARCHIVE_STORE=$T/nostore/sub job 2_metrics 114; rc=$?
+check "store: an unwritable store keeps the scratch archive" bash -c "[ $rc = 0 ] && [ -s '$R/archives/b0001.tar' ] && grep -q 'cannot be created\|copy of' '$T/job_114.log'"
+chmod 700 "$T/nostore"
+
 echo
 [ "$failures" = 0 ] && echo "all flow tests passed" || { echo "$failures failure(s)"; for f in "$T"/job_*.log; do echo "== $f"; tail -5 "$f"; done; exit 1; }

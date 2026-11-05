@@ -18,7 +18,7 @@ source scripts/batch.sh
 batch=$(sed -n "${SLURM_ARRAY_TASK_ID:?}p" "$SFT_LIST")
 [ -n "$batch" ] || die "no batch at line $SLURM_ARRAY_TASK_ID of $SFT_LIST"
 dir="$SFT_ROOT/batches/$batch"
-archive="$SFT_ROOT/archives/$batch.tar"
+archive=$(archive_of "$batch")   # scratch, or the store once the batch was finished
 export SFT_TAG="sft-$COHORT_NAME-$batch"   # comment of every task job of this batch
 
 batch_lock "$dir"
@@ -40,6 +40,10 @@ else
 fi
 
 run_pass_guarded "$dir" "$SFT_PASS" && rc=0 || rc=$?
+# a new archive is always written to scratch, then stored if the batch is done with every pass
+archive_new="$SFT_ROOT/archives/$batch.tar"
+[ "$(state_get "$dir")" = unpacked ] && archive="$archive_new"
 batch_pack "$dir" "$archive" "$SFT_TAG"
+store_archive "$dir" "$archive"
 log "$batch: pass $SFT_PASS exit $rc, state $(state_get "$dir")"
 exit "$rc"

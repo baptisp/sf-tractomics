@@ -110,7 +110,7 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   `out/` matching `EXTRACT_PATTERNS` (`config.env`; by default the `metrics/` tables and the global
   MultiQC report; add per-session patterns such as `**/*_desc-thickness.csv`). It is a copy, replaced
   at every pack, so a later pass updates it; the full results stay in the archive
-  (`tar -xf archives/bNNNN.tar out/sub-.../file` in a job reads one).
+  (`scripts/extract_results.sh` in a job reads one back, see below).
 - **No two jobs in one folder.** `./run.sh submit` refuses while any job of this root folder is
   queued. Each batch also has a lock that holds even if two jobs take over a dead job's lock at the
   same moment.
@@ -134,11 +134,118 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
 - **Fixed paths.** A batch folder never moves, and is resumed only on the cluster where it was
   created: Nextflow's cache and links hold absolute paths.
 
+- **Finished archives leave scratch.** A batch done with every pass of `params/passes/` moves its
+  archive to `ARCHIVE_STORE` (`config.env`; on Rorqual
+  `/project/rrg-descotea/vitalab/pierrard/adni/finished_archives`), with a copy of its
+  `extracted_results.tar.gz` and of its `meta/` and `logs/` (`bNNNN_meta.tar`), so the store alone
+  can resume it after a scratch purge. The copy is compared byte for byte before the scratch archive
+  is deleted; any failure keeps it on scratch. `meta/archive_location` records where it went. A pass
+  added later unpacks straight from the store and stores the new archive over the old one.
+
 **Not yet automated:**
-- **The scratch purge.** Archives of batches waiting for a later pass must not sit unused past the
-  purge window. Move them to project or nearline storage in time.
+- **The scratch purge of unfinished batches.** Archives waiting for a later pass stay on scratch and
+  must not sit unused past the purge window.
 - **Inputs on a cluster without ADNI (Fir).** Copy them into `INPUT_BIDS`, or as per-batch archives
   in `inputs/batch_tars/`, one file per batch.
+
+## Using the results downstream
+
+What the tables mean, and what not to do with them. Numbers in brackets were measured on one ADNI
+subject (88 years, AD, Siemens Prisma, 2 sessions a year apart; Fir test of 2026-11-05): they show
+the size of each effect, not cohort values.
+
+**Tables.** `merged/` (`./run.sh merge`) holds the cohort tables;
+`space-native_all-regions_desc-roi_combined.tsv` is the one to start from: one row per
+`(sid, session, run, roi, region_type, source)`, volumes and diffusion metrics side by side. Every
+other table is a cross-check of it (each volume of the combined table equals its source table).
+Sessions with several DWI runs have one row per run: pick or average runs explicitly.
+
+### Volumes: which source
+
+- **Use `source == "reconall"` for GM regions and ventricles.** recon-all is the main source;
+  SynthSeg (`synthseg`) is a second opinion. Never mix sources in one analysis: they differ
+  systematically by region (SynthSeg cortex +20 %, pallidum −50 %, accumbens +60 to +90 % relative to
+  recon-all), while ranking regions alike (Spearman 0.96).
+- **Normalise by the ICV of the same source** (`volume_icv_fraction`, `icv_mm3`). The ICVs of the two
+  sources differ (SynthSeg −4 %); the atlas rows have no ICV.
+- **Do not use the atlas volumes (`source == "atlas"`) of the ventricles, nor of the regions next to
+  them.** Atlas regions are the MNI152 FreeSurfer labels (CSF atlas) or IIT labels (GM regions, WM
+  bundles) warped onto the subject's b0 by an ANTs SyN registration of the IIT b0 template; they are
+  not a segmentation of the subject. Measured against the subject's recon-all ventricles in DWI space:
+  - the atlas ventricles are in the right place (99 % of their voxels lie inside the subject's
+    ventricles, centroids within 2 mm, 95 % of their voxels have CSF intensity on the b0), and the
+    registration checks pass (b0 correlation 0.88, brain Dice 0.96);
+  - but they cover only part of the subject's ventricles: lateral ventricles 49–58 %, 3rd 40 %,
+    4th 26 %, inferior lateral ventricles 1–11 % (atlas 37 mm³ against 2,666 mm³);
+  - the cause is the template, not a misregistration: the template's ventricles are those of young
+    adults, and the regularised registration does not stretch them to an enlarged ventricle (age,
+    atrophy). The gap therefore grows with ventricle size, that is with age and disease.
+  - the rest of the subject's ventricles falls in the atlas caudate, cerebral WM, WM hypointensity and
+    choroid plexus labels. Those atlas regions hold CSF in an atrophied brain: their volumes are
+    wrong, and their diffusion metrics mix in CSF.
+- **The `CSF` region is not the same structure in each source**: SynthSeg's covers all the external
+  CSF (260,000 mm³), FreeSurfer's label 24 a small region (1,000 mm³). Never compare or pool it.
+- **SynthSeg has no choroid plexus**: those rows have an empty volume.
+
+### Diffusion metrics: where they come from
+
+- **WM bundles, atlas GM regions, atlas CSF regions**: atlas route (`source == "atlas"`), so the
+  caveat above applies to every region bordering a ventricle (caudate, thalamus, corpus callosum,
+  fornix, periventricular WM). In those regions prefer the free-water-corrected metrics (`fat`,
+  `mdt`, `rdt`, `adt`) and keep `fwf` as a covariate: an uncorrected FA or MD there partly measures
+  ventricle size, which tracks age and diagnosis, a confound for a classifier.
+- **Subject GM regions** (`region_type == "GM_region"`, `source == "reconall"`): fraction-weighted
+  means in the subject's own recon-all regions (the first subject source of `volume_source`). The
+  SynthSeg rows carry volumes only.
+- **Ventricles have diffusion metrics from the atlas route only** (`source == "atlas"`,
+  `region_type == "CSF_region"`); the subject-segmentation metrics cover GM regions. Inside CSF the
+  tensor measures free water, not tissue, so these rows are a quality check rather than a feature:
+  in the atlas lateral ventricles MD ≈ 2.9·10⁻³ mm²/s and `fwf` ≈ 0.93, as expected for labels lying
+  inside the ventricle. A clearly lower `fwf` there means the label reaches tissue (misregistration).
+- **The same metrics reveal the atlas problem above in the regions next to the ventricles**: the atlas
+  caudate has `fwf` 0.38–0.46 and MD 1.2–1.4·10⁻³ mm²/s, against 0.11–0.13 and 0.8·10⁻³ in the
+  thalamus: a third of its signal is CSF. Use the `fwf` of the atlas caudate as a per-session index
+  of that contamination (it grows with ventricle size).
+
+### Longitudinal use
+
+Each session is processed on its own (`run_longitudinal_volumes: false`), so a difference between two
+sessions holds segmentation noise of the size of a year of atrophy (recon-all GM regions: median
+−1 % a year, but single regions from −28 % to +9 %, e.g. the temporal pole). Ventricles are steadier
+(+4 to +6 % a year, both segmentations agreeing). For atrophy rates, fit a slope over several
+sessions rather than a difference of two, or add a later pass with `run_longitudinal_volumes: true`
+(SAMSEG longitudinal, one subject template). For a prediction from the baseline visit, do not use
+values from a longitudinal template: it is built with the follow-up scans, information the
+prediction must not have.
+
+### Quality flags: exclude, the pipeline never does
+
+- `metrics/space-native_desc-atlasregistration_qc.csv`: `misaligned` (b0 correlation below 0.6) or
+  `brain_mismatch` (brain Dice below 0.85) for an atlas registration. Drop the atlas rows of a
+  flagged run.
+- `qc_flags` of the volume tables: `icv_drift` (a session's ICV more than the allowed fraction away
+  from its subject's median, `volume_icv_drift`: a failed segmentation or a scanner change).
+- `metrics/dwi_input_report.tsv`: which DWI runs were kept or dropped, and why.
+
+### Acquisition differences to model
+
+ADNI mixes GE and Siemens scanners, sessions with and without a reverse phase-encoding field map
+(without one, no susceptibility distortion correction: frontal and temporal regions near air keep
+their distortion) and single- or multi-shell protocols (NODDI only on multi-shell). Carry the
+scanner (`scanner` column), the protocol and the presence of a field map into the harmonisation and
+the models as batch variables.
+
+### Provenance
+
+`pipeline_revision` is the commit of the pipeline code that produced a table. Results of different
+revisions must not be mixed unknowingly; `meta/pipeline_commit` (and `pipeline_commit_history`) of
+each batch says which commit each batch ran.
+
+### Reading a result that is not in `extracted_results.tar.gz`
+
+In a Slurm job (never on a login node):
+`scripts/extract_results.sh bNNNN DEST 'out/sub-*/ses-*/anat/*_desc-thickness.csv'` extracts the
+matching files of the batch archive into `DEST`.
 
 ## Tests
 

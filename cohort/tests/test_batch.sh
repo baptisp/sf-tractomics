@@ -3,6 +3,7 @@
 # step leaves a state the next job completes without losing anything. Locks refuse a second job.
 # Runs anywhere (no Slurm: a lock holder is a process id). Run: bash tests/test_batch.sh
 set -uo pipefail
+export LC_ALL=C   # tar listings in English ("link to"), whatever the machine
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
@@ -56,7 +57,7 @@ check "pack: state packed" [ "$(state_get "$D")" = packed ]
 check "pack: archive written, no .part left" bash -c "[ -s '$A' ] && [ ! -e '$A.part' ]"
 check "pack: the packed items are gone, out/ included" bash -c "[ -z \"\$(cd '$D' && ls -A | grep -vE '^(meta|logs|extracted_results.tar.gz)$')\" ]"
 check "pack: out/ and work/ share their linked file in the archive (stored once)" \
-    bash -c "tar -tvf '$A' | grep -qE '^h.* out/sub-1/vol.csv link to work/ab/123/vol(_link)?.csv'"
+    bash -c "tar -tvf '$A' | grep -qE '^h.* work/ab/123/vol(_link)?.csv link to out/sub-1/vol.csv'"
 check "pack: extracted results hold the tables and the global report, nothing else" \
     [ "$(tar -tzf "$D/extracted_results.tar.gz" | sort | tr '\n' ' ')" = "metrics/comparison/c.csv metrics/vol.csv multiqc/global.html " ]
 check "pack: the Nextflow log is kept in logs/" bash -c "ls '$D'/logs/.nextflow.log.* >/dev/null"
@@ -67,6 +68,21 @@ check "unpack: identical to the folder before packing (paths, types, sizes, link
 check "unpack: the archive is kept" [ -s "$A" ]
 check "unpack: out/ is a hard link into work/ again (no inode of its own)" \
     [ "$(stat -c %i "$D/out/sub-1/vol.csv")" = "$(stat -c %i "$D/work/ab/123/vol.csv")" ]
+
+# 1b. one result read back alone from the archive (out/ holds the data), and from an archive packed
+#     the old way (work/ first: the out/ entry is a link, its target comes along)
+( batch_pack "$D" "$A" tag ) >/dev/null 2>&1
+check "extract: out/ holds the data in the archive" bash -c "tar -tvf '$A' | grep -qE '^-.* out/sub-1/vol.csv$'"
+X=$T/extracted; rm -rf "$X"
+"$REPO/scripts/extract_results.sh" b0001 "$X" "out/sub-1/vol.csv" >/dev/null 2>&1
+check "extract: a single result reads back" [ "$(cat "$X/out/sub-1/vol.csv" 2>/dev/null)" = result ]
+O=$T/old_order; rm -rf "$O"; mkdir -p "$O"; tar -xf "$A" -C "$O"
+(cd "$O" && tar -cf "$T/archives/b0099.tar" .nextflow work .atlas_cache data_bids out)
+check "extract: the old order stores out/ as a link" bash -c "tar -tvf '$T/archives/b0099.tar' | grep -qE '^h.* out/sub-1/vol.csv link to'"
+rm -rf "$X"; "$REPO/scripts/extract_results.sh" b0099 "$X" "out/sub-1/*.csv" >/dev/null 2>&1
+check "extract: the old order reads back too (link target extracted along)" [ "$(cat "$X/out/sub-1/vol.csv" 2>/dev/null)" = result ]
+rm -rf "$O" "$X" "$T/archives/b0099.tar"
+( batch_unpack "$D" "$A" ) >/dev/null 2>&1
 
 # 2. unpack of an unpacked folder does nothing; pack of a packed folder does nothing
 echo extra > "$D/work/ab/123/new.txt"

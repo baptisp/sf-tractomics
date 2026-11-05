@@ -17,7 +17,10 @@
 # deleted, archive extracted, state unpacked. The archive is never deleted, only replaced by a newer
 # verified one, so a job killed at any step leaves a state the next job completes.
 
-PACKED_ITEMS=".nextflow work .atlas_cache data_bids out"
+# out/ first: tar stores a file with several names (out/ is hard links into work/) under the first
+# name it meets and the others as links to it, so with out/ holding the data one result can be read
+# back alone (scripts/extract_results.sh), without its work/ twin.
+PACKED_ITEMS="out .nextflow work .atlas_cache data_bids"
 # What archives written before out/ was packed hold (out/ then stayed in the folder): never delete
 # a folder the archive does not hold. meta/packed_items records what each pack put in the archive.
 LEGACY_PACKED_ITEMS=".nextflow work .atlas_cache data_bids"
@@ -113,6 +116,51 @@ write_extracted() {
         log "WARNING: $dir: $(basename "$target") could not be written; the previous one is kept"
     fi
     return 0
+}
+
+# archive_of BATCH: the batch archive: on scratch (archives/) if there, else where it was stored
+# (meta/archive_location, so a later change of ARCHIVE_STORE does not lose it), else ARCHIVE_STORE
+archive_of() {
+    local b=$1 stored
+    stored=$(cat "$SFT_ROOT/batches/$b/meta/archive_location" 2>/dev/null || true)
+    if [ -s "$SFT_ROOT/archives/$b.tar" ]; then
+        echo "$SFT_ROOT/archives/$b.tar"
+    elif [ -n "$stored" ] && [ -s "$stored" ]; then
+        echo "$stored"
+    elif [ -n "${ARCHIVE_STORE:-}" ] && [ -s "$ARCHIVE_STORE/$b.tar" ]; then
+        echo "$ARCHIVE_STORE/$b.tar"
+    else
+        echo "$SFT_ROOT/archives/$b.tar"
+    fi
+}
+
+# store_archive DIR ARCHIVE: a packed batch done with every pass leaves scratch for ARCHIVE_STORE.
+# Copied to .part, compared byte for byte, renamed (replacing an older stored copy), and only then
+# deleted from scratch. The extracted results and meta/ go along, so the store alone is enough to
+# resume the batch if scratch is purged. Any failure keeps the scratch archive.
+store_archive() {
+    local dir=$1 archive=$2 b dest p
+    [ -n "${ARCHIVE_STORE:-}" ] || return 0
+    [ "$(state_get "$dir")" = packed ] && [ -s "$archive" ] || return 0
+    case "$archive" in "$ARCHIVE_STORE"/*) return 0 ;; esac
+    for p in $(pass_list); do
+        grep -qx "$p" "$dir/meta/passes_done" 2>/dev/null || return 0
+    done
+    b=$(basename "$dir"); dest=$ARCHIVE_STORE/$b.tar
+    mkdir -p "$ARCHIVE_STORE" || { log "WARNING: $ARCHIVE_STORE cannot be created; $archive stays"; return 0; }
+    if cp "$archive" "$dest.part" && cmp -s "$archive" "$dest.part"; then
+        mv -f "$dest.part" "$dest"
+    else
+        rm -f "$dest.part"
+        log "WARNING: copy of $archive to $dest failed; it stays on scratch"
+        return 0
+    fi
+    [ -s "$dir/extracted_results.tar.gz" ] && cp "$dir/extracted_results.tar.gz" "$ARCHIVE_STORE/${b}_extracted_results.tar.gz.part" \
+        && mv -f "$ARCHIVE_STORE/${b}_extracted_results.tar.gz.part" "$ARCHIVE_STORE/${b}_extracted_results.tar.gz"
+    tar -cf "$ARCHIVE_STORE/${b}_meta.tar.part" -C "$dir" meta logs && mv -f "$ARCHIVE_STORE/${b}_meta.tar.part" "$ARCHIVE_STORE/${b}_meta.tar"
+    echo "$dest" > "$dir/meta/archive_location"
+    rm -f "$archive"
+    log "$dir: archive stored in $dest (scratch copy removed)"
 }
 
 # batch_unpack DIR ARCHIVE: the folder ready to run (prepared batches only)

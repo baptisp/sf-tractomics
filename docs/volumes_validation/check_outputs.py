@@ -157,6 +157,10 @@ def check(args):
     tables = {}
     for typ, fn in list(files_for(args.method).items()) + [("combined", COMBINED)]:
         path = f"{args.outdir}/metrics/{fn}"
+        if typ == "comparison" and args.no_comparison:
+            if os.path.isfile(path):
+                err(f"coverage: {fn} exists although --no-comparison was given")
+            continue
         if not os.path.isfile(path):
             err(f"coverage: {fn} is missing")
             continue
@@ -211,7 +215,7 @@ def check(args):
             for c in header:
                 if r[c] != "" or c in ("qc_flags", "duplicate_of", "t1_shared_with"):
                     continue
-                if c in ("volume_voxels", "volume_mm3"):
+                if c in ("volume_voxels", "volume_mm3", "volume_icv_fraction"):
                     label = {v: k for k, v in names.items()}.get(r["roi"])
                     if label not in MISSING[args.method][typ]:
                         err(f"empties: {typ} {r['sid']} {r['session']} {r['roi']} has no {c}")
@@ -356,4 +360,6 @@ if __name__ == "__main__":
     parser.add_argument("--participants", help="the participants_tsv the run was given")
     parser.add_argument("--fs-lut", help="FreeSurferColorLUT.txt, to check the region names")
     parser.add_argument("--other-outdir", help="SynthSeg output of the same inputs, for the pairing check")
+    parser.add_argument("--no-comparison", action="store_true",
+                        help="the run did not ask for comparison volumes: their files are not expected")
     sys.exit(check(parser.parse_args()))

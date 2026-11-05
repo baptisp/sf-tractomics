@@ -26,9 +26,17 @@ else
     SFT_PROFILE="apptainer,slurm,iit_tractometry"
     SFT_CONFIG="$PWD/configs/alliance.config"
     export NXF_APPTAINER_CACHEDIR="$PWD/containers"  # images (setup)
-    # Apptainer's own cache and build space default to $HOME, whose quota a few images fill
-    export APPTAINER_CACHEDIR="$PWD/.apptainer/cache"
-    export APPTAINER_TMPDIR="$PWD/.apptainer/tmp"
+    # Apptainer's cache and build space default to $HOME, whose quota a few images fill. In a job
+    # they go to the node's local disk: converting one image unpacks it there (the scilus image is
+    # over 100K files, which on scratch took most of the inode quota and ran slowly). Outside a job
+    # nothing is pulled, but the variables still point away from $HOME.
+    if [ -n "${SLURM_TMPDIR:-}" ]; then
+        export APPTAINER_CACHEDIR="$SLURM_TMPDIR/apptainer/cache"
+        export APPTAINER_TMPDIR="$SLURM_TMPDIR/apptainer/tmp"
+    else
+        export APPTAINER_CACHEDIR="$PWD/.apptainer/cache"
+        export APPTAINER_TMPDIR="$PWD/.apptainer/tmp"
+    fi
     mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
 fi
 export SFT_PROFILE SFT_CONFIG

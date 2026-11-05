@@ -18,6 +18,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Changed`
 
+- recon-all (`RECONALL_THICKNESS`) runs on one CPU instead of four: the module sets `OMP_NUM_THREADS` to the task's CPUs, and FreeSurfer's multithreaded steps are not reproducible from run to run. On ADNI it used about one core of the four anyway (2 h 20 per T1 on Fir). Changes the task's script, so recon-all runs again on a resumed run.
 - Subject-segmentation volume and HOC files are named after their source: `anat/<sample>_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv`, `anat/comparison/..._label-comparison_...`, `anat/<sample>_seg-<source>_desc-hoc.csv`, and `metrics/space-native_seg-<source>_...`; they used to take the atlas file names (`dwi/<sample>_atlas-iit-gm_desc-roi_volumes.csv`, `metrics/space-native_desc-hoc.csv`).
 
 ### `Fixed`

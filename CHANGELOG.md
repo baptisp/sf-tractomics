@@ -19,10 +19,12 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 ### `Changed`
 
 - recon-all (`RECONALL_THICKNESS`) asks for one CPU instead of four. Without `-openmp`, recon-all runs every step on one thread whatever `OMP_NUM_THREADS` says (checked in `recon-all.log` of ADNI runs with four CPUs: one thread everywhere), so three CPUs sat idle; results are unchanged. The task's script changes (`OMP_NUM_THREADS`), so recon-all runs again on a resumed run.
+- The IIT b0 and CSF atlas registrations (`REGISTER_IIT_REF`, `REGISTER_CSF_REF`) run on one thread. On six threads `antsRegistrationSyN.sh` gave a different warp on every run despite the fixed seed (two runs on the same b0: displacement 0.018 mm apart at the median, 2.2 mm at most; atlas volumes up to 2.9 % apart); on one thread the warp is bit-identical. About 9 min per ADNI b0. Both tasks run again on a resumed run.
 - Subject-segmentation volume and HOC files are named after their source: `anat/<sample>_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv`, `anat/comparison/..._label-comparison_...`, `anat/<sample>_seg-<source>_desc-hoc.csv`, and `metrics/space-native_seg-<source>_...`; they used to take the atlas file names (`dwi/<sample>_atlas-iit-gm_desc-roi_volumes.csv`, `metrics/space-native_desc-hoc.csv`).
 
 ### `Fixed`
 
+- `pipeline_revision` in the volume files ignores `cohort/` (the batch runner and its local settings): a commit there or a locally edited `cohort/config.env` no longer moves the revision or marks it `-modified`. The revision is the last commit that touched pipeline code.
 - With several sources in `--volume_source` (e.g. `atlas,reconall,synthseg`), the per-sample subject-region files were named after the whole list (`dwi/*_seg-atlas,reconall,synthseg_desc-roi_stats.tsv`); they now carry the source the metrics use, the first subject source (`seg-reconall`), as the merged `metrics/` files already did.
 - `docs/volumes_validation/check_outputs.py`: `--no-comparison` for runs without comparison volumes; the ICV fraction of a label the method cannot segment (SynthSeg choroid plexus) is expected empty.
 - `SEGMENTATION_RECONALLSEG` converts `aparc+aseg` with nibabel: `mri_convert` asked for a FreeSurfer licence the module did not have, so every `volume_source reconall` run failed. Its ICV is QC-flagged like SynthSeg's.

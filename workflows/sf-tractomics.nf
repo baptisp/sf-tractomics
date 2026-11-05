@@ -1353,13 +1353,16 @@ workflow SF_TRACTOMICS {
 
 }
 
+// cohort/ (batch runner and its local settings) is not pipeline code: a commit or a local edit there
+// changes no result, so it neither moves the revision nor marks it modified.
 def gitRevision(dir) {
     try {
-        def p = ["git", "-C", dir.toString(), "rev-parse", "--short", "HEAD"].execute()
+        def pipelineCode = [".", ":(exclude)cohort"]
+        def p = (["git", "-C", dir.toString(), "log", "-1", "--format=%h", "--"] + pipelineCode).execute()
         p.waitFor()
         def rev = p.text.trim()
         if (p.exitValue() != 0 || !rev) return null
-        def dirty = ["git", "-C", dir.toString(), "status", "--porcelain", "--untracked-files=no"].execute().text.trim()
+        def dirty = (["git", "-C", dir.toString(), "status", "--porcelain", "--untracked-files=no", "--"] + pipelineCode).execute().text.trim()
         return dirty ? "${rev}-modified" : rev
     } catch (Exception ignored) {
         return null

@@ -11,6 +11,7 @@
 #                Nextflow head job (cluster) or Nextflow in the foreground (vitalTour, use tmux).
 #                With batches: a Slurm array, one task per batch not done with PASS, at most
 #                MAX_UNPACKED at once; each task unpacks its batch, runs PASS and packs it again.
+#                BATCHES="b0001 b0002" limits it to those batches; FORCE=1 reruns done ones.
 #   status       jobs in the queue, then per launch folder: passes done, state, last log
 #   merge        batches only: the batches' metrics tables, concatenated into merged/
 # Records: logs/run_info.txt (everything run.sh and the jobs do), meta/ of each launch folder.
@@ -92,7 +93,12 @@ submit)
         on_cluster || die "batch mode needs Slurm (an Alliance cluster)"
         python3 scripts/make_batches.py "$BATCH_SIZE" || die "batches/list.tsv could not be built"
         list="logs/submit_${pass}_$(date +%Y%m%d%H%M%S).list"
-        for b in $(cut -f1 batches/list.tsv | uniq); do
+        all=$(cut -f1 batches/list.tsv | uniq)
+        for b in ${BATCHES:-}; do
+            echo "$all" | grep -qx "$b" || die "BATCHES: $b is not in batches/list.tsv"
+        done
+        for b in $all; do
+            [ -z "${BATCHES:-}" ] || echo " $BATCHES " | grep -q " $b " || continue
             if [ "${FORCE:-0}" = 1 ] || ! grep -qx "$pass" "batches/$b/meta/passes_done" 2>/dev/null; then
                 echo "$b"
             fi

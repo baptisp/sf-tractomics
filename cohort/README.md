@@ -93,7 +93,7 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   subject, until a batch holds `BATCH_SIZE` sessions. Once written, the list never changes. New
   subjects go to new batches; a subject removed from `inputs/participants.tsv` is an error.
 - **One job per batch and pass.** `./run.sh submit PASS` submits a Slurm array with one task per
-  batch that hasn't done PASS (`FORCE=1` to rerun them), at most `MAX_UNPACKED` at once. Set it from
+  batch that hasn't done PASS (`FORCE=1` to rerun them; `BATCHES="b0001 b0002"` for those batches only), at most `MAX_UNPACKED` at once. Set it from
   the free inodes divided by the inodes of one unpacked batch. Each task does:
   1. lock the batch;
   2. the first time, copy its subjects' sessions from `INPUT_BIDS` (or extract

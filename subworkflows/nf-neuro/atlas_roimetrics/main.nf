@@ -46,6 +46,7 @@ workflow ATLAS_ROIMETRICS {
         // must populate these before the statistics section runs.
         ch_masks_subject_space = channel.empty()  // [meta, [masks]]
         ch_labelmap_with_lut   = channel.empty()  // [meta, labelmap, lut]
+        ch_atlas_b0_warped     = channel.empty()  // [meta, atlas b0 in subject space], for the registration QC
 
         if (options.use_atlas_iit) {
             ATLAS_IIT(
@@ -69,6 +70,7 @@ workflow ATLAS_ROIMETRICS {
                 .map{ meta, subject_ref, template_ref -> [meta, subject_ref, template_ref, []] }
             REGISTER_IIT_REF(ch_input_register_atlas)
             ch_versions = ch_versions.mix(REGISTER_IIT_REF.out.versions)
+            ch_atlas_b0_warped = REGISTER_IIT_REF.out.image_warped
 
             if (want_masks) {
                 // Apply the transformation to subject space to the bundle masks
@@ -192,6 +194,8 @@ workflow ATLAS_ROIMETRICS {
         labelmap_stats_tab_mean = ch_labelmap_stats_mean
         labelmap_stats_tab_std  = ch_labelmap_stats_std
         labelmap_volumes        = ch_labelmap_volumes
+
+        atlas_b0_warped         = ch_atlas_b0_warped      // empty unless the IIT atlas is registered here
 
         versions                = ch_versions
 }

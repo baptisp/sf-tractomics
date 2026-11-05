@@ -1112,6 +1112,16 @@
                     "help_text": "Run atlas-based ROI metrics. The atlas used must be specified using one of the 'use_atlas_*' parameters.",
                     "default": false
                 },
+                "atlas_min_registration_corr": {
+                    "type": "number",
+                    "description": "Atlas registration QC: a DWI run whose warped IIT b0 correlates with its own b0 (inside its brain mask) below this value is flagged 'misaligned'.",
+                    "default": 0.6
+                },
+                "atlas_min_brain_dice": {
+                    "type": "number",
+                    "description": "Atlas registration QC: a DWI run whose warped atlas brain overlaps its brain mask (Dice) below this value is flagged 'brain_mismatch'.",
+                    "default": 0.85
+                },
                 "run_roi_metrics": {
                     "type": "boolean",
                     "description": "Master switch: extract FA/MD/RD/AD/AFD for all region types (WM, GM, CSF). Equivalent to enabling run_wm_metrics + run_gm_metrics + run_csf_metrics together.",

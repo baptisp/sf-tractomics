@@ -95,6 +95,23 @@ Reuses the warped FreeSurfer atlas to extract metrics across GM subcortical stru
 - `dwi/comparison/<subject>_atlas-freesurfer-comparison_desc-roi_volumes.csv`
 - `metrics/comparison/space-native_atlas-freesurfer-comparison_desc-roi_volumes.csv`
 
+## Atlas registration QC
+
+Written whenever an atlas is registered to a DWI run: the IIT atlas (`--run_atlas_roimetrics`, WM
+bundles and GM regions) and the CSF atlas (CSF and comparison metrics or volumes). Each has its own
+ANTs registration of the IIT mean b0 onto the run's b0, which places all of its regions; the check
+compares the warped IIT b0 with that b0. A flagged run keeps its rows (nothing fails); the run log
+lists the flagged runs.
+
+- `dwi/<sample>_atlas-iit_desc-registration_qc.csv`, `dwi/<sample>_atlas-freesurfer-csf_desc-registration_qc.csv` — one row: `sid, session, run, registration` (`iit` or `csf`), `atlas_b0_corr` (correlation of the warped IIT b0 with the run's b0 inside the run's brain mask), `brain_dice` (Dice of the warped atlas brain, IIT b0 above 10 % of its mean, with the brain mask), `qc_flags`: `misaligned` (`atlas_b0_corr` < `--atlas_min_registration_corr`, 0.6), `brain_mismatch` (`brain_dice` < `--atlas_min_brain_dice`, 0.85), `empty`.
+- `metrics/space-native_desc-atlasregistration_qc.csv` — all runs merged
+
+On 4 OASIS-3 sessions `atlas_b0_corr` was 0.77–0.79 and `brain_dice` 0.94–0.95; the same warps
+shifted by 2, 4 and 8 mm gave a correlation of 0.70, 0.54 and 0.34 (Dice 0.94, 0.93, 0.89). The
+correlation catches a misplacement of a few millimetres, the Dice only a gross failure. The b0
+contrast differs between scanners: check the distribution on a new cohort before trusting the
+default threshold.
+
 ## Volume source
 
 The GM, CSF and comparison volume files above are the atlas ones. `--volume_source` lists the sources (several, comma-separated, to compare them); each writes its own files:

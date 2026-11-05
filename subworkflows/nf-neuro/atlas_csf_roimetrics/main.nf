@@ -202,5 +202,6 @@ workflow ATLAS_CSF_ROIMETRICS {
         comparison_stats_tab_mean   = ch_comparison_stats_mean
         comparison_stats_tab_std    = ch_comparison_stats_std
         comparison_volumes          = ch_comparison_volumes
+        atlas_b0_warped             = REGISTER_CSF_REF.out.image_warped   // [meta, IIT b0 in subject space]
         versions                    = ch_versions
 }

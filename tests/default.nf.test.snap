@@ -34,6 +34,9 @@
                 "MASK_T2W": {
                     "mrtrix": "3.0.5"
                 },
+                "QC_ATLASREG_IIT": {
+                    "mrtrix": "stub"
+                },
                 "RECONST_DTIMETRICS": {
                     "scilpy": "2.2.2",
                     "mrtrix": "3.0.7",
@@ -115,6 +118,7 @@
                 "metrics/bundles_mean_stats.tsv",
                 "metrics/dwi_input_report.tsv",
                 "metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv",
+                "metrics/space-native_desc-atlasregistration_qc.csv",
                 "multiqc",
                 "multiqc/global_multiqc_data",
                 "multiqc/global_multiqc_plots",
@@ -141,6 +145,7 @@
                 "sub-test-1/dwi/bundles/sub-test-1_space-orig_tract-ArcuateFasciculus_hemi-left_track-sdstream_tractogram.trk",
                 "sub-test-1/dwi/sub-test-1_atlas-iit-wm_desc-roi_stats.tsv",
                 "sub-test-1/dwi/sub-test-1_atlas-iit-wm_label-std_desc-roi_stats.tsv",
+                "sub-test-1/dwi/sub-test-1_atlas-iit_desc-registration_qc.csv",
                 "sub-test-1/dwi/sub-test-1_desc-brain_mask.nii.gz",
                 "sub-test-1/dwi/sub-test-1_desc-ensemble_tractogram.trk",
                 "sub-test-1/dwi/sub-test-1_desc-fodfthreshold.csv",
@@ -222,7 +227,7 @@
                 "sub-test-1/xfm/sub-test-1_from-dwi_to-T1w_mode-image_desc-warp_xfm.nii.gz"
             ]
         ],
-        "timestamp": "2026-10-30T16:57:05.857153642",
+        "timestamp": "2026-11-04T22:38:50.424051858",
         "meta": {
             "nf-test": "0.9.5",
             "nextflow": "26.04.4"

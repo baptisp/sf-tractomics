@@ -13,6 +13,8 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 - `--run_hippocampal_subfields`: hippocampal subfields and amygdala nuclei (FreeSurfer 7 `segment_subregions hippo-amygdala`, no MATLAB) on the pipeline's recon-all, in `anat/*_seg-reconall_desc-hippoamyg_volumes.csv` with eTIV. New modules `SEGMENTATION_HIPPOAMYG`, `STATS_HIPPOAMYG`.
 - `--run_dwi_processing false`: only the T1 branch runs (subject-segmentation volumes, HOC, recon-all, thickness, subfields); a later run with `true` and `-resume` reuses it and adds the DWI outputs.
 
+- Atlas registration QC (new module `QC_ATLASREGISTRATION`): for every DWI run and each atlas registration (IIT regions, CSF atlas), the correlation of the warped IIT b0 with the run's b0 and the Dice of the atlas brain with the brain mask, flagged `misaligned` / `brain_mismatch` below `--atlas_min_registration_corr` (0.6) / `--atlas_min_brain_dice` (0.85), in `dwi/*_atlas-{iit,freesurfer-csf}_desc-registration_qc.csv` and `metrics/space-native_desc-atlasregistration_qc.csv`; flagged runs are listed in the log. The atlas registrations had no automatic check.
+
 ### `Changed`
 
 - Subject-segmentation volume and HOC files are named after their source: `anat/<sample>_seg-<source>_label-{gm,csf}_desc-roi_volumes.csv`, `anat/comparison/..._label-comparison_...`, `anat/<sample>_seg-<source>_desc-hoc.csv`, and `metrics/space-native_seg-<source>_...`; they used to take the atlas file names (`dwi/<sample>_atlas-iit-gm_desc-roi_volumes.csv`, `metrics/space-native_desc-hoc.csv`).

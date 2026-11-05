@@ -108,6 +108,13 @@ nextflow_pipeline {
                 // one volume task per sample and subject source, one HOC per subject source
                 { assert tasks("STATS_SUBJECT_GM_VOLUMES").size() == 2 },
                 { assert tasks("STATS_HOC").size() == 2 },
+                // one registration QC per sample and atlas registration (IIT regions, CSF atlas)
+                { assert tasks("QC_ATLASREG_IIT").size() == 1 },
+                { assert tasks("QC_ATLASREG_CSF").size() == 1 },
+                { assert "sub-test-1/dwi/sub-test-1_atlas-iit_desc-registration_qc.csv" in files },
+                { assert "sub-test-1/dwi/sub-test-1_atlas-freesurfer-csf_desc-registration_qc.csv" in files },
+                { assert path("${params.outdir}/metrics/space-native_desc-atlasregistration_qc.csv").readLines()[0] ==
+                         "sid,session,run,registration,atlas_b0_corr,brain_dice,qc_flags" },
                 { assert "metrics/space-native_atlas-iit-gm_desc-roi_volumes.csv" in files },
                 { assert "metrics/space-native_seg-synthseg_label-gm_desc-roi_volumes.csv" in files },
                 { assert "metrics/space-native_seg-reconall_label-gm_desc-roi_volumes.csv" in files },

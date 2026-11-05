@@ -46,6 +46,8 @@ include { TEMPLATE_IITBUNDLES    } from '../modules/local/template/iitbundles/ma
 include { TEMPLATE_FCBUNDLEFIXELS } from '../modules/local/template/fcbundlefixels/main'
 include { REGISTRATION_FODTEMPLATE } from '../modules/local/registration/fodtemplate/main'
 include { STATS_FIBRECROSSSECTION } from '../modules/local/stats/fibrecrosssection/main'
+include { QC_ATLASREGISTRATION as QC_ATLASREG_IIT } from '../modules/local/qc/atlasregistration/main'
+include { QC_ATLASREGISTRATION as QC_ATLASREG_CSF } from '../modules/local/qc/atlasregistration/main'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -755,6 +757,11 @@ workflow SF_TRACTOMICS {
             }
     }
 
+    // Atlas registration QC rows, one per DWI run and registration: [meta, csv]
+    ch_atlas_registration_qc = channel.empty()
+    // [meta, b0, brain mask] with the meta the atlas subworkflows give their outputs
+    ch_atlas_qc_reference = mergeCovariatesIntoMeta(TRACTOFLOW.out.b0.join(TRACTOFLOW.out.b0_mask), ch_covariates)
+
     if ( params.run_atlas_roimetrics && roi_sources && roi_outputs ) {
         ATLAS_ROIMETRICS(
             mergeCovariatesIntoMeta(TRACTOFLOW.out.b0, ch_covariates),
@@ -775,6 +782,15 @@ workflow SF_TRACTOMICS {
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_ROIMETRICS.out.versions)
+
+        // The warped IIT b0 against the run's b0: one registration places every IIT region
+        QC_ATLASREG_IIT(
+            ch_atlas_qc_reference
+                .join(ATLAS_ROIMETRICS.out.atlas_b0_warped)
+                .map { meta, b0, mask, atlas_b0 -> [meta, b0, atlas_b0, mask] }
+        )
+        ch_versions = ch_versions.mix(QC_ATLASREG_IIT.out.versions.first())
+        ch_atlas_registration_qc = ch_atlas_registration_qc.mix(QC_ATLASREG_IIT.out.qc)
 
         if ( do_wm_metrics ) {
             if ( do_wm_volumes ) {
@@ -914,6 +930,15 @@ workflow SF_TRACTOMICS {
             ]
         )
         ch_versions = ch_versions.mix(ATLAS_CSF_ROIMETRICS.out.versions)
+
+        // The CSF atlas has its own registration of the IIT b0: checked the same way
+        QC_ATLASREG_CSF(
+            ch_atlas_qc_reference
+                .join(ATLAS_CSF_ROIMETRICS.out.atlas_b0_warped)
+                .map { meta, b0, mask, atlas_b0 -> [meta, b0, atlas_b0, mask] }
+        )
+        ch_versions = ch_versions.mix(QC_ATLASREG_CSF.out.versions.first())
+        ch_atlas_registration_qc = ch_atlas_registration_qc.mix(QC_ATLASREG_CSF.out.qc)
 
         if ( do_csf_atlas_volumes ) {
             ch_csf_volumes = ATLAS_CSF_ROIMETRICS.out.volumes
@@ -1090,6 +1115,17 @@ workflow SF_TRACTOMICS {
                                 "${params.outdir}/metrics", params.allow_missing_volumes == true, 3)
         }
     }
+
+    collectSampleCsvs(ch_atlas_registration_qc, "space-native_desc-atlasregistration_qc.csv", "${params.outdir}/metrics/")
+    ch_atlas_registration_qc
+        .flatMap { _meta, csv -> csv.readLines().drop(1) }
+        .filter { row -> row.split(",", -1)[-1] }
+        .collect()
+        .subscribe { rows ->
+            log.warn "Atlas registration QC flagged ${rows.size()} run(s) (sid,session,run,registration,corr,dice,flags: " +
+                     "${rows.take(3).join(' | ')}): their atlas regions (WM bundles, GM and CSF atlas regions) may be " +
+                     "misplaced. See metrics/space-native_desc-atlasregistration_qc.csv."
+        }
 
     // Atlas CSF and comparison volumes: their own files, also when a metrics table carries them
     if ( do_csf_atlas_volumes ) {

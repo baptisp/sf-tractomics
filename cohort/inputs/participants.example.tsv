@@ -1,0 +1,3 @@
+participant_id	session	run	site	age	sex	handedness	disease
+sub-EXAMPLE01	20240101	1	siteA	70.0	1	1	HC
+sub-EXAMPLE01	20250101	1	siteA	71.0	1	1	HC

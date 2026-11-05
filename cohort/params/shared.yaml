@@ -1,0 +1,22 @@
+# Parameters of EVERY pass. Every parameter that changes a task an early pass computes lives here,
+# so later passes reuse those tasks (-resume) instead of computing them again: preprocessing
+# (eddy options, b0 threshold), the fODF (shells, sh_order: TractoFlow fits it in every pass), the
+# volume sources and the atlas. scripts/passes.py builds the parameters of pass k = paths + this
+# file + passes 1..k, and refuses a pass that sets a parameter of this file.
+# Values are those of the vitalTour ADNI test (test_adni_volumes/params/02_full.yaml).
+
+# Settings of the OASIS-3 runs that passed the pipeline
+b0_thr_extract_b0: 10
+max_dti_shell_value: 1500
+eddy_extra_args: "--b_range=25"
+
+# fODF on b0 + b1000 only, sh_order 6, for every ADNI protocol (some b1000 shells hold 32 volumes;
+# sh_order 8 needs 45)
+fodf_shells: "1000"
+sh_order: 6
+
+# Volumes from three sources side by side (source column): recon-all (main), SynthSeg, IIT atlas
+volume_source: "atlas,reconall,synthseg"
+run_atlas_roimetrics: true
+
+run_merge_all_stats: true

@@ -1,0 +1,13 @@
+# Pass 1: volumes. GM regions and ventricles from the T1 (recon-all, SynthSeg; atlas GM regions on the
+# b0), WM bundles from the IIT atlas registered to the b0, so the DWI is preprocessed in this pass.
+# Diffusion metrics are left for later passes.
+run_gm_volumes: true
+run_csf_volumes: true                # ventricles, CSF
+run_csf_comparison_volumes: true     # subcortical GM, cerebral WM and ventricles, every source
+run_wm_volumes: true                 # IIT WM bundles
+run_hoc: true
+run_hippocampal_subfields: true
+
+# The iit_tractometry profile turns these on; they are diffusion metrics, a later pass
+run_noddi: false
+run_freewater: false

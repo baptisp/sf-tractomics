@@ -1,0 +1,17 @@
+# Pass 2: diffusion metrics, on top of pass 1 (passes accumulate: pass 2 runs with pass 1's
+# parameters too, so its volumes are reused, not computed again, and stay in the combined tables).
+
+# Diffusion metrics in the atlas regions (WM bundles, GM, CSF and comparison regions)
+run_roi_metrics: true
+run_roi_volumes: true
+run_csf_comparison_roimetrics: true
+# 7 of the 10 ADNI samples are multi-shell b500/1000/2000: NODDI is valid on them
+run_freewater: true
+run_noddi: true
+
+# Diffusion metrics in the subject's own regions (recon-all aparc+aseg), cortical thickness and
+# cortical diffusion on the recon-all surfaces (the recon-all of pass 1, reused)
+run_subject_roi_metrics: true
+subject_roi_min_fraction: 0          # fraction-weighted means
+run_cortical_thickness: true
+run_cortical_surface_metrics: true

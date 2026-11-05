@@ -1,0 +1,24 @@
+# Created by setup and the runs (never committed)
+bin/
+.nextflow_home/
+.nextflow/
+.nextflow.log*
+.atlas_cache/
+.apptainer/
+.preview/
+containers/
+data_bids/
+work/
+out/
+logs/
+meta/
+batches/
+archives/
+merged/
+merged.tmp/
+__pycache__/
+# Participant data and the licence stay on the machine: the fork is public
+inputs/*
+!inputs/participants.example.tsv
+inputs_transfer/
+license_freesurfer.txt

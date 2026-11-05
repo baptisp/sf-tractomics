@@ -25,6 +25,10 @@ batch_lock "$dir"
 trap 'batch_unlock "$dir"' EXIT
 trap 'stop_nextflow "$dir"' USR1
 
+# A job of this batch cancelled or killed outright (scancel, node failure: no walltime warning, so no
+# pack) can leave its task jobs running, writing into work/: none may run while this job resumes
+wait_task_jobs "$SFT_TAG"
+
 if [ -z "$(state_get "$dir")" ]; then
     mapfile -t subjects < <(awk -F'\t' -v b="$batch" '$1 == b { print $2 }' "$SFT_ROOT/batches/list.tsv")
     [ "${#subjects[@]}" -gt 0 ] || die "$batch has no subject in batches/list.tsv"

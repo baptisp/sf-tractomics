@@ -104,23 +104,6 @@ batch_unpack() {
     log "$dir: unpacked from $archive"
 }
 
-# wait_task_jobs TAG: no task job of this batch left in the queue. A head job killed at its walltime
-# can leave task jobs writing into work/; they are cancelled before the folder is packed.
-wait_task_jobs() {
-    local tag=$1 ids i
-    command -v squeue >/dev/null 2>&1 || return 0
-    for i in $(seq 1 60); do
-        ids=$(squeue -h -u "$USER" -o "%i %k" | awk -v t="$tag" '$2 == t { print $1 }')
-        [ -z "$ids" ] && return 0
-        if [ "$i" = 1 ]; then
-            log "cancelling task jobs left by $tag: $(echo $ids)"
-            scancel $ids || true
-        fi
-        sleep 10
-    done
-    die "task jobs of $tag still in the queue after 10 min: not packing"
-}
-
 # batch_pack DIR ARCHIVE TAG: everything Nextflow needs in one verified archive, then removed
 batch_pack() {
     local dir=$1 archive=$2 tag=$3 items n_files n_entries

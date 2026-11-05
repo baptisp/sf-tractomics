@@ -167,6 +167,24 @@ run_pass_guarded() {
     return "$rc"
 }
 
+# wait_task_jobs TAG: no task job of this batch left in the queue. A head job killed at its walltime,
+# cancelled or lost with its node can leave task jobs writing into work/; they are cancelled before
+# the folder is packed, and before a later job of the batch resumes it.
+wait_task_jobs() {
+    local tag=$1 ids i
+    command -v squeue >/dev/null 2>&1 || return 0
+    for i in $(seq 1 60); do
+        ids=$(squeue -h -u "$USER" -o "%i %k" | awk -v t="$tag" '$2 == t { print $1 }')
+        [ -z "$ids" ] && return 0
+        if [ "$i" = 1 ]; then
+            log "cancelling task jobs left by $tag: $(echo $ids)"
+            scancel $ids || true
+        fi
+        sleep 10
+    done
+    die "task jobs of $tag still in the queue after 10 min: not packing"
+}
+
 # stop_nextflow DIR: ask the running Nextflow of DIR to stop (it cancels its task jobs and keeps its
 # cache); used on the walltime warning
 stop_nextflow() {

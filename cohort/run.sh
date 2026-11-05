@@ -29,7 +29,9 @@ export BATCH
 mkdir -p logs
 source scripts/lib.sh
 
-JOB_TIME="2-00:00:00"   # head and batch jobs: recon-all (~7 h per T1) and eddy on CPU dominate
+# Head and batch jobs: recon-all (~7 h per T1) and eddy on CPU dominate. JOB_TIME=... ./run.sh submit
+# sets another walltime (tests of the walltime warning; above 30 min, when the warning comes)
+JOB_TIME="${JOB_TIME:-2-00:00:00}"
 JOB_NAME="sft-$COHORT_NAME"
 
 on_cluster() { [ "$MACHINE" != vitaltour ]; }

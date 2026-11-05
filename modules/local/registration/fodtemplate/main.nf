@@ -45,8 +45,10 @@ process REGISTRATION_FODTEMPLATE {
         exit 1
     fi
 
+    # One thread, whatever task.cpus: mrregister on several threads gives a different warp for
+    # identical inputs (log FC up to 0.0016 apart between two runs); on one thread, the same warp
     mrregister -quiet ${fod} -mask1 ${mask} ${template}/fod_template.mif -mask2 ${template}/template_mask.mif \\
-        -nl_warp ${prefix}__subject2template.mif template2subject.mif -nthreads ${task.cpus}
+        -nl_warp ${prefix}__subject2template.mif template2subject.mif -nthreads 1
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

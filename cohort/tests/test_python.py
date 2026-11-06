@@ -1,4 +1,4 @@
-"""Tests of scripts/passes.py, scripts/make_batches.py and scripts/merge_batches.py, each run on a copy of the repository's
+"""Tests of scripts/passes.py, make_batches.py, merge_batches.py and failure_report.py, each run on a copy of the repository's
 layout in a temporary folder (the scripts find their files from their own location).
 
 Run: python3 tests/test_python.py      (no cluster, no pipeline needed)
@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parent.parent
 def make_root(tmp, shared, passes, participants=None):
     root = Path(tmp)
     (root / "scripts").mkdir()
-    for script in ("passes.py", "make_batches.py", "merge_batches.py"):
+    for script in ("passes.py", "make_batches.py", "merge_batches.py", "failure_report.py"):
         shutil.copy(REPO / "scripts" / script, root / "scripts" / script)
     (root / "params" / "passes").mkdir(parents=True)
     (root / "params" / "shared.yaml").write_text(shared)
@@ -188,6 +188,65 @@ class TestMerge(unittest.TestCase):
             r = run(root, "merge_batches.py")
             self.assertEqual(r.returncode, 1)
             self.assertIn("headers differ between batches: vol.tsv", r.stdout)
+
+
+class TestFailureReport(unittest.TestCase):
+    """A run's tasks failed for good, read from its trace and the work folders' scripts."""
+
+    TRACE_HEADER = "task_id\thash\tnative_id\tname\tstatus\texit\n"
+    P = "SF:TRACTOFLOW:PREPROC_T1:"
+
+    def task(self, work, hash_, script, err=""):
+        d = work / hash_.split("/")[0] / (hash_.split("/")[1] + "0123456789abcdef")
+        d.mkdir(parents=True)
+        (d / ".command.sh").write_text(script)
+        (d / ".command.err").write_text(err)
+
+    def report(self, root, rows):
+        (root / "trace.txt").write_text(self.TRACE_HEADER + "".join("\t".join(r) + "\n" for r in rows))
+        r = run(root, "failure_report.py", str(root / "trace.txt"), str(root / "work"),
+                str(root / "out" / "metrics" / "failed_tasks.tsv"), "--batch", "b0010", "--pass", "1_volumes",
+                "--run", "sft-1-volumes-1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = (root / "out" / "metrics" / "failed_tasks.tsv").read_text().splitlines()
+        return r.stdout.split(), [dict(zip(lines[0].split("\t"), line.split("\t"))) for line in lines[1:]]
+
+    def test_only_the_tasks_whose_last_attempt_failed_are_listed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, SHARED, {})
+            work = root / "work"
+            # session A: brain extraction fails for good (2 attempts); session B: same process and
+            # subject, fails once (memory) then completes; session C: completes
+            self.task(work, "aa/000001", "bet sub-1_ses-A__image_n4.nii.gz", "warning\n\nSegmentation fault (core dumped)\n")
+            self.task(work, "aa/000002", "bet sub-1_ses-A__image_n4.nii.gz", "Segmentation fault (core dumped)\n")
+            self.task(work, "bb/000001", "bet sub-1_ses-B__image_n4.nii.gz", "Killed\n")
+            self.task(work, "bb/000002", "bet sub-1_ses-B__image_n4.nii.gz")
+            self.task(work, "cc/000001", "eddy sub-1_ses-C_run-02_dwi.nii.gz")
+            n, rows = self.report(root, [
+                ["1", "aa/000001", "11", self.P + "BETCROP_ANTSBET (sub-1)", "FAILED", "1"],
+                ["2", "bb/000001", "12", self.P + "BETCROP_ANTSBET (sub-1)", "FAILED", "137"],
+                ["3", "cc/000001", "13", "SF:PREPROC_EDDY (sub-1)", "COMPLETED", "0"],
+                ["4", "bb/000002", "14", self.P + "BETCROP_ANTSBET (sub-1)", "COMPLETED", "0"],
+                ["5", "aa/000002", "15", self.P + "BETCROP_ANTSBET (sub-1)", "FAILED", "1"],
+            ])
+            self.assertEqual(n, ["1", "1"])
+            self.assertEqual(len(rows), 1)
+            row = rows[0]
+            self.assertEqual((row["batch"], row["pass"], row["subject"], row["session"], row["run"]),
+                             ("b0010", "1_volumes", "sub-1", "A", ""))
+            self.assertEqual((row["process"], row["exit"], row["attempts"]), ("BETCROP_ANTSBET", "1", "2"))
+            self.assertEqual(row["error"], "Segmentation fault (core dumped)")
+            self.assertEqual(row["workdir"], "work/aa/0000020123456789abcdef")
+
+    def test_runs_are_read_as_numbers_and_nothing_failed_still_writes_the_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, SHARED, {})
+            self.task(root / "work", "dd/000001", "eddy sub-1_ses-A_run-02_dwi.nii.gz sub-1_ses-A_run-2__b0.nii.gz", "x\n")
+            n, rows = self.report(root, [["1", "dd/000001", "1", "SF:PREPROC_EDDY (sub-1)", "FAILED", "1"]])
+            self.assertEqual((n, rows[0]["run"], rows[0]["process"]), (["1", "1"], "2", "PREPROC_EDDY"))
+            n, rows = self.report(root, [["1", "dd/000001", "1", "SF:PREPROC_EDDY (sub-1)", "COMPLETED", "0"]])
+            self.assertEqual((n, rows), (["0", "0"], []))
+            self.assertTrue((root / "out" / "metrics" / "failed_tasks.tsv").read_text().startswith("batch\tpass\t"))
 
 
 if __name__ == "__main__":

@@ -109,6 +109,18 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   3. run the pass;
   4. pack, even after a failure;
   5. unlock.
+- **A failed session does not stop the others.** A task that still fails after its retries
+  (memory, time, node: see `configs/*.config`) is left (`errorStrategy 'ignore'`), so the other
+  sessions of its batch finish. Each run lists those tasks in `out/metrics/failed_tasks.tsv` (also
+  `logs/failed_tasks_<pass>_<job>.tsv`): batch, pass, run name, subject, session, run, process,
+  exit status, attempts, last error line and work folder, one row per task. The file is in the
+  archive and the extracted results, and `./run.sh merge` gathers it into
+  `merged/failed_tasks.tsv`; the sessions left without volumes are in
+  `metrics/volumes_missing_samples.txt` (`allow_missing_volumes: true` in `params/shared.yaml`).
+  The pass counts as done, so a later pass goes on with the other sessions (and tries the failed
+  tasks again: a failure is not cached). When more than `MAX_FAILED_FRACTION` (default 0.5) of a
+  batch's sessions failed, the cause is a bug rather than a session: the pass is not marked done.
+  Once a failure is fixed, rerun the batch with `FORCE=1 BATCHES="bNNNN" ./run.sh --batch submit PASS`.
 - **What is packed.** `.nextflow/`, `work/`, `.atlas_cache/`, `data_bids/` and `out/` go into
   `archives/bNNNN.tar`; `meta/` and `logs/` stay. Results are published as hard links into `work/`,
   which tar stores once, so `out/` costs the archive almost nothing, and after an unpack its files

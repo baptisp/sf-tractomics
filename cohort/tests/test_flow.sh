@@ -49,12 +49,19 @@ done
 [ -n "$session" ] || session=$(cat /proc/sys/kernel/random/uuid)
 mkdir -p .nextflow work/aa out
 printf '2026-11-05\t1s\t%s\tOK\tabc\t%s\tnextflow run\n' "$name" "$session" >> .nextflow/history
-printf 'task_id\thash\tname\tstatus\n' > "$trace"
+printf 'task_id\thash\tname\tstatus\texit\n' > "$trace"
 if grep -q run_roi_metrics "$params"; then
     printf '1\taa\tVOLUMES (sub-A)\t%s\n2\tbb\tMETRICS (sub-A)\tCOMPLETED\n' "${FAKE_VOLUMES_STATUS:-CACHED}" >> "$trace"
 else
     printf '1\taa\tVOLUMES (sub-A)\tCOMPLETED\n' >> "$trace"
 fi
+# FAKE_FAIL=n: the brain extraction of sessions 1..n fails for good (errorStrategy 'ignore')
+for s in $(seq 1 "${FAKE_FAIL:-0}"); do
+    mkdir -p "work/f$s/0123456789"
+    echo "bet sub-A_ses-${s}__image_n4.nii.gz" > "work/f$s/0123456789/.command.sh"
+    printf 'antsAI\nSegmentation fault (core dumped)\n' > "work/f$s/0123456789/.command.err"
+    printf '%s\tf%s/012345\tPREPROC_T1:BETCROP_ANTSBET (sub-A)\tFAILED\t1\n' "$((10 + s))" "$s" >> "$trace"
+done
 echo "$name" > work/aa/out.txt
 mkdir -p out/metrics && ln -f work/aa/out.txt out/metrics/volumes.tsv
 exit "${FAKE_RC:-0}"
@@ -149,6 +156,18 @@ check "a failed run returns its status" [ "$rc" != 0 ]
 check "a failed run is packed" [ "$(cat "$D/meta/state")" = packed ]
 check "a failed run is not recorded as done" bash -c "! grep -qx 2_metrics '$D/meta/passes_done'"
 check "the lock is released after every job" [ ! -e "$D/meta/lock" ]
+
+# A failed session no longer fails the pass: listed in out/metrics/failed_tasks.tsv, the pass done.
+# Every session failed (more than MAX_FAILED_FRACTION): a bug, the pass not done.
+FAKE_FAIL=2 job 2_metrics 120; rc=$?
+check "failures: every session failed fails the pass" bash -c "[ $rc != 0 ] && ! grep -qx 2_metrics '$D/meta/passes_done' && grep -q 'not marked done' '$T/job_120.log'"
+FAKE_FAIL=1 job 2_metrics 121; rc=$?
+check "failures: one failed session of two, the pass is done" bash -c "[ $rc = 0 ] && grep -qx 2_metrics '$D/meta/passes_done' && grep -q '1 task(s) failed, 1 of 2 session(s)' '$T/job_121.log'"
+tar -xzf "$D/extracted_results.tar.gz" -C "$T" metrics/failed_tasks.tsv 2>/dev/null
+check "failures: the table lists the session and its error, in the extracted results" \
+    bash -c "[ \$(wc -l < '$T/metrics/failed_tasks.tsv') = 2 ] && grep -qP '^b0001\t2_metrics\tsft-2-metrics-121\tsub-A\t1\t\tBETCROP_ANTSBET\t1\t1\tSegmentation fault \\(core dumped\\)\twork/f1/0123456789$' '$T/metrics/failed_tasks.tsv'"
+check "failures: a copy of the table in logs/" [ -s "$D/logs/failed_tasks_2_metrics_121.tsv" ]
+check "failures: the table is in the archive" bash -c "tar -tf '$R/archives/b0001.tar' | grep -qx out/metrics/failed_tasks.tsv"
 
 # Every pass done: the archive leaves scratch for ARCHIVE_STORE, with its extracted results and
 # meta/; a later run unpacks from the store and stores the new archive over the old one

@@ -20,3 +20,9 @@ volume_source: "atlas,reconall,synthseg"
 run_atlas_roimetrics: true
 
 run_merge_all_stats: true
+
+# A session whose task failed (left by errorStrategy 'ignore', configs/*.config) has no volumes:
+# listed in metrics/volumes_missing_samples.txt and the log (warning), its failed task in
+# metrics/failed_tasks.tsv, instead of failing the run of every other session. Read by the
+# workflow only, never by a task: changing it recomputes nothing.
+allow_missing_volumes: true

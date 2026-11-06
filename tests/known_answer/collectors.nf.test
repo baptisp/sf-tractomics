@@ -63,13 +63,13 @@ nextflow_workflow {
                 "sub-03,ses-03,1,Left-Hippocampus,4200,4200.0000,synthseg,1600000.0000,0.00262500,0.8000,icv_drift,Siemens Prisma 3T,,,test-rev"
             ]
 
-            // F: the atlas region with 0 voxels keeps its row, volume 0 and metrics empty; the revision
-            // of the volume CSV is carried into every row
+            // F: the atlas region with 0 voxels keeps its row, volume 0, metrics empty and the sample's
+            // covariates; the run's revision is in every row (the per-sample volume CSV has none)
             assert lines("F_atlas.tsv") == [
                 "sid\tsession\trun\troi\tregion_type\tage\tfa\tvolume_voxels\tvolume_mm3\tvolume_source\ticv_mm3\tvolume_icv_fraction\tqc_score\tqc_flags\tscanner\tduplicate_of\tt1_shared_with\tpipeline_revision",
                 "sub-01\tses-01\t1\tLeft-Hippocampus\tGM_region\t70\t0.31\t100\t100.0000\tatlas\t\t\t\t\t\t\t\ttest-rev",
                 "sub-01\tses-01\t1\tctx-lh-precuneus\tGM_region\t70\t0.21\t50\t50.0000\tatlas\t\t\t\t\t\t\t\ttest-rev",
-                "sub-01\tses-01\t1\tctx-lh-paracentral\tGM_region\t\t\t0\t0.0000\tatlas\t\t\t\t\t\t\t\ttest-rev"
+                "sub-01\tses-01\t1\tctx-lh-paracentral\tGM_region\t70\t\t0\t0.0000\tatlas\t\t\t\t\t\t\t\ttest-rev"
             ]
 
             // D: one row per subject x ROI, covariates and values of that subject only

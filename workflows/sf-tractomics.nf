@@ -385,6 +385,7 @@ workflow SF_TRACTOMICS {
     // Code revision written into the volume CSVs, so results of different versions are never mixed
     // unknowingly: the git commit when run from a repository, else the pipeline version.
     def pipeline_revision = workflow.commitId ?: gitRevision(projectDir) ?: workflow.manifest.version
+    def stats_covariates = params.tractometry_covariates ? params.tractometry_covariates.toString().tokenize(",")*.trim() : []
     def do_gm_atlas_volumes  = do_gm_volumes  && atlas_volume_source
     def do_csf_atlas_volumes = do_csf_volumes && atlas_volume_source
     def do_cmp_atlas_volumes = do_cmp_volumes && atlas_volume_source
@@ -805,7 +806,9 @@ workflow SF_TRACTOMICS {
                     "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "WM_bundle",
-                    "atlas"
+                    "atlas",
+                    pipeline_revision,
+                    stats_covariates
                 )
             } else {
                 ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.mask_stats_tab_mean, "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
@@ -830,7 +833,9 @@ workflow SF_TRACTOMICS {
                     "space-native_atlas-iit-gm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "GM_region",
-                    "atlas"
+                    "atlas",
+                    pipeline_revision,
+                    stats_covariates
                 )
             } else {
                 ch_collection_gm_mean = collectStatsFiles(
@@ -961,7 +966,9 @@ workflow SF_TRACTOMICS {
                     "space-native_atlas-freesurfer-csf_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
                     "CSF_region",
-                    "atlas"
+                    "atlas",
+                    pipeline_revision,
+                    stats_covariates
                 )
             } else {
                 ch_csf_stats_merged = collectStatsFiles(
@@ -985,7 +992,9 @@ workflow SF_TRACTOMICS {
                     "space-native_atlas-freesurfer-comparison_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/comparison/",
                     comparison_type_map,
-                    "atlas"
+                    "atlas",
+                    pipeline_revision,
+                    stats_covariates
                 )
             } else {
                 collectStatsFiles(
@@ -1775,7 +1784,11 @@ def collectStatsFiles(ch_stats_files, name, storeDir, regionType = null) {
 // volumeSource: when set ('atlas', 'synthseg', 'freesurfer'), volume_source and icv_mm3 columns
 // are appended too. Values come from the volumes CSV when it has them (subject segmentation),
 // otherwise volume_source falls back to volumeSource and icv_mm3 is left empty.
-def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, regionType = null, volumeSource = null) {
+// revision: written in pipeline_revision where the volume CSV has none (per-sample CSVs never do;
+// only the collected volume files add it). covariates: the per-sample columns copied into a
+// volume-only row from the sample's stats rows, so that row is complete like the others.
+def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, regionType = null, volumeSource = null,
+                                 revision = null, covariates = []) {
 
     def output_file_path = "${storeDir}/${name}"
 
@@ -1837,8 +1850,8 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             all_columns.add("volume_voxels")
             all_columns.add("volume_mm3")
             // Carried from the volume CSV with the volumes, as collectUnifiedFiles carries them from a
-            // volume CSV: without pipeline_revision here, the atlas rows of the combined table (read
-            // from these stats files) had no revision while every subject-segmentation row had one
+            // volume CSV; pipeline_revision falls back to the run's revision (see above): without it,
+            // the atlas rows of the combined table (read from these stats files) had no revision
             def QC_COLS = ["qc_score", "qc_flags", "scanner", "duplicate_of", "t1_shared_with", "pipeline_revision"]
             if (volumeSource != null) {
                 all_columns.add("volume_source")
@@ -1905,6 +1918,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                         if (col == "volume_source") return vd[2]
                         if (col == "icv_mm3")       return vd[3]
                         if (col == "volume_icv_fraction") return icvFraction(vd[1], vd[3])
+                        if (col == "pipeline_revision") return vd[4 + QC_COLS.indexOf(col)] ?: (revision ?: "")
                         if (col in QC_COLS)         return vd[4 + QC_COLS.indexOf(col)]
                         stats_idx.containsKey(col) ? (stats_idx[col] < vals.size() ? vals[stats_idx[col]] : '') : ''
                     }
@@ -1922,7 +1936,9 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                     vol_map.findAll { roi, _vd -> !(roi in stats_rois) }.each { roi, vd ->
                         def rt  = regionType instanceof Map ? regionType.getOrDefault(roi, "") : (regionType ?: "")
                         def row = all_columns.collect { col ->
-                            if (col in ["sid", "session", "run"]) return stats_idx.containsKey(col) ? first[stats_idx[col]] : ''
+                            if (col in ["sid", "session", "run"] || col in covariates) {
+                                return stats_idx.containsKey(col) && stats_idx[col] < first.size() ? first[stats_idx[col]] : ''
+                            }
                             if (col == "roi")           return roi
                             if (col == "region_type")   return rt
                             if (col == "volume_voxels") return vd[0]
@@ -1930,6 +1946,7 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                             if (col == "volume_source") return vd[2]
                             if (col == "icv_mm3")       return vd[3]
                             if (col == "volume_icv_fraction") return icvFraction(vd[1], vd[3])
+                            if (col == "pipeline_revision") return vd[4 + QC_COLS.indexOf(col)] ?: (revision ?: "")
                             if (col in QC_COLS)         return vd[4 + QC_COLS.indexOf(col)]
                             ''
                         }

@@ -148,19 +148,20 @@ run_pass() {
     # Tasks failed for good: a failure no longer stops the run (errorStrategy 'ignore' once the
     # retries are spent), so they are listed in out/metrics/failed_tasks.tsv (packed with the batch,
     # merged with the other batches' tables) for a later fix. When more than MAX_FAILED_FRACTION of
-    # the folder's sessions failed, the cause is not a session but a bug: the pass is not done.
+    # the folder's DWI runs (the pipeline's samples, one row of participants.tsv each) failed, the
+    # cause is not a run but a bug: the pass is not done.
     if [ -s "logs/trace_${pass}_${id}.txt" ]; then
-        local counts n_tasks n_failed n_sessions
+        local counts n_tasks n_failed_sessions n_failed n_runs
         counts=$(python3 "$SFT_ROOT/scripts/failure_report.py" "logs/trace_${pass}_${id}.txt" work \
             out/metrics/failed_tasks.tsv --batch "$(basename "$dir")" --pass "$pass" --run "$name") \
-            || { log "WARNING: $dir: the failure report of $name could not be written"; counts="0 0"; }
-        read -r n_tasks n_failed <<< "$counts"
+            || { log "WARNING: $dir: the failure report of $name could not be written"; counts="0 0 0"; }
+        read -r n_tasks n_failed_sessions n_failed <<< "$counts"
         [ -s out/metrics/failed_tasks.tsv ] && cp out/metrics/failed_tasks.tsv "logs/failed_tasks_${pass}_${id}.tsv"
-        n_sessions=$(awk -F'\t' 'NR > 1 { print $1 "\t" $2 }' data_bids/participants.tsv | sort -u | wc -l)
+        n_runs=$(awk -F'\t' 'NR > 1 && NF' data_bids/participants.tsv | wc -l)
         if [ "$n_tasks" -gt 0 ]; then
-            log "$dir: $n_tasks task(s) failed, $n_failed of $n_sessions session(s): out/metrics/failed_tasks.tsv"
-            if awk -v f="$n_failed" -v n="$n_sessions" -v m="${MAX_FAILED_FRACTION:-0.5}" 'BEGIN { exit !(f > m * n) }'; then
-                log "ERROR: $dir: more than ${MAX_FAILED_FRACTION:-0.5} of the sessions failed: pass $pass not marked done"
+            log "$dir: $n_tasks task(s) failed, $n_failed of $n_runs run(s), $n_failed_sessions session(s): out/metrics/failed_tasks.tsv"
+            if awk -v f="$n_failed" -v n="$n_runs" -v m="${MAX_FAILED_FRACTION:-0.5}" 'BEGIN { exit !(f > m * n) }'; then
+                log "ERROR: $dir: more than ${MAX_FAILED_FRACTION:-0.5} of the runs failed: pass $pass not marked done"
                 [ "$rc" = 0 ] && rc=1
             fi
         fi

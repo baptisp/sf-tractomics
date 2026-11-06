@@ -229,7 +229,7 @@ class TestFailureReport(unittest.TestCase):
                 ["4", "bb/000002", "14", self.P + "BETCROP_ANTSBET (sub-1)", "COMPLETED", "0"],
                 ["5", "aa/000002", "15", self.P + "BETCROP_ANTSBET (sub-1)", "FAILED", "1"],
             ])
-            self.assertEqual(n, ["1", "1"])
+            self.assertEqual(n, ["1", "1", "1"])
             self.assertEqual(len(rows), 1)
             row = rows[0]
             self.assertEqual((row["batch"], row["pass"], row["subject"], row["session"], row["run"]),
@@ -243,9 +243,9 @@ class TestFailureReport(unittest.TestCase):
             root = make_root(tmp, SHARED, {})
             self.task(root / "work", "dd/000001", "eddy sub-1_ses-A_run-02_dwi.nii.gz sub-1_ses-A_run-2__b0.nii.gz", "x\n")
             n, rows = self.report(root, [["1", "dd/000001", "1", "SF:PREPROC_EDDY (sub-1)", "FAILED", "1"]])
-            self.assertEqual((n, rows[0]["run"], rows[0]["process"]), (["1", "1"], "2", "PREPROC_EDDY"))
+            self.assertEqual((n, rows[0]["run"], rows[0]["process"]), (["1", "1", "1"], "2", "PREPROC_EDDY"))
             n, rows = self.report(root, [["1", "dd/000001", "1", "SF:PREPROC_EDDY (sub-1)", "COMPLETED", "0"]])
-            self.assertEqual((n, rows), (["0", "0"], []))
+            self.assertEqual((n, rows), (["0", "0", "0"], []))
             self.assertTrue((root / "out" / "metrics" / "failed_tasks.tsv").read_text().startswith("batch\tpass\t"))
 
 

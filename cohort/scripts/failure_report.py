@@ -15,7 +15,8 @@ non-empty line of .command.err (else .command.out).
 
 OUT is always written, with its header even when nothing failed, so every batch has the same
 table (scripts/merge_batches.py merges it with the others). Prints
-"<failed tasks> <failed sessions>"; exit status 0.
+"<failed tasks> <failed sessions> <failed runs>" (a run is a subject, session and run number; a task
+naming several runs counts once); exit status 0.
 """
 
 import argparse
@@ -100,7 +101,8 @@ def main():
         w.writerows(failed)
     tmp.replace(a.out)
     sessions = {(r["subject"], r["session"]) for r in failed}
-    print(len(failed), len(sessions))
+    runs = {(r["subject"], r["session"], r["run"]) for r in failed}
+    print(len(failed), len(sessions), len(runs))
     return 0
 
 

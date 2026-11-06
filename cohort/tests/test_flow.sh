@@ -158,11 +158,11 @@ check "a failed run is not recorded as done" bash -c "! grep -qx 2_metrics '$D/m
 check "the lock is released after every job" [ ! -e "$D/meta/lock" ]
 
 # A failed session no longer fails the pass: listed in out/metrics/failed_tasks.tsv, the pass done.
-# Every session failed (more than MAX_FAILED_FRACTION): a bug, the pass not done.
+# Every run failed (more than MAX_FAILED_FRACTION): a bug, the pass not done.
 FAKE_FAIL=2 job 2_metrics 120; rc=$?
-check "failures: every session failed fails the pass" bash -c "[ $rc != 0 ] && ! grep -qx 2_metrics '$D/meta/passes_done' && grep -q 'not marked done' '$T/job_120.log'"
+check "failures: every run failed fails the pass" bash -c "[ $rc != 0 ] && ! grep -qx 2_metrics '$D/meta/passes_done' && grep -q 'not marked done' '$T/job_120.log'"
 FAKE_FAIL=1 job 2_metrics 121; rc=$?
-check "failures: one failed session of two, the pass is done" bash -c "[ $rc = 0 ] && grep -qx 2_metrics '$D/meta/passes_done' && grep -q '1 task(s) failed, 1 of 2 session(s)' '$T/job_121.log'"
+check "failures: one failed run of two, the pass is done" bash -c "[ $rc = 0 ] && grep -qx 2_metrics '$D/meta/passes_done' && grep -q '1 task(s) failed, 1 of 2 run(s), 1 session(s)' '$T/job_121.log'"
 tar -xzf "$D/extracted_results.tar.gz" -C "$T" metrics/failed_tasks.tsv 2>/dev/null
 check "failures: the table lists the session and its error, in the extracted results" \
     bash -c "[ \$(wc -l < '$T/metrics/failed_tasks.tsv') = 2 ] && grep -qP '^b0001\t2_metrics\tsft-2-metrics-121\tsub-A\t1\t\tBETCROP_ANTSBET\t1\t1\tSegmentation fault \\(core dumped\\)\twork/f1/0123456789$' '$T/metrics/failed_tasks.tsv'"

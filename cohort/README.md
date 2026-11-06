@@ -119,7 +119,7 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   `metrics/volumes_missing_samples.txt` (`allow_missing_volumes: true` in `params/shared.yaml`).
   The pass counts as done, so a later pass goes on with the other sessions (and tries the failed
   tasks again: a failure is not cached). When more than `MAX_FAILED_FRACTION` (default 0.5) of a
-  batch's sessions failed, the cause is a bug rather than a session: the pass is not marked done.
+  batch's DWI runs failed, the cause is a bug rather than a run: the pass is not marked done.
   Once a failure is fixed, rerun the batch with `FORCE=1 BATCHES="bNNNN" ./run.sh --batch submit PASS`.
 - **What is packed.** `.nextflow/`, `work/`, `.atlas_cache/`, `data_bids/` and `out/` go into
   `archives/bNNNN.tar`; `meta/` and `logs/` stay. Results are published as hard links into `work/`,

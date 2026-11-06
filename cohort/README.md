@@ -296,6 +296,11 @@ batches' `meta/` in the archive store).
   modules write the thread count into their script (task hash) and ANTs results depend on it. A
   batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 30 min before, and
   resumes when submitted again.
+- **Hung containers.** About 1 task in 500 hangs at container start on Rorqual (Apptainer waiting,
+  no process, 0 CPU), on any node; the node runs other tasks normally. It is retried only at its time
+  limit and holds its batch until then, so tasks of seconds to minutes get 1 h per attempt instead
+  of the 4 h default. One found earlier can be cancelled by hand (`scancel <task job>`): Nextflow
+  retries it 30 min later (`exitReadTimeout`).
 - **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
   `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
   Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;

@@ -144,7 +144,8 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
 
 - **Finished archives leave scratch.** A batch done with every pass of `params/passes/` moves its
   archive to `ARCHIVE_STORE` (`config.env`; on Rorqual
-  `/project/rrg-descotea/vitalab/pierrard/adni/finished_archives`), with a copy of its
+  `/project/rrg-descotea/vitalab/pierrard/adni/finished_archives/<COHORT_NAME>`: batch names restart at
+  `b0001` in every cohort, so cohorts never share a folder), with a copy of its
   `extracted_results.tar.gz` and of its `meta/` and `logs/` (`bNNNN_meta.tar`), so the store alone
   can resume it after a scratch purge. The copy is compared byte for byte before the scratch archive
   is deleted; any failure keeps it on scratch. `meta/archive_location` records where it went. A pass

@@ -43,6 +43,10 @@ nextflow_pipeline {
                 def cfg = new File("${outputDir}/bids_struct.json")
                 cfg.parentFile.mkdirs()
                 cfg.text = groovy.json.JsonOutput.toJson(config)
+                // A report left by an earlier, failed run in the same outdir: this complete run removes it
+                def stale = new File("${outputDir}/out/metrics/volumes_missing_samples.txt")
+                stale.parentFile.mkdirs()
+                stale.text = "freesurfer GM\tsub-INTA_ses-01\n"
 
                 outdir                     = "$outputDir/out"
                 input                      = null   // the test profile sets one; bids_config replaces it
@@ -97,6 +101,7 @@ nextflow_pipeline {
                 }
                 assert rows.size() == samples.size() * spec.n : "${spec.f}: unexpected extra rows"
             }
+            assert !path("${out}/volumes_missing_samples.txt").exists() : "a missing-volumes report of an earlier run survived"
             // No atlas volume file: 'freesurfer' alone was asked for
             assert !path("${out}/space-native_atlas-iit-gm_desc-roi_volumes.csv").exists()
             def hoc = read("${out}/space-native_seg-freesurfer_desc-hoc.csv", ",")

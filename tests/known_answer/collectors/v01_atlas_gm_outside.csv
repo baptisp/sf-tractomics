@@ -1,0 +1,4 @@
+sid,session,run,roi,volume_voxels,volume_mm3,pipeline_revision
+sub-01,ses-01,1,Left-Hippocampus,100,100.0000,test-rev
+sub-01,ses-01,1,ctx-lh-precuneus,50,50.0000,test-rev
+sub-01,ses-01,1,ctx-lh-paracentral,0,0.0000,test-rev

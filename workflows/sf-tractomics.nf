@@ -76,6 +76,11 @@ workflow SF_TRACTOMICS {
     ch_bet_probability = channel.empty()
     ch_synthstrip_weights = channel.empty()
 
+    // The missing-volumes report is rebuilt by every run (checkVolumeCoverage appends to it): one
+    // left by an earlier run would list sessions this run completes
+    def missing_report = file("${params.outdir}/metrics/volumes_missing_samples.txt")
+    if (missing_report.exists()) missing_report.delete()
+
     // Split series merged, unusable DWIs (b-series) skipped with their T1, decisions reported
     DWI_INPUT_CHECK(ch_t1, ch_wmparc, ch_aparc_aseg, ch_dwi_bval_bvec, ch_b0, ch_rev_dwi_bval_bvec,
                     ch_rev_b0, ch_lesion, "${params.outdir}/metrics")
@@ -799,7 +804,8 @@ workflow SF_TRACTOMICS {
                     ATLAS_ROIMETRICS.out.mask_volumes,
                     "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv",
                     "${params.outdir}/metrics/",
-                    "WM_bundle"
+                    "WM_bundle",
+                    "atlas"
                 )
             } else {
                 ch_collection_mean_input = collectStatsFiles(ATLAS_ROIMETRICS.out.mask_stats_tab_mean, "space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv", "${params.outdir}/metrics/", "WM_bundle")
@@ -1641,7 +1647,9 @@ def warnT1Annotations(List items) {
 }
 
 // Report sessions (keyLength 2) or DWI runs (keyLength 3) that have no volumes of one type: written
-// to <outdir>/volumes_missing_samples.txt, then a pipeline error unless allowMissing.
+// to <outdir>/volumes_missing_samples.txt, then a pipeline error unless allowMissing. Every call
+// appends; the workflow removes the file when it starts, so it never lists a session from an
+// earlier run that is now complete (a resumed run after a failure).
 def checkVolumeCoverage(String type, ch_volumes, ch_expected, String outdir, boolean allowMissing, int keyLength = 2) {
     def unit = keyLength == 3 ? "DWI run(s)" : "session(s)"
     ch_volumes
@@ -1828,7 +1836,10 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
             }
             all_columns.add("volume_voxels")
             all_columns.add("volume_mm3")
-            def QC_COLS = ["qc_score", "qc_flags", "scanner", "duplicate_of", "t1_shared_with"]
+            // Carried from the volume CSV with the volumes, as collectUnifiedFiles carries them from a
+            // volume CSV: without pipeline_revision here, the atlas rows of the combined table (read
+            // from these stats files) had no revision while every subject-segmentation row had one
+            def QC_COLS = ["qc_score", "qc_flags", "scanner", "duplicate_of", "t1_shared_with", "pipeline_revision"]
             if (volumeSource != null) {
                 all_columns.add("volume_source")
                 all_columns.add("icv_mm3")
@@ -1900,10 +1911,13 @@ def collectStatsFilesWithVolumes(ch_stats_files, ch_volumes, name, storeDir, reg
                     fw.write(row.join('\t') + '\n')
                 }
 
-                // Subject segmentations can have regions the atlas stats lack (SAMSEG cortex totals
-                // instead of the IIT Desikan parcels): keep them as volume-only rows rather than
-                // dropping them. Atlas volumes keep the previous output unchanged.
-                if (volumeSource != null && volumeSource != "atlas") {
+                // A region with volumes but no stats row is kept as a volume-only row (metrics empty)
+                // rather than dropped: subject segmentations can have regions the atlas stats lack
+                // (SAMSEG cortex totals instead of the IIT Desikan parcels), and an atlas region
+                // warped out of the brain mask (0 voxels, failed registration) has no stats row. Its
+                // volume of 0 is the result, and it keeps the stats file and the combined table as
+                // complete as the volume files.
+                if (vol_map) {
                     def first = stats_lines[1].split('\t', -1)
                     vol_map.findAll { roi, _vd -> !(roi in stats_rois) }.each { roi, vd ->
                         def rt  = regionType instanceof Map ? regionType.getOrDefault(roi, "") : (regionType ?: "")

@@ -31,6 +31,12 @@ workflow COLLECTORS_KNOWN_ANSWER {
         [[id: 'sub-03', session: 'ses-03'], f.call('v03_s3.csv')],
         [[id: 'sub-03', session: 'ses-01'], f.call('v03_s1.csv')],
         [[id: 'sub-03', session: 'ses-02'], f.call('v03_s2.csv')]), "E_drift.csv", outdir, "synthseg", 0.03, "test-rev")
+    // F: atlas stats + atlas volumes with a region warped out of the brain mask (0 voxels, so no
+    // stats row): kept as a volume-only row
+    f_atlas = collectStatsFilesWithVolumes(
+        channel.of([[id: 'sub-01', session: 'ses-01', run: 'run-1', age: 70], f.call('s01_r1_gm.tsv')]),
+        channel.of([[id: 'sub-01', session: 'ses-01', run: 'run-1'], f.call('v01_atlas_gm_outside.csv')]),
+        "F_atlas.tsv", outdir, "GM_region", "atlas")
     // D: combined TSV from WM stats, GM stats+volumes (A) and CSF volumes only (C)
     d = collectUnifiedFiles(
         channel.of("STATS_WM_bundle:::${f.call('wm_all.tsv')}")
@@ -45,4 +51,5 @@ workflow COLLECTORS_KNOWN_ANSWER {
     c = c
     d = d
     e = e
+    atlas_outside = f_atlas
 }

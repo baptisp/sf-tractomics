@@ -20,6 +20,7 @@ nextflow_workflow {
                 input[0] = "${projectDir}/tests/known_answer/dwi_input_check/data"
                 input[1] = "${outputDir}/report"
                 input[2] = false
+                input[3] = []
                 """
             }
         }
@@ -46,7 +47,11 @@ nextflow_workflow {
             def r = report.collectEntries { x -> [[x.sid, x.run], x] }
             assert r[["sub-01", "1"]].shells == "1000:6"
             assert r[["sub-01", "1"]].largest_dti_shell == "6"
-            assert r[["sub-01", "1"]].warning == "fODF shells hold 6 volumes for the 45 coefficients of sh_order 8"
+            assert r[["sub-01", "1"]].warning == "fODF shells hold 6 volumes for the 45 coefficients of sh_order 8; " +
+                "reverse phase-encoding image in fmap/ not paired with this run (IntendedFor): no topup"
+            // sub-01's fmap/ EPI image is paired with no sample; the other subjects have none
+            assert r[["sub-01", "1"]].reverse_phase == "unused: sub-01_ses-01_dir-AP_epi.nii.gz"
+            assert report.findAll { x -> x.sid != "sub-01" }.every { x -> x.reverse_phase == "none" }
             assert r[["sub-02", "1"]].reason == "largest DTI shell has 1 volumes (< 2)"
             assert r[["sub-03", "1"]].series == "MDDW_1_of_3_sms+MDDW_2_of_3_sms+MDDW_3_of_3_sms"
             assert r[["sub-03", "1"]].shells == "500:2 1000:2 2000:2"
@@ -69,6 +74,7 @@ nextflow_workflow {
                 input[0] = "${projectDir}/tests/known_answer/dwi_input_check/data"
                 input[1] = "${outputDir}/report"
                 input[2] = false
+                input[3] = []
                 """
             }
         }
@@ -79,10 +85,31 @@ nextflow_workflow {
             def r = rows("${outputDir}/report/dwi_input_report.tsv").collectEntries { x -> [[x.sid, x.run], x] }
             // sub-01 (b1000) and sub-06 (b500 + b1000) have no b2000; sub-03 has 2 b2000 volumes
             assert r[["sub-01", "1"]].fodf_volumes == "0"
-            assert r[["sub-01", "1"]].warning == "no fODF shell: no fODF, AFD, NuFO, fODF peaks, tractogram, bundles or tractometry for this sample"
+            assert r[["sub-01", "1"]].warning == "no fODF shell: no fODF, AFD, NuFO, fODF peaks, tractogram, bundles or tractometry for this sample; " +
+                "reverse phase-encoding image in fmap/ not paired with this run (IntendedFor): no topup"
             assert r[["sub-06", "1"]].warning == "no fODF shell: no fODF, AFD, NuFO, fODF peaks, tractogram, bundles or tractometry for this sample"
             assert r[["sub-03", "1"]].fodf_volumes == "2"
             assert r[["sub-03", "1"]].warning == "fODF shells hold 2 volumes for the 45 coefficients of sh_order 8"
+        }
+    }
+
+    test("a reverse b0 given to the sample is reported, without the unpaired-image warning") {
+        when {
+            workflow {
+                """
+                input[0] = "${projectDir}/tests/known_answer/dwi_input_check/data"
+                input[1] = "${outputDir}/report"
+                input[2] = false
+                input[3] = ["sub-01"]
+                """
+            }
+        }
+        then {
+            assert workflow.success
+            def r = rows("${outputDir}/report/dwi_input_report.tsv").collectEntries { x -> [[x.sid, x.run], x] }
+            assert r[["sub-01", "1"]].reverse_phase == "b0"
+            assert r[["sub-01", "1"]].warning == "fODF shells hold 6 volumes for the 45 coefficients of sh_order 8"
+            assert r[["sub-03", "1"]].reverse_phase == "none"
         }
     }
 
@@ -93,6 +120,7 @@ nextflow_workflow {
                 input[0] = "${projectDir}/tests/known_answer/dwi_input_check/data"
                 input[1] = "${outputDir}/report"
                 input[2] = true
+                input[3] = []
                 """
             }
         }

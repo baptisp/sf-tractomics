@@ -198,9 +198,10 @@ process STATS_METRICSINROI {
         for metric in \$metrics;
         do
             # Fetch the "mean" and "std" values from each roi/metric
-            # pair from the JSON
-            val_mean=\$(jq -r --arg ROI "\$roi" --arg METRIC "\$metric" '.[\$ROI].[\$METRIC].mean' ${prefix}_${suffix}.json)
-            val_std=\$(jq -r --arg ROI "\$roi" --arg METRIC "\$metric" '.[\$ROI].[\$METRIC].std' ${prefix}_${suffix}.json)
+            # pair from the JSON. A missing or NaN value (no valid voxel of the metric in the ROI)
+            # is an empty cell, as everywhere else in the tables, not jq's text "null"
+            val_mean=\$(jq -r --arg ROI "\$roi" --arg METRIC "\$metric" '.[\$ROI].[\$METRIC].mean | if . == null or (type == "number" and isnan) then "" else . end' ${prefix}_${suffix}.json)
+            val_std=\$(jq -r --arg ROI "\$roi" --arg METRIC "\$metric" '.[\$ROI].[\$METRIC].std | if . == null or (type == "number" and isnan) then "" else . end' ${prefix}_${suffix}.json)
 
             # Append values to the lines
             line_mean="\${line_mean}${sep}\${val_mean}"

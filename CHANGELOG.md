@@ -15,6 +15,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 - `--run_dwi_processing false`: only the T1 branch runs (subject-segmentation volumes, HOC, recon-all, thickness, subfields); a later run with `true` and `-resume` reuses it and adds the DWI outputs.
 
 - Atlas registration QC (new module `QC_ATLASREGISTRATION`): for every DWI run and each atlas registration (IIT regions, CSF atlas), the correlation of the warped IIT b0 with the run's b0 and the Dice of the atlas brain with the brain mask, flagged `misaligned` / `brain_mismatch` below `--atlas_min_registration_corr` (0.6) / `--atlas_min_brain_dice` (0.85), in `dwi/*_atlas-{iit,freesurfer-csf}_desc-registration_qc.csv` and `metrics/space-native_desc-atlasregistration_qc.csv`; flagged runs are listed in the log. The atlas registrations had no automatic check.
+- `reverse_phase` column in `metrics/dwi_input_report.tsv`: what topup gets for each sample, `b0` or `dwi` (the reverse phase-encoding acquisition given), `none`, or `unused: <files>` when the session's `fmap/` holds EPI images of the subject and session that were not paired with the run (BIDS `IntendedFor` naming another file). Topup then does not run on that sample; the row gets a warning and the log a summary. Before, a missing `IntendedFor` silently skipped topup.
 
 ### `Changed`
 
@@ -24,6 +25,12 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Fixed`
 
+- Bundle volumes of every DWI run with a run number (multi-run sessions) were missing from `metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv` and from the combined TSV: `STATS_MASK_VOLUMES` left `run-<n>_` in front of the bundle names (`run-1_AF_L`), so they matched no stats row. The per-run bundle volume CSVs had the same prefixed names.
+- A metric with no valid voxel in a region (NaN or missing mean, e.g. the free-water fraction of one region) was written as the text `null` in the stats tables (`STATS_METRICSINROI`); it is now an empty cell, as every other missing value.
+- An atlas region with volumes but no stats row (0 voxels: warped out of the brain mask by a failed registration) was dropped from the atlas stats table and the combined TSV once metrics were on; it is now kept as a volume-only row (volume 0, metrics empty), as the subject segmentations already were.
+- Atlas rows of the combined TSV lost provenance read from the atlas volume CSVs: `pipeline_revision` was empty on every atlas row (the collected stats files did not carry it), and `volume_source` on every WM bundle row (the WM stats collector was not given the source). Both now come through, as on the subject-segmentation rows; the atlas stats tables gain the `pipeline_revision` column, and the WM one `volume_source`, `icv_mm3`, `volume_icv_fraction` and the QC columns, like the GM and CSF ones.
+- `metrics/volumes_missing_samples.txt` is rebuilt by each run: one left by an earlier, failed run (a resumed run, or a cohort batch's later pass) listed sessions the new run had completed.
+- `cohort/`: finished archives are stored in one subfolder per `COHORT_NAME` (`finished_archives/<COHORT_NAME>/` on Rorqual). With one shared folder, a new cohort's `b0001` (a test cohort, then the full one) found the earlier cohort's `b0001.tar` there and unpacked it as its own.
 - `pipeline_revision` in the volume files ignores `cohort/` (the batch runner and its local settings): a commit there or a locally edited `cohort/config.env` no longer moves the revision or marks it `-modified`. The revision is the last commit that touched pipeline code.
 - With several sources in `--volume_source` (e.g. `atlas,reconall,synthseg`), the per-sample subject-region files were named after the whole list (`dwi/*_seg-atlas,reconall,synthseg_desc-roi_stats.tsv`); they now carry the source the metrics use, the first subject source (`seg-reconall`), as the merged `metrics/` files already did.
 - `docs/volumes_validation/check_outputs.py`: `--no-comparison` for runs without comparison volumes; the ICV fraction of a label the method cannot segment (SynthSeg choroid plexus) is expected empty.

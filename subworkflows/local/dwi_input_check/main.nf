@@ -15,6 +15,10 @@
 //      fODF and fibre response are not fitted (hasFodfShell in the TractoFlow subworkflow, same
 //      shell rule): no fODF, AFD, NuFO or fODF peaks for it, so no tractogram, bundles,
 //      tractometry or fibre cross-section either.
+//   4. reverse phase encoding: the report says what topup gets, per sample: "b0" or "dwi" (the
+//      reverse acquisition given), "none", or "unused: <files>" when the session's fmap/ holds EPI
+//      images of this subject and session that were not paired with the run (BIDS IntendedFor
+//      naming another file). Topup then does not run on that sample, silently otherwise: a warning.
 // Skipped samples are removed from every input channel (their T1 too). Every decision is
 // written to <report_dir>/dwi_input_report.tsv. Two kept samples with the same meta stop the run.
 include { PREPROC_DWICONCATENATE } from '../../../modules/local/preproc/dwiconcatenate/main'
@@ -117,6 +121,17 @@ def planDwiSession(entries, opts) {
     return plans
 }
 
+// EPI images (fmap/*_epi.nii[.gz]) of the DWI's subject and session, in the BIDS fmap/ folder next
+// to its dwi/ folder; names only, [] when there is none
+def sessionEpiImages(dwi, meta) {
+    def fmap = new File(dwi.toString()).absoluteFile.parentFile?.parentFile
+    fmap = fmap ? new File(fmap, "fmap") : null
+    if (!fmap?.isDirectory()) return []
+    def prefix = [meta.id, meta.session].findAll { x -> x }.join("_") + "_"
+    return (fmap.listFiles() ?: []).collect { f -> f.name }
+        .findAll { n -> n.startsWith(prefix) && n ==~ /.*_epi\.nii(\.gz)?$/ }.sort()
+}
+
 def keepSamples(ch, ch_keep) {
     return ch.join(ch_keep.map { m -> [m, true] }).map { t -> t[0..-2] }
 }
@@ -162,29 +177,59 @@ workflow DWI_INPUT_CHECK {
 
     ch_keep = ch_plans.filter { p -> p.decision != "skipped" }.map { p -> p.meta }
 
+    // Reverse phase-encoding data of each input sample, by (sid, session, run): see 4. above
+    def sampleKey = { m -> [m.id, m.session ?: "", (m.run ?: "run-1").replaceFirst(/^run-/, "")] }
+    ch_reverse = ch_dwi_bval_bvec
+        .join(ch_rev_b0)
+        .join(ch_rev_dwi_bval_bvec)
+        .map { meta, dwi, _bval, _bvec, rev_b0, rev_dwi, _rev_bval, _rev_bvec ->
+            def status = rev_b0 ? "b0" : rev_dwi ? "dwi" : null
+            if (!status) {
+                def epis = sessionEpiImages(dwi, meta)
+                status = epis ? "unused: ${epis.join(' ')}" : "none"
+            }
+            [sampleKey.call(meta), status]
+        }
+        .collect(flat: false)
+        .map { pairs -> [reverse: pairs.collectEntries { p -> [(p[0]): p[1]] }] }
+        .ifEmpty([reverse: [:]])
+
     // Report, warnings, and a stop on two kept samples with one meta (their outputs would mix)
     ch_plans
         .map { p ->
             def m = p.meta
-            [m.id, m.session ?: "", (m.run ?: "run-1").replaceFirst(/^run-/, ""), p.decision] +
+            sampleKey.call(m) + [p.decision] +
                 ["series", "volumes", "shells", "largest_dti_shell", "fodf_volumes", "sh_coefficients", "reason", "warning"]
                     .collect { k -> p.row[k] == null ? "" : p.row[k] }
         }
         .collect(flat: false)
-        .subscribe { rows ->
+        .map { rows -> [rows: rows] }
+        .combine(ch_reverse)
+        .subscribe { rows_item, reverse_item ->
+            // reverse_phase last, so the columns before it keep their place
+            def rows = rows_item.rows.collect { r ->
+                def reverse = reverse_item.reverse.getOrDefault(r[0..2], "")
+                if (reverse.startsWith("unused")) {
+                    r[11] = ([r[11], "reverse phase-encoding image in fmap/ not paired with this run (IntendedFor): no topup"]
+                        .findAll { x -> x }).join("; ")
+                }
+                r + [reverse]
+            }
             def sorted = rows.sort { a, b -> a[0] <=> b[0] ?: a[1] <=> b[1] ?: a[2] <=> b[2] }
             def header = ["sid", "session", "run", "decision", "series", "volumes", "shells", "largest_dti_shell",
-                          "fodf_volumes", "sh_coefficients", "reason", "warning"]
+                          "fodf_volumes", "sh_coefficients", "reason", "warning", "reverse_phase"]
             def out = file("${report_dir}/dwi_input_report.tsv")
             out.parent.mkdirs()
             out.text = ([header] + sorted).collect { r -> r.collect { x -> x.toString().replace("\t", " ") }.join("\t") }.join("\n") + "\n"
             def skipped = sorted.findAll { r -> r[3] == "skipped" }
             def merged = sorted.findAll { r -> r[3] == "merged" }
             def no_fodf = sorted.findAll { r -> r[11].toString().startsWith("no fODF shell") }
-            def low_fodf = sorted.findAll { r -> r[11] && !r[11].toString().startsWith("no fODF shell") }
+            def low_fodf = sorted.findAll { r -> r[11] && !r[11].toString().startsWith("no fODF shell") && r[11].toString().startsWith("fODF shells") }
+            def unpaired = sorted.findAll { r -> r[3] != "skipped" && r[12].toString().startsWith("unused") }
             if (merged) log.warn("${merged.size()} DWI sample(s) built from the parts of a split series (e.g. ${merged[0][0]} ${merged[0][1]}): see ${out}")
             if (skipped) log.warn("${skipped.size()} DWI run(s) skipped, with their T1, e.g. ${skipped[0][0]} ${skipped[0][1]} run ${skipped[0][2]}: ${skipped[0][10]}. See ${out}")
             if (no_fodf) log.warn("${no_fodf.size()} DWI sample(s) have no fODF shell (e.g. ${no_fodf[0][0]} ${no_fodf[0][1]} run ${no_fodf[0][2]}, shells ${no_fodf[0][6]}): processed without fODF, AFD, NuFO, fODF peaks, tractography, bundle segmentation or tractometry (no fibre cross-section either). See ${out}")
+            if (unpaired) log.warn("${unpaired.size()} DWI sample(s) have a reverse phase-encoding image in fmap/ that is not paired with them (IntendedFor), so no topup (e.g. ${unpaired[0][0]} ${unpaired[0][1]} run ${unpaired[0][2]}: ${unpaired[0][12]}). See ${out}")
             if (low_fodf) log.warn("${low_fodf.size()} DWI sample(s) have fewer fODF volumes than sh_order ${opts.sh_order} needs (e.g. ${low_fodf[0][0]} ${low_fodf[0][1]}: ${low_fodf[0][11]}); their fODF fit is unstable: see ${out}")
         }
     ch_keep

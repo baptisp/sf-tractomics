@@ -24,6 +24,14 @@ process PREPROC_N4 {
     def miniter = task.ext.miniter ?: "100"
     def retain = task.ext.retain ?: "0.6"
     def anat_mask = mask ? "-w $mask" : ""
+    // Anatomical image without a mask: ext.anat_mask_nonzero fits N4 inside the image's nonzero voxels
+    // (-x). Unmasked, on a denoised T1 whose background is exactly 0, the field's overall level
+    // drifts (N4's --rescale-intensities only acts within a mask): corrected ADNI T1s came out 0.002
+    // to 12619 times the input, and at the extremes overflowed or collapsed and broke brain extraction.
+    def anat_nonzero = !mask && task.ext.anat_mask_nonzero
+    // Both empty when off, so the rendered script (and every task hash, DWI N4 included) is unchanged
+    def anat_nonzero_cmd = anat_nonzero ? "mrcalc $image 0 -gt n4_nonzero_mask.nii.gz -datatype uint8 -force -quiet\n        " : ""
+    def anat_nonzero_mask = anat_nonzero ? " -x n4_nonzero_mask.nii.gz" : ""
     def dwi_mask = mask ? "-mask $mask" : ""
     def nthreads_mrtrix = task.ext.single_thread ? "-nthreads 0" : "-nthreads ${task.cpus}"
 
@@ -111,10 +119,10 @@ process PREPROC_N4 {
             ${nthreads_mrtrix}
 
     else
-        N4BiasFieldCorrection -i $image\
+        ${anat_nonzero_cmd}N4BiasFieldCorrection -i $image\
             -o [${prefix}__image_n4.nii.gz, bias_field.nii.gz]\
             -c [\$iterations, 1e-6] -v 0\
-            $anat_mask\
+            ${anat_mask}${anat_nonzero_mask}\
             -b [\$bspline, 3] \
             -s $shrink_factor
     fi

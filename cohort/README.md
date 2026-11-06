@@ -268,6 +268,54 @@ In a Slurm job (never on a login node):
 `scripts/extract_results.sh bNNNN DEST 'out/sub-*/ses-*/anat/*_desc-thickness.csv'` extracts the
 matching files of the batch archive into `DEST`.
 
+## The ADNI run (Rorqual, November 2026)
+
+The choices made for the full ADNI cohort, and why. Participant identifiers stay out of this public
+file: the lists that name runs are in `/scratch/pierrard/adni_prep/` on Rorqual (also kept with the
+batches' `meta/` in the archive store).
+
+- **Inputs.** The lab's ADNI BIDS folder (`INPUT_BIDS`, `config.env`). `inputs/participants.tsv`
+  keeps the rows whose DWI run exists (`_run-0N_`, or run 1 for a file without a run entity) and
+  whose session has a T1: 3775 DWI runs, 3639 sessions, 1491 subjects (3507 sessions with 1 run, 128
+  with 2, 4 with 3). The rows dropped, and why, are in `adni_prep/dropped.tsv`. The pipeline's unit
+  is the DWI run: each run is a sample, paired with a T1 by run number (`match_t1_run`).
+- **Batches.** `COHORT_NAME=adni`, `BATCH_SIZE=10` sessions (a subject is never split: 7 to 22
+  sessions, 11.4 on average), 319 batches, run with `./run.sh --batch`. Pass 1 (`1_volumes`, about
+  5 h per batch) then pass 2 (`2_metrics`). Finished archives in
+  `/project/rrg-descotea/vitalab/pierrard/adni/finished_archives/adni/`.
+- **Batches at once.** Scratch allows 1000K inodes; one unpacked batch costs about 1.8K inodes per
+  session in pass 1 and 2.6K in pass 2. 10 at once while scratch held 540-590K, 30 once it was freed
+  (262K used). Change it on a submitted array with `scontrol update JobId=<array> ArrayTaskThrottle=N`.
+- **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
+  `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
+  Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;
+  fix them and rerun the batch with `FORCE=1 BATCHES=...`.
+- **T1 bias correction with a mask.** The pipeline ran N4 on the denoised T1 without a mask. The
+  denoising sets the background (about 75 % of the volume) to exactly 0 on every run, and without a
+  mask N4's overall level drifts (its `--rescale-intensities` only acts within a mask): over 179 runs
+  the corrected T1 came out 0.002 to 12619 times its input, the level changed with the thread count,
+  and on two runs (one site, GE Signa HDxt) the image overflowed or collapsed and brain extraction
+  crashed. The fix, adopted for the whole cohort: N4 inside the denoised T1's nonzero voxels (`-x`),
+  ANTs' documented use. It was checked before adoption on 24 runs (3 scanners) replayed with the
+  pipeline's own task scripts, unchanged and masked:
+  - N4 scale with the mask 0.50 to 1.15 times the input (unmasked: 6e-9 to 8e34);
+  - brain masks: Dice with SynthSeg 0.9677 masked vs 0.9675 unmasked (median over 22 runs), with recon-all 0.856
+    both; brain volume across a subject's sessions as consistent or more (3 of 4 subjects);
+  - FAST tissue masks in DWI space against SynthSeg and recon-all classes (from the raw T1, so
+    independent of N4; 17 runs): median Dice differences within 0.02 in both directions, every worst run
+    better masked (e.g. GM 0.435 to 0.485, CSF 0.416 to 0.548);
+  - but a run's FAST masks do change (Dice 0.90 to 0.95 between the two calls): FAST is sensitive to
+    its input, the change redraws that noise without shifting a tissue one way.
+  recon-all and SynthSeg read the raw T1, so their volumes and thickness never depended on N4; the
+  atlas WM bundles go through the b0. The batches that ran pass 1 before the fix recompute their T1
+  branch (N4, brain extraction, crop, T1 to DWI registration, FAST) when pass 2 resumes them
+  (`ALLOW_COMMIT_CHANGE=1`), so the whole cohort's diffusion metrics use the masked N4. The replay
+  and its tables: `/scratch/pierrard/sft_n4cmp/` (`comparison.tsv`, `refcheck.tsv`,
+  `tissuecheck.tsv`).
+- **Runs to leave out downstream.** One run acquired with a spine coil (all its diffusion values
+  wrong, e.g. GM AFD ten times the others) and every run flagged `misaligned` by the atlas
+  registration QC: listed in `adni_prep/runs_to_drop.tsv`.
+
 ## Tests
 
 ```bash

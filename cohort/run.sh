@@ -31,8 +31,15 @@ mkdir -p logs
 source scripts/lib.sh
 
 # Head and batch jobs: recon-all (~7 h per T1) and eddy on CPU dominate. JOB_TIME=... ./run.sh submit
-# sets another walltime (tests of the walltime warning; above 30 min, when the warning comes)
-JOB_TIME="${JOB_TIME:-2-00:00:00}"
+# sets another walltime (tests of the walltime warning; above 30 min, when the warning comes).
+# A batch took 5 to 9 h on Rorqual (ADNI, 2026-11-06): 24 h lets its job use the <= 24 h partitions
+# (more nodes than <= 72 h). One that runs over is stopped 30 min before, packed with its cache, and
+# resumes when submitted again. A whole cohort without batches keeps 2 days.
+if [ "$BATCH" = true ]; then
+    JOB_TIME="${JOB_TIME:-1-00:00:00}"
+else
+    JOB_TIME="${JOB_TIME:-2-00:00:00}"
+fi
 JOB_NAME="sft-$COHORT_NAME"
 
 on_cluster() { [ "$MACHINE" != vitaltour ]; }

@@ -286,6 +286,16 @@ batches' `meta/` in the archive store).
 - **Batches at once.** Scratch allows 1000K inodes; one unpacked batch costs about 1.8K inodes per
   session in pass 1 and 2.6K in pass 2. 10 at once while scratch held 540-590K, 30 once it was freed
   (262K used). Change it on a submitted array with `scontrol update JobId=<array> ArrayTaskThrottle=N`.
+  The other limit is Slurm's 1000 queued jobs per user, which counts every batch job, every task job
+  and every waiting task of the array: `queueSize` is 20 per batch (`configs/alliance.config`) so
+  that 30 batches at once and 300 waiting stay under it (with 50, the limit was close at 12
+  batches, and a refused submission is a failed, then skipped, task).
+- **Requests sized from the first day.** Memory about 1.4x the largest peak and time 2.5 to 4x the
+  longest run of about 10,000 tasks (`configs/alliance.config`, values in the comments), so most
+  tasks fit under 3 h and fill scheduling gaps; both grow on a retry. CPUs unchanged: several
+  modules write the thread count into their script (task hash) and ANTs results depend on it. A
+  batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 30 min before, and
+  resumes when submitted again.
 - **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
   `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
   Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;

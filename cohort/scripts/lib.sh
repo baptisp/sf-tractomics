@@ -178,9 +178,16 @@ run_pass() {
 # the background, so the caller's signal traps (walltime warning) run at once instead of after the
 # pass (bash defers traps while a foreground command runs).
 run_pass_guarded() {
-    local sub rc
+    local sub rc watcher=""
     ( run_pass "$1" "$2" ) &
     sub=$!
+    # In a batch job, task jobs hung at container start are cancelled while the pass runs. Started
+    # here rather than in batch_job.sbatch: Slurm keeps the job script of submission time, while
+    # this file is read when the job starts, so batches already queued get the watchdog too.
+    if [ -n "${SFT_TAG:-}" ]; then
+        ( set +e; watch_hung_tasks "$SFT_TAG" "$1" ) &
+        watcher=$!
+    fi
     while true; do
         wait "$sub" && rc=0 || rc=$?
         if [ "$rc" -gt 128 ] && kill -0 "$sub" 2>/dev/null; then
@@ -188,6 +195,7 @@ run_pass_guarded() {
         fi
         break
     done
+    [ -n "$watcher" ] && { kill "$watcher" 2>/dev/null || true; }
     return "$rc"
 }
 
@@ -207,6 +215,63 @@ wait_task_jobs() {
         sleep 10
     done
     die "task jobs of $tag still in the queue after 10 min: not packing"
+}
+
+# Hung containers. On Rorqual some task jobs hang at container start (0.2% of the first day's tasks,
+# up to 9% in its busiest hour): Apptainer's processes wait on each other and the task's command
+# never starts. Such a job holds its batch until its time limit. The watchdog of a batch job
+# cancels them; Nextflow then retries the task (exitReadTimeout, 30 min; a job gone without an exit
+# code is in the retry list). A task job is hung when, past HANG_MIN_MINUTES, its batch step holds
+# only the job script, the tee of .command.out/.err and Apptainer runtime parent, at two checks in
+# a row: a container that started has more (appinit, squashfuse, the task's command).
+HANG_WRAPPERS='^(/bin/bash .*/slurm_script|slurmstepd: .*|tee [.]command[.](out|err)|Apptainer runtime parent|sleep [0-9]+)$'
+
+# duration_seconds ELAPSED: seconds of a Slurm elapsed time ([D-][HH:]MM:SS)
+duration_seconds() {
+    awk -F'[-:]' '{ if (NF == 4) s = $1 * 86400 + $2 * 3600 + $3 * 60 + $4
+                    else if (NF == 3) s = $1 * 3600 + $2 * 60 + $3
+                    else s = $1 * 60 + $2
+                    print s }' <<< "$1"
+}
+
+# task_processes JOBID: the command line of each process of the job's batch step, one per line, read
+# on its node (an srun step inside the job; environment cleared, so the caller's own job does not
+# leak into it). Nothing when the job has ended.
+task_processes() {
+    env -i PATH="$PATH" HOME="$HOME" USER="$USER" timeout 60 srun --jobid="$1" --overlap --ntasks=1 bash -c \
+        'for p in $(scontrol listpids "$SLURM_JOB_ID" | awk "\$3 == \"batch\" { print \$1 }"); do ps -o args= -p "$p"; done' \
+        < /dev/null 2>/dev/null || true
+}
+
+# task_is_hung: stdin is task_processes' output; true when Apptainer is there and nothing else ran
+task_is_hung() {
+    awk -v re="$HANG_WRAPPERS" 'NF { n++; if ($0 == "Apptainer runtime parent") a = 1; if ($0 !~ re) other = 1 }
+        END { exit !(n && a && !other) }'
+}
+
+# watch_hung_tasks TAG DIR: every HANG_CHECK_SECONDS, cancel the task jobs of TAG found hung at two
+# checks in a row; each one is logged and listed in DIR/logs/hung_tasks.tsv. Runs until killed.
+watch_hung_tasks() {
+    local tag=$1 dir=$2 interval=${HANG_CHECK_SECONDS:-300} min=$(( ${HANG_MIN_MINUTES:-10} * 60 ))
+    local suspects="" seen id elapsed name
+    command -v squeue >/dev/null 2>&1 || return 0
+    mkdir -p "$dir/logs"
+    while sleep "$interval"; do
+        seen=""
+        while read -r id elapsed name; do
+            [ "$(duration_seconds "$elapsed")" -ge "$min" ] || continue
+            task_processes "$id" | task_is_hung || continue
+            if [[ " $suspects " == *" $id "* ]]; then
+                if scancel "$id"; then
+                    log "$dir: task job $id ($name) hung at container start for $elapsed, cancelled: Nextflow retries it"
+                    printf '%s\t%s\t%s\t%s\n' "$(date '+%F %H:%M:%S')" "$id" "$elapsed" "$name" >> "$dir/logs/hung_tasks.tsv"
+                fi
+            else
+                seen="$seen $id"
+            fi
+        done < <(squeue -h -u "$USER" -t R -o "%i %k %M %j" | awk -v t="$tag" '$2 == t { print $1, $3, $4 }')
+        suspects=$seen
+    done
 }
 
 # stop_nextflow DIR: ask the running Nextflow of DIR to stop (it cancels its task jobs and keeps its

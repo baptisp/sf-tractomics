@@ -296,11 +296,17 @@ batches' `meta/` in the archive store).
   modules write the thread count into their script (task hash) and ANTs results depend on it. A
   batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 30 min before, and
   resumes when submitted again.
-- **Hung containers.** About 1 task in 500 hangs at container start on Rorqual (Apptainer waiting,
-  no process, 0 CPU), on any node; the node runs other tasks normally. It is retried only at its time
-  limit and holds its batch until then, so tasks of seconds to minutes get 1 h per attempt instead
-  of the 4 h default. One found earlier can be cancelled by hand (`scancel <task job>`): Nextflow
-  retries it 30 min later (`exitReadTimeout`).
+- **Hung containers.** Some tasks hang at container start on Rorqual: Apptainer's processes wait on
+  each other, the task's command never starts, 0 CPU. 24 of the first day's 12,558 tasks, but 13 of
+  the 150 started in its busiest hour; on any node, the node running other tasks normally; mostly
+  the `nibabel_numpy` and MultiQC images. Not reproduced by 1,120 test starts of that image (one
+  job and 16 one-core jobs, with and without `--pid`, image on scratch or node-local). A hung task
+  is retried only at its time limit and holds its batch until then, so:
+  - every batch job runs a watchdog (`watch_hung_tasks`, `scripts/lib.sh`): a task job of its batch
+    past 10 min with only Apptainer and the job's wrappers in it, at two checks 5 min apart, is
+    cancelled, logged and listed in `batches/bNNNN/logs/hung_tasks.tsv`. Nextflow retries it 30 min
+    later (`exitReadTimeout`; a job gone without an exit code is in the retry list);
+  - tasks of seconds to minutes get 1 h per attempt instead of the 4 h default.
 - **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
   `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
   Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;

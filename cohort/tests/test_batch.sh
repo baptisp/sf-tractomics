@@ -198,5 +198,41 @@ done
 wait
 check "racing take-over of a stale lock: exactly one holds it" [ "$(ls "$results" | wc -l)" = 1 ]
 
+# 11. hung containers: the process lists of real task jobs on Rorqual (2026-11-06)
+hung_ps='/bin/bash /localscratch/spool/slurmd/job25855658/slurm_script
+slurmstepd: [25855658.batch]
+/bin/bash /localscratch/spool/slurmd/job25855658/slurm_script
+tee .command.err
+tee .command.out
+Apptainer runtime parent
+Apptainer runtime parent
+Apptainer runtime parent'
+running_ps='/bin/bash /localscratch/spool/slurmd/job25865011/slurm_script
+tee .command.err
+Apptainer runtime parent
+appinit
+/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/bin/fuse-overlayfs -f -o allow_other
+bash -C -e -u -o pipefail /scratch/pierrard/sf-tractomics/cohort/batches/b0021/work/c8/4a/.command.sh
+python3'
+check "hung: only Apptainer and the wrappers is hung" bash -c "source '$REPO/scripts/lib.sh'; task_is_hung <<< \"\$1\"" _ "$hung_ps"
+check "hung: a started container is not" bash -c "source '$REPO/scripts/lib.sh'; ! task_is_hung <<< \"\$1\"" _ "$running_ps"
+check "hung: no process (job ended) is not" bash -c "source '$REPO/scripts/lib.sh'; ! task_is_hung < /dev/null"
+check "hung: the job script alone (before Apptainer) is not" \
+    bash -c "source '$REPO/scripts/lib.sh'; ! task_is_hung <<< '/bin/bash /localscratch/spool/slurmd/job1/slurm_script'"
+check "elapsed times in seconds" bash -c "source '$REPO/scripts/lib.sh'; [ \"\$(duration_seconds 29:07) \$(duration_seconds 5:24:15) \$(duration_seconds 1-00:00:01)\" = '1747 19455 86401' ]"
+
+# The watchdog, with a fake queue: job 11 hung, 12 running, 13 hung but young, 14 another batch's
+W=$T/watch; mkdir -p "$W"
+(
+    squeue() { for j in "11 tag 25:00" "12 tag 25:00" "13 tag 2:00" "14 other 25:00"; do
+                   grep -qx "${j%% *}" "$W/cancelled" 2>/dev/null || echo "$j TASK_${j%% *}"; done; }
+    scancel() { echo "$1" >> "$W/cancelled"; }
+    task_processes() { case $1 in 12) echo "$running_ps" ;; *) echo "$hung_ps" ;; esac; }
+    HANG_CHECK_SECONDS=0.2 HANG_MIN_MINUTES=10 watch_hung_tasks tag "$W/b" 2>/dev/null
+) & wpid=$!
+sleep 3; kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
+check "watchdog: the hung task job of its batch is cancelled, once" [ "$(cat "$W/cancelled" 2>/dev/null)" = 11 ]
+check "watchdog: listed in logs/hung_tasks.tsv" bash -c "[ \$(wc -l < '$W/b/logs/hung_tasks.tsv') = 1 ] && grep -qP '\t11\t25:00\tTASK_11$' '$W/b/logs/hung_tasks.tsv'"
+
 echo
 [ "$failures" = 0 ] && echo "all batch tests passed" || { echo "$failures failure(s)"; exit 1; }

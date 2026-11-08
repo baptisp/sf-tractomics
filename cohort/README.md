@@ -337,6 +337,74 @@ batches' `meta/` in the archive store).
   wrong, e.g. GM AFD ten times the others) and every run flagged `misaligned` by the atlas
   registration QC: listed in `adni_prep/runs_to_drop.tsv`.
 
+### Problems in the input dataset
+
+After two batches stopped at start, every input was checked before it ran, in Slurm jobs:
+
+- the pipeline's own BIDS reader (`scil_bids_validate`, the call and options of the pipeline), in
+  four chunks (`--bids_ignore`);
+- the pipeline's rules applied to what it found (a script reading its output);
+- every image header (T1, DWI, fieldmaps: 7,817 images of 1,491 subjects).
+
+The problems found, and what was done. Counts are over the 3,639 sessions (3,745 DWI samples):
+
+- **DWI runs with a third phase-encoding direction (RL).** The cohort is AP/PA. There are 78 RL
+  files across 11 sites, 30 at one site.
+  - What the reader does with them:
+    - **3 directions in one subject** (AP, PA and RL across its sessions): the reader drops the
+      whole subject without an error ("too many encoding directions"). 8 subjects, 31 sessions.
+    - **PA and RL in one session**: the two runs form two samples with the same key, which stops
+      the batch at start ("Several DWI samples share the same subject, session and run"). 2
+      batches.
+  - What was done, only in the batches' copies (`inputs/batch_tars/`); the lab's BIDS folder is
+    unchanged:
+    - **3 sessions with an RL run and an AP/PA run.** The RL run came first and the AP/PA rescan
+      after it, named "REPEAT" or "(PhaseAP)", so the RL run was redone with the protocol's
+      direction. The RL file is dropped.
+    - **8 RL-only sessions.** The file is renamed `dir-AP`; its JSON is unchanged, so the phase
+      encoding the pipeline reads stays RL.
+    - **Subjects split by these sessions.** The 5 subjects that had been left out of their batches
+      run in two new batches (b0320, b0321), and the stopped batch was prepared again.
+  - Not a defect: AP with PA pairs as a reverse-phase image, and RL alone in a subject reads normally.
+- **One T1 with a lost slice axis.** Its sform had a zero column, and its qform was a fit to that
+  broken matrix (45° off), so recon-all and SynthSeg failed on it ("error inverting matrix").
+  - The fix rebuilds the slice column from the two valid columns. These match the JSON's
+    `ImageOrientationPatientDICOM`, and the length is the 1.2 mm slice thickness.
+  - The sign is the one that puts the T1 on the same-session DWI: 5.6 mm from its centre, against
+    209 mm for the other sign.
+  - Both sform and qform are written. Only header bytes changed (the voxel data was compared), and
+    the change is recorded in the batch's `meta/input_fixes.tsv` (old and new checksum). The batch
+    then reran pass 1, so only that run's tasks were recomputed.
+- **One DWI run whose volume count differs between image, bval and bvec** (34/32/32). Its tasks
+  fail and the rest of the batch runs.
+- **Runs the pipeline skips correctly** (largest DTI shell under 6 directions): 22.
+  - 14 are short acquisitions.
+  - 8 are the short reverse-phase scans of ADNI4 sessions, labelled with the wrong `dir-`, so they
+    are read as runs, not as reverse images. Topup is then not used for those sessions.
+- **No error, but less output:**
+  - 116 samples have no b=1000 shell, so they get no fODF and no tractometry.
+  - 3,369 samples have no reverse-phase image (no topup; 375 have a reverse b0, 1 a reverse DWI).
+  - 1 sample has no b0.
+  - 2 `participants.tsv` rows match 2 samples, so their covariates are not attached.
+- **Image problems found while running:**
+  - **b0010 and b0014: 3 tasks failed on bad images.** These failures made "a failed run does
+    not stop its batch" the rule.
+  - **One run whose T1 fails FreeSurfer's Talairach check** (`talairach_afd`, p below threshold):
+    no cortical thickness for that run.
+
+Not found:
+- a NaN or singular affine elsewhere;
+- a voxel size that differs from pixdim;
+- an image without a qform or sform;
+- a qform and sform that disagree, apart from float rounding.
+
+The tables, with the identifiers of the runs, are in `adni_prep/input_audit/` on Rorqual:
+- `problems.tsv`: the reader and the rules;
+- `header_issues.tsv`: the headers;
+- `fix_files.tsv`: the RL files dropped or renamed.
+
+The scripts are there too, to check another cohort the same way.
+
 ## Tests
 
 ```bash

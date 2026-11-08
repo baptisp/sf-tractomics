@@ -164,7 +164,10 @@ status)
     ;;
 merge)
     [ "$BATCH" = true ] || die "merge is for batches; without them the tables are already in out/metrics"
-    python3 scripts/merge_batches.py
+    rc=0
+    python3 scripts/merge_batches.py || rc=$?
+    python3 scripts/volume_qc.py
+    exit "$rc"
     ;;
 handoff)
     # Packed (or never prepared) batches go to another machine. Each is locked, checked and marked

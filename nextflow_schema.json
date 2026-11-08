@@ -1189,6 +1189,13 @@
                     "help_text": "Runs recon-all as run_cortical_thickness does (once per distinct T1, shared when both are on) and needs freesurfer_license. The metric maps go to T1 space through TractoFlow's DWI-to-T1 transform; vertices outside the DWI brain mask are left out. Per sample: dwi/*_surf-freesurfer_desc-roi_stats.tsv (mean, with n_vertices) and dwi/*_surf-freesurfer_label-std_desc-roi_stats.tsv; all samples: metrics/space-native_surf-freesurfer_label-mean_desc-roi_stats.tsv.",
                     "default": false
                 },
+                "reconall_rerun": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "TSV of the T1s whose recon-all runs again, with extra recon-all options.",
+                    "help_text": "Columns subject, session, options, reason, with that header; session with or without 'ses-', empty for a subject without sessions. options are plain recon-all flags (e.g. -notal-check after a Talairach failure checked by eye). A listed T1 runs in RECONALL_THICKNESS_RERUN instead of RECONALL_THICKNESS, so every other T1 keeps its cached recon-all; its published FreeSurfer folder and every table read from it are replaced. The options are recorded in versions.yml."
+                },
                 "run_subject_roi_metrics": {
                     "type": "boolean",
                     "description": "Compute diffusion metrics in the subject's own GM regions (the 84 GM regions of SynthSeg/FreeSurfer, 18 with SAMSEG), weighted by the fraction of each acquired DWI voxel inside the region.",

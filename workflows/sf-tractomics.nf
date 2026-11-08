@@ -25,6 +25,7 @@ include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_CSF_VOLUMES        } from '../mo
 include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../modules/local/stats/subjectvolumes/main'
 include { STATS_HOC              } from '../modules/local/stats/hoc/main'
 include { SEGMENTATION_FSRECONALL as RECONALL_THICKNESS } from '../modules/nf-neuro/segmentation/fsreconall/main'
+include { SEGMENTATION_RECONALLRERUN as RECONALL_THICKNESS_RERUN } from '../modules/local/segmentation/reconallrerun/main'
 include { SEGMENTATION_RECONALLSEG } from '../modules/local/segmentation/reconallseg/main'
 include { SEGMENTATION_HIPPOAMYG } from '../modules/local/segmentation/hippoamyg/main'
 include { STATS_HIPPOAMYG         } from '../modules/local/stats/hippoamyg/main'
@@ -445,6 +446,7 @@ workflow SF_TRACTOMICS {
     // share it with every run
     def ch_t1_recon = channel.empty()
     def ch_recon_per_sample = channel.empty()
+    def ch_recon_all = channel.empty()          // [meta, recon-all folder], one per distinct T1
     def reconall_volumes = "reconall" in subject_sources && (do_gm_volumes || do_csf_volumes || do_cmp_volumes || do_hoc || do_subject_metrics)
     if ( do_thickness || do_surface_metrics || reconall_volumes || do_subfields ) {
         if ( !params.freesurfer_license ) {
@@ -452,15 +454,26 @@ workflow SF_TRACTOMICS {
                   "requires params.freesurfer_license."
         }
         ch_t1_recon = distinctT1s(ch_t1_vol)
-        RECONALL_THICKNESS(
-            ch_t1_recon
-                .map { meta, _metas, t1 -> [meta, t1] }
-                .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
+        // The T1s of params.reconall_rerun run recon-all again with their options, in a process of
+        // its own: every other T1 keeps its RECONALL_THICKNESS task (and its cache) unchanged
+        def reruns = reconallReruns(params.reconall_rerun)
+        def ch_t1_split = ch_t1_recon
+            .map { meta, _metas, t1 -> [meta, t1] }
+            .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
+            .branch { item ->
+                rerun: reruns.containsKey(reconallRerunKey(item[0]))
+                keep: true
+            }
+        RECONALL_THICKNESS(ch_t1_split.keep)
+        RECONALL_THICKNESS_RERUN(
+            ch_t1_split.rerun.map { meta, t1, license -> [meta, t1, license, reruns[reconallRerunKey(meta)]] }
         )
         ch_versions = ch_versions.mix(RECONALL_THICKNESS.out.versions.first())
+        ch_versions = ch_versions.mix(RECONALL_THICKNESS_RERUN.out.versions.first())
+        ch_recon_all = RECONALL_THICKNESS.out.recon_all_out_folder.mix(RECONALL_THICKNESS_RERUN.out.recon_all_out_folder)
         ch_recon_per_sample = ch_t1_recon
             .map { meta, metas, _t1 -> [meta, metas] }
-            .join(RECONALL_THICKNESS.out.recon_all_out_folder)
+            .join(ch_recon_all)
             .flatMap { _meta, metas, recon_all -> metas.collect { m -> [m, recon_all] } }
     }
 
@@ -469,7 +482,7 @@ workflow SF_TRACTOMICS {
     ch_hippoamyg = channel.empty()
     if ( do_subfields ) {
         SEGMENTATION_HIPPOAMYG(
-            RECONALL_THICKNESS.out.recon_all_out_folder
+            ch_recon_all
                 .combine(channel.fromPath(params.freesurfer_license, checkIfExists: true))
         )
         ch_versions = ch_versions.mix(SEGMENTATION_HIPPOAMYG.out.versions.first())
@@ -477,7 +490,7 @@ workflow SF_TRACTOMICS {
             ch_t1_recon
                 .map { meta, metas, _t1 -> [meta, metas] }
                 .join(SEGMENTATION_HIPPOAMYG.out.subfields)
-                .join(RECONALL_THICKNESS.out.recon_all_out_folder)
+                .join(ch_recon_all)
                 .flatMap { _meta, metas, subfields, recon_all -> metas.collect { m -> [m, subfields, recon_all] } }
         )
         ch_versions = ch_versions.mix(STATS_HIPPOAMYG.out.versions.first())
@@ -566,7 +579,7 @@ workflow SF_TRACTOMICS {
         if ( "reconall" in subject_sources ) {
             // recon-all's own aparc+aseg, one per distinct T1 (the run shared with the thickness),
             // with FreeSurfer's eTIV as intracranial volume
-            SEGMENTATION_RECONALLSEG(RECONALL_THICKNESS.out.recon_all_out_folder)
+            SEGMENTATION_RECONALLSEG(ch_recon_all)
             ch_versions = ch_versions.mix(SEGMENTATION_RECONALLSEG.out.versions.first())
             ch_subject_seg = ch_subject_seg.mix(ch_t1_recon
                 .map { meta, metas, _t1 -> [meta, metas] }
@@ -1401,6 +1414,48 @@ def distinctT1s(ch_t1) {
         .map { meta, t1 -> [t1SampleKey(meta, t1), meta, t1] }
         .groupTuple()
         .map { _key, metas, t1s -> [metas[0], metas, t1s[0]] }
+}
+
+// params.reconall_rerun: a TSV with columns subject, session, options, reason (header line; session
+// with or without 'ses-', empty for a subject without sessions). Returns [key: options] (see
+// reconallRerunKey). options are recon-all flags (e.g. -notal-check), written into the task's shell
+// script, so only plain flags are accepted; the ones run_cortical_thickness sets itself are refused.
+def reconallReruns(path) {
+    if ( !path ) {
+        return [:]
+    }
+    def lines = file(path, checkIfExists: true).readLines().findAll { l -> l.trim() && !l.startsWith("#") }
+    def header = ["subject", "session", "options", "reason"]
+    if ( !lines || lines[0].split("\t", -1).toList() != header ) {
+        error "reconall_rerun ${path}: the first line must be the header ${header.join('\\t')}"
+    }
+    def reruns = [:]
+    lines.drop(1).eachWithIndex { line, i ->
+        def f = line.split("\t", -1).toList()
+        def where = "reconall_rerun ${path}, line ${i + 2}"
+        if ( f.size() != header.size() ) {
+            error "${where}: ${f.size()} columns, ${header.size()} expected"
+        }
+        def (subject, session, options, reason) = f.collect { x -> x.trim() }
+        if ( !subject || !options || !reason ) {
+            error "${where}: subject, options and reason are required"
+        }
+        def flags = options.split(/\s+/).toList()
+        def bad = flags.findAll { x -> !(x ==~ /-[A-Za-z0-9][A-Za-z0-9-]*/) || x in ["-i", "-s", "-sd", "-subjid", "-all"] }
+        if ( bad ) {
+            error "${where}: options ${bad} refused (plain recon-all flags only; -i, -s, -sd, -subjid and -all are set already)"
+        }
+        def key = reconallRerunKey([id: subject, session: session])
+        if ( reruns.containsKey(key) ) {
+            error "${where}: ${subject} ${session} is listed twice"
+        }
+        reruns[key] = flags.join(" ")
+    }
+    return reruns
+}
+
+def reconallRerunKey(meta) {
+    return "${meta.id}\t${(meta.session ?: '').replaceFirst(/^ses-/, '')}"
 }
 
 // One T1 file of one session of one subject: the runs that share it get the same segmentation

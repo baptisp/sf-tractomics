@@ -27,8 +27,9 @@ params/passes/<k>_*.yaml  what pass k turns on, run in the order of k
 configs/vitaltour.config  local executor + Docker      configs/alliance.config  Slurm + Apptainer
 inputs/participants.tsv   the sessions to process (subject, session, run, covariates); not in git
                           (participant data, and the fork is public): format in participants.example.tsv
+inputs/reconall_rerun.tsv optional: T1s whose recon-all runs again with extra options (not in git)
 scripts/                  setup_steps.sh, lib.sh (one pass in one folder), batch.sh (lock, pack,
-                          unpack), passes.py, make_batches.py, merge_batches.py, reuse_report.py,
+                          unpack), passes.py, make_batches.py, merge_batches.py, volume_qc.py, reuse_report.py,
                           setup.sbatch, head.sbatch, batch_job.sbatch
 tests/                    test_python.py, test_batch.sh, test_flow.sh (no cluster needed)
 ```
@@ -247,6 +248,12 @@ prediction must not have.
 - `qc_flags` of the volume tables: `icv_drift` (a session's ICV more than the allowed fraction away
   from its subject's median, `volume_icv_drift`: a failed segmentation or a scanner change).
 - `metrics/dwi_input_report.tsv`: which DWI runs were kept or dropped, and why.
+- `merged/volume_qc.tsv` (`./run.sh merge`, `scripts/volume_qc.py`): recon-all against SynthSeg
+  per run: cortex volume per hemisphere and intracranial volume, as ratios. A ratio more than 6
+  robust SD from the cohort's median is flagged (`cortex_mismatch_lh`/`_rh`, `icv_mismatch`). Both
+  segment the same T1, so a flag points to a failed recon-all (or SynthSeg) run that the
+  pipeline's own flags, which compare a run with itself or its subject, do not see. Review a
+  flagged run; drop the failed source's rows if a rerun does not fix it.
 
 ### Acquisition differences to model
 
@@ -389,8 +396,7 @@ The problems found, and what was done. Counts are over the 3,639 sessions (3,745
 - **Image problems found while running:**
   - **b0010 and b0014: 3 tasks failed on bad images.** These failures made "a failed run does
     not stop its batch" the rule.
-  - **One run whose T1 fails FreeSurfer's Talairach check** (`talairach_afd`, p below threshold):
-    no cortical thickness for that run.
+  - **recon-all failures**: see below.
 
 Not found:
 - a NaN or singular affine elsewhere;
@@ -404,6 +410,45 @@ The tables, with the identifiers of the runs, are in `adni_prep/input_audit/` on
 - `fix_files.tsv`: the RL files dropped or renamed.
 
 The scripts are there too, to check another cohort the same way.
+
+### recon-all reruns
+
+A recon-all run can fail without an error, so its volumes are checked against SynthSeg's
+(`merged/volume_qc.tsv`, above). On the first 64 batches (706 runs) that check and the failed
+tasks found 7 runs, of 4 kinds, all on 3T scanners:
+
+- **Talairach check failed** (`talairach_afd`, p below threshold), so recon-all stopped: 2 runs,
+  no recon-all volume or thickness. The transforms were far from the atlas (large rotations), so
+  skipping the check (`-notal-check`) would have kept a wrong eTIV.
+- **Wrong Talairach transform that the check let through**: 2 runs, eTIV 2.3 and 3.3 L (twice
+  SynthSeg's ICV, and in one run three times the brain volume). The cortex is right, the ICV and
+  every ICV fraction are wrong.
+- **One white surface lost**: 2 runs. The ribbon has about 30,000 white-matter voxels on that
+  hemisphere against about 290,000 on the other, so its white matter is counted as cortex (cortex
+  1.3 and 1.5 times SynthSeg's).
+- **Cortical ribbon of one hemisphere not filled**: 1 run. Its surfaces and their statistics are
+  normal, but `ribbon.mgz`, and so `aparc+aseg.mgz`, which the volume tables count, holds a tenth
+  of that hemisphere's cortex.
+
+Each of these runs recon-all again with other options:
+- `-use-mritotal` (MINC's Talairach registration) for the Talairach failures, check kept;
+- `-3T` (3T atlas and intensity correction) for the surface ones.
+
+How:
+- `inputs/reconall_rerun.tsv`, not in git: columns `subject`, `session`, `options`, `reason`, with
+  that header. Each launch copies it to `meta/reconall_rerun_<pass>.tsv` and passes it as the
+  pipeline's `reconall_rerun`.
+- A listed T1 runs in `RECONALL_THICKNESS_RERUN`, a copy of the recon-all process that takes the
+  options as an input. Every other T1 keeps its `RECONALL_THICKNESS` task and its cache.
+  - Adding the options to the nf-neuro module instead would have run recon-all again on every T1:
+    Nextflow hashes a task's script source, so any edit to it misses the cache, even for a T1 whose
+    options are empty. This was tested.
+- The rerun's FreeSurfer folder replaces the published one, and every task that reads it (thickness,
+  subfields, the volume tables) runs again for that run only. The options are in `versions.yml`.
+- The reruns go with the next pass of their batches, which needs `ALLOW_COMMIT_CHANGE=1` (the
+  pipeline commit changes).
+- Afterwards `./run.sh merge` checks them again. A run still flagged keeps its SynthSeg volumes;
+  drop its recon-all rows.
 
 ## Tests
 

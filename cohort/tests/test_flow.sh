@@ -95,6 +95,7 @@ check "pass 1: results packed (out/ in the archive, tables in extracted_results.
     bash -c "[ ! -e '$D/out' ] && tar -tf '$R/archives/b0001.tar' | grep -qx out/metrics/volumes.tsv && tar -tzf '$D/extracted_results.tar.gz' | grep -qx metrics/volumes.tsv"
 check "pass 1: inputs checksummed" grep -q "data_bids/sub-A/ses-2/anat/T1w.nii.gz" "$D/meta/inputs.sha256"
 check "pass 1: publish as hard links in batch mode" grep -qx "publish_dir_mode: link" "$D/meta/params_1_volumes.yaml"
+check "pass 1: no rerun list, no reconall_rerun parameter" bash -c "! grep -q reconall_rerun '$D/meta/params_1_volumes.yaml'"
 session=$(cat "$D/meta/session_id")
 
 # Pass 2: unpacked, resumes pass 1's session, every task of pass 1 reused, packed again
@@ -106,9 +107,13 @@ check "pass 2: reuse report says nothing of pass 1 was computed again" grep -q "
 check "pass 2: packed again" [ "$(cat "$D/meta/state")" = packed ]
 check "pass 2: the work of pass 1 is still in the archive" bash -c "tar -tf '$R/archives/b0001.tar' | grep -q work/aa/out.txt"
 
-# A pass that recomputes a task of pass 1 is reported
+# A pass that recomputes a task of pass 1 is reported; with a recon-all rerun list, which the launch
+# keeps a copy of and passes to the pipeline
+printf 'subject\tsession\toptions\treason\nsub-A\t1\t-3T\ttest\n' > "$R/inputs/reconall_rerun.tsv"
 FAKE_VOLUMES_STATUS=COMPLETED job 2_metrics 104
 check "a task of pass 1 computed again is reported" grep -q "computed again: VOLUMES (sub-A)" "$D"/logs/reuse_2_metrics_104.txt
+check "rerun list: copied into meta/ and passed as reconall_rerun" bash -c "cmp -s '$R/inputs/reconall_rerun.tsv' '$D/meta/reconall_rerun_2_metrics.tsv' && grep -qx 'reconall_rerun: $D/meta/reconall_rerun_2_metrics.tsv' '$D/meta/params_2_metrics.yaml'"
+rm "$R/inputs/reconall_rerun.tsv"
 
 # A commit that changes only cohort/ is not another pipeline: accepted
 echo "# note" >> "$R/README.md" && gitc add cohort/README.md && gitc commit -qm "wrapper only"

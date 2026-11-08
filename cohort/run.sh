@@ -144,7 +144,10 @@ status)
     ;;
 merge)
     [ "$BATCH" = true ] || die "merge is for batches; without them the tables are already in out/metrics"
-    python3 scripts/merge_batches.py
+    rc=0
+    python3 scripts/merge_batches.py || rc=$?
+    python3 scripts/volume_qc.py
+    exit "$rc"
     ;;
 *)
     sed -n '2,17p' "$0" >&2

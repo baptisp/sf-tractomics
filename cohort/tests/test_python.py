@@ -249,5 +249,50 @@ class TestFailureReport(unittest.TestCase):
             self.assertTrue((root / "out" / "metrics" / "failed_tasks.tsv").read_text().startswith("batch\tpass\t"))
 
 
+class TestVolumeQc(unittest.TestCase):
+    HEADER = "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction\n"
+
+    def table(self, merged, source, runs):
+        rows = [self.HEADER]
+        for sid, lh, rh, icv in runs:
+            for roi, v in (("ctx-lh-insula", lh), ("ctx-lh-cuneus", lh), ("ctx-rh-insula", rh),
+                           ("ctx-rh-cuneus", rh), ("Left-Thalamus", 7000.0)):
+                rows.append(f"{sid},ses-A,1,{roi},{int(v)},{v:.4f},{source},{icv:.4f},{v / icv:.8f}\n")
+        (merged / f"space-native_seg-{source}_label-gm_desc-roi_volumes.csv").write_text("".join(rows))
+
+    def test_a_lost_hemisphere_and_a_wrong_etiv_are_flagged_and_nothing_else(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = Path(tmp)
+            n = 40
+            # recon-all cortex 0.84 of SynthSeg's, eTIV equal to SynthSeg's ICV, with a little spread
+            ss = [(f"sub-{i}", 250000.0, 250000.0, 1.5e6) for i in range(n)]
+            ra = [(s, lh * (0.84 + 0.002 * (i % 5)), rh * (0.84 - 0.002 * (i % 3)), icv * (1 + 0.003 * (i % 4)))
+                  for i, (s, lh, rh, icv) in enumerate(ss)]
+            ra[3] = (ra[3][0], ra[3][1], 250000.0 * 0.06, ra[3][3])   # right cortex lost
+            ra[7] = (ra[7][0], ra[7][1], ra[7][2], 1.5e6 * 1.9)       # eTIV failed
+            self.table(merged, "reconall", ra)
+            self.table(merged, "synthseg", ss)
+            r = subprocess.run([sys.executable, str(REPO / "scripts" / "volume_qc.py"), str(merged)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            rows = (merged / "volume_qc.tsv").read_text().splitlines()
+            self.assertEqual(rows[0].split("\t"), ["sid", "session", "run", "cortex_ratio_lh", "cortex_ratio_rh",
+                                                   "icv_ratio", "flags"])
+            flagged = {l.split("\t")[0]: l.split("\t")[-1] for l in rows[1:] if l.split("\t")[-1]}
+            self.assertEqual(flagged, {"sub-3": "cortex_mismatch_rh", "sub-7": "icv_mismatch"})
+            self.assertEqual(len(rows), n + 1)
+
+    def test_too_few_runs_give_no_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = Path(tmp)
+            runs = [(f"sub-{i}", 2e5, 2e5 * (0.1 if i == 0 else 1), 1.5e6) for i in range(5)]
+            self.table(merged, "reconall", runs)
+            self.table(merged, "synthseg", [(s, 2e5, 2e5, 1.5e6) for s, *_ in runs])
+            r = subprocess.run([sys.executable, str(REPO / "scripts" / "volume_qc.py"), str(merged)],
+                               capture_output=True, text=True)
+            self.assertIn("no flags", r.stdout)
+            self.assertTrue(all(l.endswith("\t") for l in (merged / "volume_qc.tsv").read_text().splitlines()[1:]))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

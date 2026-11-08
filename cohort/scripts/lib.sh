@@ -88,7 +88,7 @@ launch_session() {
 # run_pass DIR PASS: one pass in launch folder DIR (inputs already in DIR/data_bids). Nextflow runs
 # in the background, its pid in DIR/meta/nextflow.pid, so a job script can stop it cleanly.
 run_pass() {
-    local dir=$1 pass=$2 head p session name id rc publish=()
+    local dir=$1 pass=$2 head p session name id rc sets=()
     cd "$dir"
     mkdir -p meta logs
     head=$(pipeline_version)
@@ -107,10 +107,16 @@ run_pass() {
     done
     # Batch results are hard links into work/: no inode of their own, and they stay valid after
     # work/ is packed and deleted. Without batches, the pipeline's default (copy), as on vitalTour.
-    [ "$BATCH" = true ] && publish=(--set publish_dir_mode=link)
+    [ "$BATCH" = true ] && sets=(--set publish_dir_mode=link)
+    # recon-all again, with extra options, on the T1s of inputs/reconall_rerun.tsv (README: recon-all
+    # reruns). The launch keeps a copy, so meta/ records what it was given.
+    if [ -s "$SFT_ROOT/inputs/reconall_rerun.tsv" ]; then
+        cp "$SFT_ROOT/inputs/reconall_rerun.tsv" "meta/reconall_rerun_${pass}.tsv"
+        sets+=(--set "reconall_rerun=$PWD/meta/reconall_rerun_${pass}.tsv")
+    fi
     python3 "$SFT_ROOT/scripts/passes.py" resolve "$pass" "meta/params_${pass}.yaml" \
         --set "participants_tsv=$dir/data_bids/participants.tsv" --set "freesurfer_license=$FS_LICENSE" \
-        "${publish[@]}" || die "parameters of pass $pass refused"
+        "${sets[@]}" || die "parameters of pass $pass refused"
 
     session=$(launch_session "$dir")
     id=${SLURM_JOB_ID:-$(date +%Y%m%d%H%M%S)}

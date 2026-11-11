@@ -28,6 +28,7 @@ mkdir -p "$B/sub-A/ses-1/anat" "$B/sub-A/ses-2/anat"
 echo '{}' > "$B/dataset_description.json"
 echo t1 > "$B/sub-A/ses-1/anat/T1w.nii.gz"; echo t1b > "$B/sub-A/ses-2/anat/T1w.nii.gz"
 sed -i "s|^    vitaltour) INPUT_BIDS=.*|    vitaltour) INPUT_BIDS=\"$B\" ;;|" "$R/config.env"
+sed -i 's|^HOME_CLUSTER=.*|HOME_CLUSTER="vitaltour"|' "$R/config.env"   # the batch is this machine's
 echo b0 > "$R/work/atlas_iit/IITmean_b0.nii.gz"; echo b0 > "$R/.atlas_cache/freesurfer/IITmean_b0.nii.gz"
 echo licence > "$R/license_freesurfer.txt"
 gitc() { git -C "$P" -c user.name=t -c user.email=t@t "$@"; }

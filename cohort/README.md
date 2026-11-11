@@ -152,8 +152,8 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
 - **Merging.** `./run.sh merge` concatenates the batches' `metrics/` tables, read from their
   `extracted_results.tar.gz`, into `merged/`, one header each. A table whose header differs between
   batches is refused.
-- **Fixed paths.** A batch folder never moves, and is resumed only on the cluster where it was
-  created: Nextflow's cache and links hold absolute paths.
+- **Fixed paths.** A batch folder never changes path: Nextflow's cache and links hold absolute
+  paths. It can change cluster, at the same path (next section).
 
 - **Finished archives leave scratch.** A batch done with every pass of `params/passes/` moves its
   archive to `ARCHIVE_STORE` (`config.env`; on Rorqual
@@ -169,6 +169,71 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   must not sit unused past the purge window.
 - **Inputs on a cluster without ADNI (Fir).** Copy them into `INPUT_BIDS`, or as per-batch archives
   in `inputs/batch_tars/`, one file per batch.
+
+## Moving batches between clusters
+
+A batch can run its passes on several clusters, one at a time, and resume on each from where the
+other stopped. The FreeSurfer steps and every other finished task are reused, not recomputed.
+
+**Why it works.** Nextflow reuses a task when its hash matches an entry of the run's cache. With the
+pipeline's `cache = 'lenient'` (Slurm profile), the hash holds:
+- the session id;
+- the task's script;
+- the container image's path;
+- each input file's absolute path and size (not its date).
+
+Everything that varies by cluster is kept the same:
+- **Path.** The cohort folder has the same absolute path on every cluster:
+  `/scratch/pierrard/sf-tractomics/cohort`, a real path on both Rorqual and Fir.
+- **The batch's own files.** Its cache (`.nextflow/`), `work/`, inputs and atlases travel inside
+  its archive.
+- **The shared files.** These must be identical on both clusters: the pipeline commit, the
+  Nextflow version and its plugin (`.nextflow_home/`), the images in `containers/` (same names),
+  `license_freesurfer.txt`, and the atlases of `setup`.
+
+**One owner at a time.**
+- A batch runs only on the machine recorded in its `meta/owner`. Without that file, the owner is
+  `HOME_CLUSTER` (`config.env`).
+- Taking a batch's lock (`batch_lock`) checks the owner, before and once held. Every job that
+  touches a batch takes that lock, so a batch that left never runs again where it was. This holds
+  even for an array task queued before it left, or before this check existed: Slurm keeps the job
+  script, but the scripts it sources are read when it starts.
+- Every change of owner is appended to `meta/owner_history`.
+
+**Moving batches:**
+1. On the cluster that has them:
+   ```
+   ./run.sh --batch handoff fir b0230 b0231 ...
+   ```
+   - Only packed or never-prepared batches can move, never one in use.
+   - Each batch becomes `transit:fir`, and then runs nowhere.
+   - What to copy is staged in one folder, `transfers/<date>_<from>_to_fir/`, laid out like the
+     cohort folder:
+     - the batch folders;
+     - their archives and input tars, as hard links (no space, no inode);
+     - `manifest.tsv`, which `adopt` checks.
+2. Copy that folder, with Globus and its checksum verification, to **the same path** on the other
+   cluster.
+3. On the other cluster:
+   ```
+   ./run.sh --batch adopt transfers/<date>_<from>_to_fir
+   ```
+   - It first checks that both clusters run the same cohort: `batches/list.tsv`, `inputs/*.tsv`,
+     `params/`, `configs/alliance.config`, the pipeline commit and the Nextflow version.
+   - It checks that every archive and input tar arrived complete (sizes from the manifest).
+   - It checks that every batch is in transit to this cluster, and that none it already runs would
+     be overwritten.
+   - Only if everything is right, it moves each batch's folder, archive and input tar into place.
+     What they replace is kept in the transfer folder's `replaced/`: for a batch coming back, these
+     are this cluster's copies from before it left.
+4. `./run.sh submit PASS` there runs it. `submit` only lists batches this machine owns, and
+   `./run.sh status` shows each batch's owner.
+
+**Afterwards:**
+- Delete the transfer folder on both sides once the batches run (`replaced/` included).
+- On the sending side, the batch's own `archives/bNNNN.tar` is stale and can be deleted too.
+- A batch never prepared needs its input tar (`inputs/batch_tars/bNNNN.tar`), or an `INPUT_BIDS`
+  on the receiving cluster.
 
 ## Using the results downstream
 
@@ -487,6 +552,7 @@ How:
 python3 tests/test_python.py   # pass rules, batch list
 bash tests/test_batch.sh       # pack/unpack identical, every crash point, locks and lock races
 bash tests/test_flow.sh        # two passes over a pack with a fake nextflow; the refusals
+bash tests/test_handoff.sh     # batches moved between two machines and back: owner check, refusals
 ```
 
 On a cluster, the real check is one subject in batch mode, run as jobs:

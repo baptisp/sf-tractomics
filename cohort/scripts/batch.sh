@@ -38,8 +38,12 @@ state_set() {
 # lock at once could each delete it and create their own, the second deleting the first's: so a
 # job holds the lock only once it still finds its own id in it after a pause longer than that
 # window, and otherwise starts again (and then finds the other job alive).
+# Only the batch's owner (check_owner) takes it: checked before anything is created, and again once
+# the lock is held. Every job script that touches a batch goes through here, including array tasks
+# queued before a change of this file (Slurm keeps their job script, not the files it sources).
 batch_lock() {
     local dir=$1 me=${SLURM_JOB_ID:-$$} holder attempt
+    check_owner "$dir"
     mkdir -p "$dir/meta"
     for attempt in 1 2 3 4 5; do
         while ! mkdir "$dir/meta/lock" 2>/dev/null; do
@@ -56,7 +60,13 @@ batch_lock() {
         done
         echo "$me" > "$dir/meta/lock/job"
         sleep 2
-        [ "$(cat "$dir/meta/lock/job" 2>/dev/null)" = "$me" ] && return 0
+        if [ "$(cat "$dir/meta/lock/job" 2>/dev/null)" = "$me" ]; then
+            if [ "$(owner_get "$dir")" != "$MACHINE" ]; then
+                rm -rf "$dir/meta/lock"
+                die "$dir now belongs to $(owner_get "$dir"), not $MACHINE"
+            fi
+            return 0
+        fi
     done
     die "$dir: could not take the lock"
 }
@@ -65,6 +75,36 @@ batch_unlock() {
     local dir=$1 me=${SLURM_JOB_ID:-$$}
     [ "$(cat "$dir/meta/lock/job" 2>/dev/null)" = "$me" ] && rm -rf "$dir/meta/lock"
     return 0
+}
+
+# Owner: the machine a batch runs on, one at a time. A batch moves between clusters only packed (or
+# never prepared), as its folder and its archive at the same absolute path, which is what lets
+# Nextflow's cache resume it there: ./run.sh handoff on the machine that has it, a copy, ./run.sh
+# adopt on the other. meta/owner holds a machine name (MACHINE), or "transit:MACHINE" from handoff
+# to adopt, when it runs nowhere. No file: HOME_CLUSTER (config.env). Every change is appended to
+# meta/owner_history.
+owner_get() {
+    local dir=$1
+    if [ -s "$dir/meta/owner" ]; then
+        cat "$dir/meta/owner"
+    else
+        echo "${HOME_CLUSTER:?HOME_CLUSTER is not set in config.env}"
+    fi
+}
+
+owner_set() {
+    local dir=$1 owner=$2
+    mkdir -p "$dir/meta"
+    echo "$owner" > "$dir/meta/owner.tmp"
+    mv -f "$dir/meta/owner.tmp" "$dir/meta/owner"
+    printf '%s\t%s\t%s\n' "$(date '+%F %H:%M:%S')" "$MACHINE" "$owner" >> "$dir/meta/owner_history"
+}
+
+# check_owner DIR: refuse a batch that this machine does not own (moved, or on its way)
+check_owner() {
+    local owner
+    owner=$(owner_get "$1")
+    [ "$owner" = "$MACHINE" ] || die "$1 belongs to $owner, not $MACHINE (./run.sh handoff, then adopt there)"
 }
 
 # job_alive JOBID: the job is still queued or running (Slurm); without Slurm (tests), a process id

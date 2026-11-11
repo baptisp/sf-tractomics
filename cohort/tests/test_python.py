@@ -249,5 +249,39 @@ class TestFailureReport(unittest.TestCase):
             self.assertTrue((root / "out" / "metrics" / "failed_tasks.tsv").read_text().startswith("batch\tpass\t"))
 
 
+class TestSubmissionRetries(unittest.TestCase):
+    """A refused sbatch must not leave a task 'ignored' without ever running (Rorqual, 2026-11-10)."""
+
+    CONFIG = (REPO / "configs" / "alliance.config").read_text()
+
+    def retry_reason(self):
+        import re
+        match = re.search(r"retry\s*\{[^}]*reason\s*=\s*'([^']+)'", self.CONFIG)
+        self.assertIsNotNone(match, "executor.retry.reason is not set")
+        return re.compile(match.group(1))
+
+    def test_transient_sbatch_errors_are_retried_by_the_executor(self):
+        reason = self.retry_reason()
+        for output in ("sbatch: error: Batch job submission failed: Socket timed out on send/recv operation",
+                       "sbatch: error: Batch job submission failed: Unable to contact slurm controller (connect failure)",
+                       "sbatch: error: Slurm temporarily unavailable",
+                       "sbatch: error: QOSMaxSubmitJobPerUserLimit",
+                       "sbatch: error: AssocMaxSubmitJobLimit"):
+            self.assertTrue(reason.search(output), output)
+
+    def test_a_wrong_submission_is_not_retried_by_the_executor(self):
+        reason = self.retry_reason()
+        for output in ("sbatch: error: Invalid account or account/partition combination specified",
+                       "sbatch: error: invalid partition specified: nope"):
+            self.assertFalse(reason.search(output), output)
+
+    def test_a_task_never_submitted_is_retried_by_the_error_strategy(self):
+        import re
+        strategy = re.search(r"errorStrategy\s*=\s*\{(.*?)\}\n", self.CONFIG, re.S)
+        self.assertIsNotNone(strategy)
+        self.assertIn("task.previousException?.message?.startsWith('Error submitting process')", strategy.group(1))
+        self.assertIn("task.attempt <= 3", strategy.group(1))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

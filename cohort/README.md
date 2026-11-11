@@ -382,6 +382,35 @@ The problems found, and what was done. Counts are over the 3,639 sessions (3,745
   - Both sform and qform are written. Only header bytes changed (the voxel data was compared), and
     the change is recorded in the batch's `meta/input_fixes.tsv` (old and new checksum). The batch
     then reran pass 1, so only that run's tasks were recomputed.
+- **Three T1s whose sform voxel size differs from pixdim**, found while running (b0096, b0100,
+  b0246). They are sub-027S4964 ses-20130116, sub-027S4869 ses-20200218 and sub-126S6559
+  ses-20201028.
+  - On one axis, the length of the sform column differs from pixdim by 8e-5 to 1e-4 (relative);
+    for example 1.1999054 mm in the sform against 1.2 mm in pixdim.
+  - What breaks: the T1 N4 runs inside a nonzero mask that `mrcalc` writes. Above about 1e-5,
+    MRtrix takes the sform's voxel size ("voxel spacings inconsistent between NIFTI s-form and
+    header field pixdim"), while ITK reads pixdim. The mask and the image then differ in spacing
+    by more than ITK's tolerance (1e-6), and `N4BiasFieldCorrection -x` aborts ("Inputs do not
+    occupy the same physical space", exit 134) on every attempt.
+  - The session then has no T1, and its batch's run stopped later with `Path value cannot be
+    null` at the T1-to-DWI registration, instead of losing that session only.
+  - Before the masked N4, these T1s ran: the mask is what compares the two spacings.
+  - Every T1 of the cohort was checked: 2,122 differ by less than 1e-6 and 1,513 by 1e-6 to
+    1e-5 (these pass N4), the 3 above by 8e-5 to 1e-4, and b0320's T1 (lost slice axis) is the
+    only other one.
+  - The fix (`fix_spacing.py`) rescales each sform column to its pixdim. It keeps the direction
+    and the offset. The rescaled sform then equals the qform exactly (0 mm), which was already
+    built from pixdim.
+  - Only the 48 sform bytes change (the voxel data was compared), and only in the batches'
+    copies.
+    - b0096 and b0100 had run: they were unpacked, fixed, and their checksums and
+      `meta/input_fixes.tsv` updated (`fix_spacing_batch.sbatch`). They then resumed pass 1, so
+      only that T1's tasks were recomputed.
+    - b0246 had not started: its input tar (`inputs/batch_tars/b0246.tar`) was built with the
+      fixed T1 (`make_input_tar.sbatch`), and the change is listed in
+      `input_fixes_unprepared.tsv`.
+  - The test (`spacing_test/`) ran `mrcalc` and `N4BiasFieldCorrection -x` from the pipeline's
+    container on each lab file and on its fixed copy.
 - **One DWI run whose volume count differs between image, bval and bvec** (34/32/32). Its tasks
   fail and the rest of the batch runs.
 - **Runs the pipeline skips correctly** (largest DTI shell under 6 directions): 22.
@@ -400,14 +429,16 @@ The problems found, and what was done. Counts are over the 3,639 sessions (3,745
 
 Not found:
 - a NaN or singular affine elsewhere;
-- a voxel size that differs from pixdim;
+- a voxel size that differs from pixdim, at the header audit's tolerance (its check missed the
+  three 1e-4 cases above, which a mask built by MRtrix does not tolerate);
 - an image without a qform or sform;
 - a qform and sform that disagree, apart from float rounding.
 
 The tables, with the identifiers of the runs, are in `adni_prep/input_audit/` on Rorqual:
 - `problems.tsv`: the reader and the rules;
 - `header_issues.tsv`: the headers;
-- `fix_files.tsv`: the RL files dropped or renamed.
+- `fix_files.tsv`: the RL files dropped or renamed;
+- `t1_spacing_mismatch.tsv`: the sform/pixdim voxel-size difference of every T1.
 
 The scripts are there too, to check another cohort the same way.
 

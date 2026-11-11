@@ -8,6 +8,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 export SFT_ROOT=$T
+export MACHINE=here HOME_CLUSTER=here   # the batches are this machine's (owner, batch_lock)
 mkdir -p "$T/logs"
 source "$REPO/scripts/lib.sh"
 source "$REPO/scripts/batch.sh"
@@ -233,6 +234,19 @@ W=$T/watch; mkdir -p "$W"
 sleep 3; kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
 check "watchdog: the hung task job of its batch is cancelled, once" [ "$(cat "$W/cancelled" 2>/dev/null)" = 11 ]
 check "watchdog: listed in logs/hung_tasks.tsv" bash -c "[ \$(wc -l < '$W/b/logs/hung_tasks.tsv') = 1 ] && grep -qP '\t11\t25:00\tTASK_11$' '$W/b/logs/hung_tasks.tsv'"
+
+# Owner: the lock is only for the batch's owner (moved batches never run where they were, even from
+# a job script queued before the owner check existed: it calls batch_lock)
+O=$T/batches/b0031
+mkdir -p "$O/meta" && echo transit:there > "$O/meta/owner"
+( SLURM_JOB_ID=$$ batch_lock "$O" ) >/dev/null 2>&1 && fail "the lock refuses a batch owned elsewhere" || ok "the lock refuses a batch owned elsewhere"
+check "a refused lock leaves no lock" [ ! -e "$O/meta/lock" ]
+N=$T/batches/b0032
+( SLURM_JOB_ID=$$ batch_lock "$N" && SLURM_JOB_ID=$$ batch_unlock "$N" ) >/dev/null 2>&1 \
+    && ok "a batch with no owner recorded is HOME_CLUSTER's" || fail "a batch with no owner recorded is HOME_CLUSTER's"
+H=$T/batches/b0033
+( HOME_CLUSTER=elsewhere SLURM_JOB_ID=$$ batch_lock "$H" ) >/dev/null 2>&1 && fail "no owner recorded, another HOME_CLUSTER: refused" || ok "no owner recorded, another HOME_CLUSTER: refused"
+check "a refused lock creates no batch folder" [ ! -e "$H" ]
 
 echo
 [ "$failures" = 0 ] && echo "all batch tests passed" || { echo "$failures failure(s)"; exit 1; }

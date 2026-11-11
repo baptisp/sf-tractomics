@@ -21,6 +21,8 @@ dir="$SFT_ROOT/batches/$batch"
 archive=$(archive_of "$batch")   # scratch, or the store once the batch was finished
 export SFT_TAG="sft-$COHORT_NAME-$batch"   # comment of every task job of this batch
 
+# A batch handed off to another cluster (or on its way) never runs here, even from an array
+# submitted before it left: batch_lock refuses a batch this machine does not own
 batch_lock "$dir"
 trap 'batch_unlock "$dir"' EXIT
 trap 'stop_nextflow "$dir"' USR1

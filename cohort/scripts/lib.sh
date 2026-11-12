@@ -100,6 +100,11 @@ run_pass() {
         echo "$(date '+%F %H:%M:%S') $(cat meta/pipeline_commit) -> $head" >> meta/pipeline_commit_history
     fi
     echo "$head" > meta/pipeline_commit
+    # An Alliance cluster runs the patched Nextflow jar (scripts/patch_nextflow.sh), or its task
+    # hashes would hold this filesystem's directory sizes and no batch could resume on another one
+    if [ -n "${CC_CLUSTER:-}" ] && [ "$MACHINE" = "$CC_CLUSTER" ]; then
+        nextflow_is_patched || die "the Nextflow jar $(nextflow_jar) is not patched: ./run.sh setup"
+    fi
     [ -s meta/inputs.sha256 ] || die "$dir has no input checksums"
     sha256sum --quiet -c meta/inputs.sha256 || die "$dir/data_bids changed since it was prepared"
     for p in $(passes_before "$pass"); do
@@ -282,3 +287,6 @@ stop_nextflow() {
     [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null && log "$1: stopping Nextflow (pid $pid) before the walltime"
     return 0
 }
+
+# nextflow_jar, nextflow_is_patched, patch_nextflow
+source "$(dirname "${BASH_SOURCE[0]}")/patch_nextflow.sh"

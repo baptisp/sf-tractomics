@@ -374,8 +374,10 @@ batches' `meta/` in the archive store).
 - **Requests sized from the first day.** Memory about 1.4x the largest peak and time 2.5 to 4x the
   longest run of about 10,000 tasks (`configs/alliance.config`, values in the comments), so most
   tasks fit under 3 h and fill scheduling gaps; both grow on a retry. CPUs unchanged: several
-  modules write the thread count into their script (task hash) and ANTs results depend on it. A
-  batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 60 min before, and
+  modules write the thread count into their script (task hash) and ANTs results depend on it.
+  recon-all asks 12 h, not the 2.5x rule: on Rorqual a job over 12 h goes to the long-job partition,
+  where its tasks waited 36 h once fairshare fell (median 3.8 h over 1131 runs, longest 14.5 h,
+  retried at 24 h). A batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 60 min before, and
   resumes when submitted again.
 - **Hung containers.** Some tasks hang at container start on Rorqual: Apptainer's processes wait on
   each other, the task's command never starts, 0 CPU. 24 of the first day's 12,558 tasks, but 13 of

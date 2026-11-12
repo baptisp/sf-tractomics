@@ -30,6 +30,8 @@ if [ ! -x bin/nextflow ]; then
     (cd bin && curl -fsSL https://get.nextflow.io | bash) > logs/setup_nextflow.log 2>&1
 fi
 bin/nextflow -version | grep -q "$NXF_VER" || die "Nextflow $NXF_VER not installed"
+# Alliance clusters: the patched jar, so a batch resumes on another cluster (scripts/patch_nextflow.sh)
+[ "$MACHINE" = vitaltour ] || patch_nextflow
 if [ "$OFFLINE" = true ]; then
     ls -d "$NXF_HOME"/plugins/nf-schema-* > /dev/null 2>&1 || die "offline and no nf-schema plugin in $NXF_HOME/plugins: $COPY_HINT"
 fi

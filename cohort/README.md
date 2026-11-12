@@ -180,9 +180,25 @@ pipeline's `cache = 'lenient'` (Slurm profile), the hash holds:
 - the session id;
 - the task's script;
 - the container image's path;
-- each input file's absolute path and size (not its date).
+- each input file's absolute path and size (not its date). For a folder, the size is the one the
+  filesystem reports for the folder itself, not its content.
 
 Everything that varies by cluster is kept the same:
+- **Folder sizes, by a patched Nextflow.** Rorqual's Lustre reports 25600 bytes for any folder,
+  Fir's 4096. The first task takes `data_bids/` as input, so with the stock Nextflow every hash
+  differed on Fir and a batch from Rorqual was computed again from scratch (b0084, November 2026:
+  none of its tasks reused). `setup` therefore patches the Nextflow jar on every Alliance cluster
+  (`scripts/patch_nextflow.sh`): it compiles `nextflow_patch/HashBuilder.java`, Nextflow 26.04.4's
+  own file with one change, into the jar, so a folder's size is hashed as 25600 everywhere.
+  - On Rorqual, where every folder reports 25600, the patched jar gives exactly the stock jar's
+    hashes: the caches computed before the patch stay valid.
+  - The stock jar is kept next to it (`.orig`). The patch refuses any jar but the stock 26.04.4
+    one; another `NXF_VER` needs the change ported first.
+  - `run_pass` refuses to run on a cluster whose jar is not patched.
+  - Checked: the unchanged source compiles to the shipped bytecode; a test folder at the same path
+    hashes the same on Rorqual (stock or patched) and on Fir (patched); b0084, moved from Rorqual,
+    resumed on Fir with 485 tasks reused, only the MultiQC reports run again (they run again at
+    every resume, on Rorqual too).
 - **Path.** The cohort folder has the same absolute path on every cluster:
   `/scratch/pierrard/sf-tractomics/cohort`, a real path on both Rorqual and Fir.
 - **The batch's own files.** Its cache (`.nextflow/`), `work/`, inputs and atlases travel inside

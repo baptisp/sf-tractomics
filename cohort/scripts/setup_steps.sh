@@ -58,12 +58,25 @@ fi
 
 # Inputs. Without batches: every session, in data_bids/ of this folder (once; checksums kept).
 # With batches: each batch copies its own subjects when it first runs; the preview below uses a
-# copy of the first subject only, removed afterwards.
+# copy of the first subject only (or, with no INPUT_BIDS here, of the first batch input tar),
+# removed afterwards.
 mapfile -t subjects < <(awk -F'\t' 'NR > 1 { print $1 }' inputs/participants.tsv | awk '!seen[$0]++')
 [ "${#subjects[@]}" -gt 0 ] || die "inputs/participants.tsv lists no subject"
-if [ "$BATCH" = true ]; then
-    preview_dir="$SFT_ROOT/.preview"
+if [ "$BATCH" = true ] && [ -d "$INPUT_BIDS" ]; then
+    preview_dir="$SFT_ROOT/.preview/first"
     copy_inputs "$preview_dir" "${subjects[0]}"
+elif [ "$BATCH" = true ]; then
+    # No BIDS folder on this machine: its inputs come as per-batch tars (inputs/batch_tars/, e.g.
+    # batches moved here by ./run.sh adopt). The preview uses the first batch that has one, as its
+    # batch job would (copy_inputs reads the tar named after the folder).
+    b=$(find inputs/batch_tars -maxdepth 1 -name 'b*.tar' -printf '%f\n' 2>/dev/null | sort | head -1)
+    b=${b%.tar}
+    [ -n "$b" ] || die "input folder not found: $INPUT_BIDS, and no inputs/batch_tars/*.tar to preview with"
+    mapfile -t batch_subjects < <(awk -F'\t' -v b="$b" '$1 == b { print $2 }' batches/list.tsv)
+    [ "${#batch_subjects[@]}" -gt 0 ] || die "$b has no subject in batches/list.tsv"
+    preview_dir="$SFT_ROOT/.preview/$b"
+    copy_inputs "$preview_dir" "${batch_subjects[@]}"
+    log "preview on $b's input tar (no $INPUT_BIDS here)"
 else
     preview_dir="$SFT_ROOT"
     if [ -s meta/inputs.sha256 ]; then
@@ -95,7 +108,7 @@ for pass in $(pass_list); do
         > "logs/setup_preview_${pass}.log" 2>&1 || die "preview of pass $pass failed: logs/setup_preview_${pass}.log"
     grep -hE "WARN|ERROR" "logs/setup_preview_${pass}.log" | grep -vE "Unrecognized config option|is available" || true
 done
-[ "$BATCH" = true ] && rm -rf "$preview_dir"
+[ "$BATCH" = true ] && rm -rf "$SFT_ROOT/.preview"
 [ -s work/atlas_iit/IITmean_b0.nii.gz ] && [ -s .atlas_cache/freesurfer/IITmean_b0.nii.gz ] \
     || die "the atlases were not downloaded (work/atlas_iit, .atlas_cache/freesurfer)"
 

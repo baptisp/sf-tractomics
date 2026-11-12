@@ -146,7 +146,7 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
 
   Unpacking first removes what a killed extraction left. The archive is never deleted, only replaced
   by a newer verified one. A job killed at any step leaves a state the next job completes.
-- **Walltime.** 30 minutes before a job's walltime, Nextflow is asked to stop. It cancels its task
+- **Walltime.** 60 minutes before a job's walltime, Nextflow is asked to stop. It cancels its task
   jobs and keeps its cache, and the batch is still packed. Every task job carries the batch in its
   Slurm comment, so packing also cancels, and waits for, any task job left behind.
 - **Merging.** `./run.sh merge` concatenates the batches' `metrics/` tables, read from their
@@ -382,7 +382,7 @@ batches' `meta/` in the archive store).
   longest run of about 10,000 tasks (`configs/alliance.config`, values in the comments), so most
   tasks fit under 3 h and fill scheduling gaps; both grow on a retry. CPUs unchanged: several
   modules write the thread count into their script (task hash) and ANTs results depend on it. A
-  batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 30 min before, and
+  batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 60 min before, and
   resumes when submitted again.
 - **Hung containers.** Some tasks hang at container start on Rorqual: Apptainer's processes wait on
   each other, the task's command never starts, 0 CPU. 24 of the first day's 12,558 tasks, but 13 of
@@ -395,6 +395,10 @@ batches' `meta/` in the archive store).
     cancelled, logged and listed in `batches/bNNNN/logs/hung_tasks.tsv`. Nextflow retries it 30 min
     later (`exitReadTimeout`; a job gone without an exit code is in the retry list);
   - tasks of seconds to minutes get 1 h per attempt instead of the 4 h default.
+- **A node that cannot start a script.** On Fir (2026-11-12, 01:00 to 09:00 MST) a few nodes'
+  CVMFS gave `Input/output error`: the task's job could not run `mktemp`, exit 126, and 8 batches
+  had tasks left after one attempt. Exit 126 is in the retry list; a retry goes back to Slurm,
+  usually to another node.
 - **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
   `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
   Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;

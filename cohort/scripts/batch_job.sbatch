@@ -2,11 +2,13 @@
 # One batch, one pass: lock, unpack (or prepare, the first time), run the pass, pack, unlock.
 # Submitted by ./run.sh submit PASS as an array, one task per batch (SFT_LIST: the batch names, one
 # per line), at most MAX_UNPACKED at once; never run it by hand.
-# --signal: 30 min before the walltime, Nextflow is asked to stop (it cancels its task jobs and
-# keeps its cache), so the batch is still packed; the next submission resumes it.
+# --signal: 60 min before the walltime, Nextflow is asked to stop (it cancels its task jobs and
+# keeps its cache), so the batch is still packed; the next submission resumes it. 30 min was too
+# short: packing a 30 to 66 GB batch on a slow Lustre outlasted it (Rorqual, 2026-11-12: b0060,
+# b0096 and b0097 killed while packing, folders intact, archives left as .part).
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
-#SBATCH --signal=B:USR1@1800
+#SBATCH --signal=B:USR1@3600
 set -euo pipefail
 
 cd "${SLURM_SUBMIT_DIR:?}"

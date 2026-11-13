@@ -248,6 +248,11 @@ H=$T/batches/b0033
 ( HOME_CLUSTER=elsewhere SLURM_JOB_ID=$$ batch_lock "$H" ) >/dev/null 2>&1 && fail "no owner recorded, another HOME_CLUSTER: refused" || ok "no owner recorded, another HOME_CLUSTER: refused"
 check "a refused lock creates no batch folder" [ ! -e "$H" ]
 
+# A lock holder is alive by its own job id: squeue -j ARRAY lists the other tasks of its array
+( squeue() { echo 26561830; }; job_alive 26512284 ) && fail "job_alive: another task of the holder's array is not the holder" \
+    || ok "job_alive: another task of the holder's array is not the holder"
+check "job_alive: the holder itself is" bash -c "source '$REPO/scripts/batch.sh' 2>/dev/null; squeue() { echo 26512284; }; job_alive 26512284"
+
 # Walltime resubmission: a batch job whose Nextflow it stops submits the next job of the batch,
 # after itself (afterany), same account, name and time limit, at most MAX_RESUBMITS times
 R=$T/batches/b0041; mkdir -p "$R/meta"

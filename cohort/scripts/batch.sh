@@ -107,10 +107,13 @@ check_owner() {
     [ "$owner" = "$MACHINE" ] || die "$1 belongs to $owner, not $MACHINE (./run.sh handoff, then adopt there)"
 }
 
-# job_alive JOBID: the job is still queued or running (Slurm); without Slurm (tests), a process id
+# job_alive JOBID: the job is still queued or running (Slurm); without Slurm (tests), a process id.
+# The job itself, by its own id (%A): the task of an array that ran last carries the array's id, and
+# squeue -j ARRAY lists every task of the array, so a dead holder looked alive while another task
+# ran, and its batch could not be resumed (ADNI b0121, 2026-11-13).
 job_alive() {
     if command -v squeue >/dev/null 2>&1; then
-        squeue -h -j "$1" -o %i 2>/dev/null | grep -q .
+        squeue -h -j "$1" -o %A 2>/dev/null | grep -qx "$1"
     else
         kill -0 "$1" 2>/dev/null
     fi

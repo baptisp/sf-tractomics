@@ -248,5 +248,35 @@ H=$T/batches/b0033
 ( HOME_CLUSTER=elsewhere SLURM_JOB_ID=$$ batch_lock "$H" ) >/dev/null 2>&1 && fail "no owner recorded, another HOME_CLUSTER: refused" || ok "no owner recorded, another HOME_CLUSTER: refused"
 check "a refused lock creates no batch folder" [ ! -e "$H" ]
 
+# Walltime resubmission: a batch job whose Nextflow it stops submits the next job of the batch,
+# after itself (afterany), same account, name and time limit, at most MAX_RESUBMITS times
+R=$T/batches/b0041; mkdir -p "$R/meta"
+stop_with_stubs() {   # DIR [ENV...]: stop_nextflow with a live fake Nextflow and stubbed Slurm
+    local dir=$1; shift
+    sleep 30 & echo $! > "$dir/meta/nextflow.pid"
+    ( export "$@"
+      sbatch() { echo "$*" >> "$T/sbatch_calls"; echo 777; }
+      squeue() { echo 1-12:00:00; }
+      stop_nextflow "$dir" ) >/dev/null 2>&1
+}
+rm -f "$T/sbatch_calls"
+stop_with_stubs "$R" BATCH=true SLURM_JOB_ID=123 SLURM_JOB_ACCOUNT=acct SLURM_JOB_NAME=sft-x SFT_PASS=p1
+check "resubmit: one sbatch call" [ "$(wc -l < "$T/sbatch_calls" 2>/dev/null)" = 1 ]
+check "resubmit: after this job, same account, name and time, requeueable" \
+    grep -q -- "--account=acct --job-name=sft-x --time=1-12:00:00 --array=1-1 --requeue --dependency=afterany:123" "$T/sbatch_calls"
+check "resubmit: its list holds the batch" bash -c "[ \"\$(cat '$T/logs/resubmit_p1_b0041_123.list')\" = b0041 ]"
+check "resubmit: counted" [ "$(cat "$R/meta/resubmits_p1")" = 1 ]
+echo 5 > "$R/meta/resubmits_p1"; rm -f "$T/sbatch_calls"
+stop_with_stubs "$R" BATCH=true SLURM_JOB_ID=124 SLURM_JOB_ACCOUNT=acct SLURM_JOB_NAME=sft-x SFT_PASS=p1
+check "resubmit: not past MAX_RESUBMITS" [ ! -e "$T/sbatch_calls" ]
+mkdir -p "$T/meta"
+stop_with_stubs "$T" BATCH=false SLURM_JOB_ID=125 SFT_PASS=p1
+check "resubmit: never outside a batch (head job)" [ ! -e "$T/sbatch_calls" ]
+S=$T/batches/b0042; mkdir -p "$S/meta"
+( export BATCH=true SLURM_JOB_ID=126 SFT_PASS=p1
+  sbatch() { echo "$*" >> "$T/sbatch_calls"; echo 777; }
+  stop_nextflow "$S" ) >/dev/null 2>&1
+check "resubmit: not when no Nextflow was running" [ ! -e "$T/sbatch_calls" ]
+
 echo
 [ "$failures" = 0 ] && echo "all batch tests passed" || { echo "$failures failure(s)"; exit 1; }

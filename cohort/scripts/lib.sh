@@ -286,12 +286,45 @@ watch_hung_tasks() {
 }
 
 # stop_nextflow DIR: ask the running Nextflow of DIR to stop (it cancels its task jobs and keeps its
-# cache); used on the walltime warning
+# cache); used on the walltime warning. A batch job then submits its own successor (resubmit_batch).
 stop_nextflow() {
     local pid
     pid=$(cat "$1/meta/nextflow.pid" 2>/dev/null || true)
-    [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null && log "$1: stopping Nextflow (pid $pid) before the walltime"
+    if [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null; then
+        log "$1: stopping Nextflow (pid $pid) before the walltime"
+        resubmit_batch "$1" || log "$1: resubmission failed, submit it by hand"
+    fi
     return 0
+}
+
+# resubmit_batch DIR: a batch job stopped at its walltime submits the next job of its batch, at
+# once, with the same account, name and time limit, held by Slurm until this job has ended
+# (afterany), that is once the batch is packed and unlocked. Without it, a stopped batch waited for
+# someone to resubmit it (ADNI, 2026-11-13: 8 batches idle for 5 to 10 h). Read when the job starts,
+# so jobs queued before this existed resubmit too. Once per walltime stop, at most MAX_RESUBMITS
+# times per batch and pass (meta/resubmits_PASS), so a batch that can never finish stops coming
+# back. A job lost with its node never gets the warning: --requeue (batch_job.sbatch) covers it.
+MAX_RESUBMITS=${MAX_RESUBMITS:-5}
+resubmit_batch() {
+    local dir=$1 batch n list limit job
+    [ "${BATCH:-}" = true ] && [ -n "${SLURM_JOB_ID:-}" ] && [ -n "${SFT_PASS:-}" ] || return 0
+    case $dir in "$SFT_ROOT"/batches/b*) ;; *) return 0 ;; esac
+    command -v sbatch >/dev/null 2>&1 || return 0
+    batch=$(basename "$dir")
+    n=$(cat "$dir/meta/resubmits_$SFT_PASS" 2>/dev/null || echo 0)
+    if [ "$n" -ge "$MAX_RESUBMITS" ]; then
+        log "$batch: stopped at the walltime $((n + 1)) times in pass $SFT_PASS: not resubmitted (MAX_RESUBMITS=$MAX_RESUBMITS)"
+        return 0
+    fi
+    list="$SFT_ROOT/logs/resubmit_${SFT_PASS}_${batch}_${SLURM_JOB_ID}.list"
+    echo "$batch" > "$list"
+    limit=$(squeue -h -j "$SLURM_JOB_ID" -o %l 2>/dev/null | head -1 || true)
+    job=$(cd "$SFT_ROOT" && sbatch --parsable --account="${SLURM_JOB_ACCOUNT:-${ACCOUNT:-}}" \
+        --job-name="${SLURM_JOB_NAME:-${JOB_NAME:-}}" --time="${limit:-${JOB_TIME:-}}" --array=1-1 --requeue \
+        --dependency="afterany:$SLURM_JOB_ID" --output="logs/batch_${SFT_PASS}_%A_%a.log" \
+        --export=ALL,SFT_PASS="$SFT_PASS",SFT_LIST="$list",BATCH=true scripts/batch_job.sbatch) || return 1
+    echo "$((n + 1))" > "$dir/meta/resubmits_$SFT_PASS"
+    log "$batch: resubmitted as job $job (resubmission $((n + 1)) of at most $MAX_RESUBMITS), starts once job $SLURM_JOB_ID has ended"
 }
 
 # nextflow_jar, nextflow_is_patched, patch_nextflow

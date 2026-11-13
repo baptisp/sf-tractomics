@@ -5,10 +5,14 @@
 # --signal: 60 min before the walltime, Nextflow is asked to stop (it cancels its task jobs and
 # keeps its cache), so the batch is still packed; the next submission resumes it. 30 min was too
 # short: packing a 30 to 66 GB batch on a slow Lustre outlasted it (Rorqual, 2026-11-12: b0060,
-# b0096 and b0097 killed while packing, folders intact, archives left as .part).
+# b0096 and b0097 killed while packing, folders intact, archives left as .part). A job stopped that
+# way submits the next job of its batch itself (resubmit_batch, scripts/lib.sh).
+# --requeue: a job lost with its node (NODE_FAIL) goes back to the queue and resumes the batch (its
+# lock is its own job id, taken over); the clusters' default is not to requeue (JobRequeue=0).
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
 #SBATCH --signal=B:USR1@3600
+#SBATCH --requeue
 set -euo pipefail
 
 cd "${SLURM_SUBMIT_DIR:?}"

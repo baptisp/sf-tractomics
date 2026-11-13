@@ -149,6 +149,13 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
 - **Walltime.** 60 minutes before a job's walltime, Nextflow is asked to stop. It cancels its task
   jobs and keeps its cache, and the batch is still packed. Every task job carries the batch in its
   Slurm comment, so packing also cancels, and waits for, any task job left behind.
+- **A stopped batch comes back by itself.** The job that stops at its walltime submits the next job
+  of its batch (same account, name and time limit) with `--dependency=afterany` on itself, so that
+  job starts only once the batch is packed and unlocked. At most `MAX_RESUBMITS` (5) times per batch
+  and pass (`meta/resubmits_PASS`), so a batch that can never finish stops coming back. A job lost
+  with its node gets no warning: batch jobs are submitted with `--requeue` (the clusters default to
+  no requeue), and the requeued job takes over its own lock and resumes the batch. Before this
+  (ADNI, 2026-11-13), 8 stopped batches waited 5 to 10 h for someone to resubmit them.
 - **Merging.** `./run.sh merge` concatenates the batches' `metrics/` tables, read from their
   `extracted_results.tar.gz`, into `merged/`, one header each. A table whose header differs between
   batches is refused.

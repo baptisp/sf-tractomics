@@ -282,6 +282,11 @@ class TestSubmissionRetries(unittest.TestCase):
         self.assertIn("task.previousException?.message?.startsWith('Error submitting process')", strategy.group(1))
         self.assertIn("task.attempt <= 3", strategy.group(1))
 
+    def test_exit_1_is_retried_once(self):
+        import re
+        strategy = re.search(r"errorStrategy\s*=\s*\{(.*?)\}\n", self.CONFIG, re.S)
+        self.assertIn("(task.exitStatus == 1 && task.attempt == 1)", strategy.group(1))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

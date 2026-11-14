@@ -401,6 +401,10 @@ batches' `meta/` in the archive store).
   CVMFS gave `Input/output error`: the task's job could not run `mktemp`, exit 126, and 8 batches
   had tasks left after one attempt. Exit 126 is in the retry list; a retry goes back to Slurm,
   usually to another node.
+- **A node whose disk fills up or fails.** On Rorqual (2026-11-13 21:30 to 2026-11-14 02:35) the
+  node-local disk of two nodes filled up (`No space left on device`, 13 tasks of 13 batches); on Fir
+  (2026-11-14) scratch gave `Input/output error` to a few tasks. Both reach the task as exit 1, so
+  exit 1 gets one retry (any task), with the memory of the next attempt.
 - **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
   `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
   Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;

@@ -408,6 +408,10 @@ batches' `meta/` in the archive store).
   CVMFS gave `Input/output error`: the task's job could not run `mktemp`, exit 126, and 8 batches
   had tasks left after one attempt. Exit 126 is in the retry list; a retry goes back to Slurm,
   usually to another node.
+- **A node whose disk fills up or fails.** On Rorqual (2026-11-13 21:30 to 2026-11-14 02:35) the
+  node-local disk of two nodes filled up (`No space left on device`, 13 tasks of 13 batches); on Fir
+  (2026-11-14) scratch gave `Input/output error` to a few tasks. Both reach the task as exit 1, so
+  exit 1 gets one retry (any task), with the memory of the next attempt.
 - **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
   `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
   Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;
@@ -555,9 +559,21 @@ tasks found 7 runs, of 4 kinds, all on 3T scanners:
   normal, but `ribbon.mgz`, and so `aparc+aseg.mgz`, which the volume tables count, holds a tenth
   of that hemisphere's cortex.
 
-Each of these runs recon-all again with other options:
-- `-use-mritotal` (MINC's Talairach registration) for the Talairach failures, check kept;
-- `-3T` (3T atlas and intensity correction) for the surface ones.
+Each of these was listed to run recon-all again with other options (`-use-mritotal`, MINC's
+Talairach registration, for the Talairach ones; `-3T`, 3T atlas and intensity correction, for the
+surface ones). Tested outside the pipeline on the four T1s whose recon-all failed in ADNI pass 1
+(2026-11-14, `recon-all -autorecon1`, then `-all`), those options do not fix a Talairach failure:
+- `-use-mritotal` gave the same transform as the default on three of them, and `-3T` failed the
+  check too;
+- two of the four T1s cover only part of the head (a field of view of 132 mm across, or the head
+  off to one side): SynthSeg's ICV is under 900 cm3 and its volumes are wrong too. No option fixes
+  that; they are in `adni_prep/runs_to_drop.tsv`;
+- one is a very atrophied brain: `-notal-check` finishes with a plausible eTIV, but putamen, caudate
+  and cerebellum fall below the 5th percentile of their usual ratio to SynthSeg;
+- one fails skull stripping (`mri_watershed`); `-no-wsgcaatlas` gets past it, then `mri_cc` finds no
+  white matter.
+So look at the T1 before choosing an option, and compare a rerun's volumes with SynthSeg's before
+keeping it. A recon-all killed for memory (exit 1) needs no option: exit 1 is retried once.
 
 How:
 - `inputs/reconall_rerun.tsv`, not in git: columns `subject`, `session`, `options`, `reason`, with

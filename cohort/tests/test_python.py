@@ -249,6 +249,14 @@ class TestFailureReport(unittest.TestCase):
             self.assertTrue((root / "out" / "metrics" / "failed_tasks.tsv").read_text().startswith("batch\tpass\t"))
 
 
+class TestErrorStrategy(unittest.TestCase):
+    CONFIG = (REPO / "configs" / "alliance.config").read_text()
+
+    def test_exit_1_is_retried_once(self):
+        import re
+        strategy = re.search(r"errorStrategy\s*=\s*\{(.*?)\}\n", self.CONFIG, re.S)
+        self.assertIsNotNone(strategy)
+        self.assertIn("(task.exitStatus == 1 && task.attempt == 1)", strategy.group(1))
 class TestVolumeQc(unittest.TestCase):
     HEADER = "sid,session,run,roi,volume_voxels,volume_mm3,volume_source,icv_mm3,volume_icv_fraction\n"
 

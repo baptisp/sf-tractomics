@@ -235,6 +235,31 @@ sleep 3; kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null
 check "watchdog: the hung task job of its batch is cancelled, once" [ "$(cat "$W/cancelled" 2>/dev/null)" = 11 ]
 check "watchdog: listed in logs/hung_tasks.tsv" bash -c "[ \$(wc -l < '$W/b/logs/hung_tasks.tsv') = 1 ] && grep -qP '\t11\t25:00\tTASK_11$' '$W/b/logs/hung_tasks.tsv'"
 
+# Lost task jobs: Nextflow waits on 21 (ended 1 h ago, never started), 22 (still queued), 23 (ended
+# 2 min ago), 24 (ended 1 h ago, but started) and 25 (RUNNING in Nextflow's view, not SUBMITTED)
+L=$T/lost; mkdir -p "$L/logs"
+for j in 21 22 23 24 25; do mkdir -p "$L/work/$j"; done
+touch "$L/work/24/.command.begin"
+{ echo "Nov-14 10:00:00.000 [Task monitor] DEBUG n.processor.TaskPollingMonitor - !! executor slurm > tasks to be completed: 9 -- old block"
+  echo "~> TaskHandler[jobId: 99; id: 9; name: OLD; status: SUBMITTED; exit: -; error: -; workDir: $L/work/21 started: -; exited: -; ]"
+  echo "Nov-14 10:05:00.000 [Task monitor] DEBUG n.processor.TaskPollingMonitor - !! executor slurm > tasks to be completed: 5 -- submitted tasks are shown below"
+  for j in 21 22 23 24; do echo "~> TaskHandler[jobId: $j; id: $j; name: T$j (sub-X); status: SUBMITTED; exit: -; error: -; workDir: $L/work/$j started: -; exited: -; ]"; done
+  echo "~> TaskHandler[jobId: 25; id: 25; name: T25; status: RUNNING; exit: -; error: -; workDir: $L/work/25 started: -; exited: -; ]"
+} > "$L/.nextflow.log"
+check "lost tasks: the SUBMITTED tasks of the last block" \
+    bash -c "source '$REPO/scripts/lib.sh'; [ \"\$(lost_task_jobs '$L' | cut -d' ' -f1 | xargs)\" = '21 22 23 24' ]"
+(
+    squeue() { [ "$3" = 22 ] && echo 22; return 0; }
+    sacct() { case $5 in 21) echo "CANCELLED by 3076|$(date -d '-1 hour' +%FT%T)" ;; 24) echo "FAILED|$(date -d '-1 hour' +%FT%T)" ;;
+              23) echo "FAILED|$(date -d '-2 min' +%FT%T)" ;; 22) echo "PENDING|Unknown" ;; esac; }
+    HANG_MIN_MINUTES=10 revive_lost_tasks "$L" 2>/dev/null
+)
+check "lost tasks: the job ended long ago without starting is marked started" [ -e "$L/work/21/.command.begin" ]
+check "lost tasks: queued, recently ended and RUNNING ones are left alone" \
+    bash -c "[ ! -e '$L/work/22/.command.begin' ] && [ ! -e '$L/work/23/.command.begin' ] && [ ! -e '$L/work/25/.command.begin' ]"
+check "lost tasks: listed once in logs/lost_tasks.tsv" \
+    bash -c "[ \$(wc -l < '$L/logs/lost_tasks.tsv') = 1 ] && grep -qP '\t21\tCANCELLED\t' '$L/logs/lost_tasks.tsv'"
+
 # Owner: the lock is only for the batch's owner (moved batches never run where they were, even from
 # a job script queued before the owner check existed: it calls batch_lock)
 O=$T/batches/b0031

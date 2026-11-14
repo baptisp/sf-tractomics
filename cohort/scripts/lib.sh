@@ -261,7 +261,8 @@ task_is_hung() {
 }
 
 # watch_hung_tasks TAG DIR: every HANG_CHECK_SECONDS, cancel the task jobs of TAG found hung at two
-# checks in a row; each one is logged and listed in DIR/logs/hung_tasks.tsv. Runs until killed.
+# checks in a row; each one is logged and listed in DIR/logs/hung_tasks.tsv. Lost task jobs are
+# revived too (revive_lost_tasks). Runs until killed.
 watch_hung_tasks() {
     local tag=$1 dir=$2 interval=${HANG_CHECK_SECONDS:-300} min=$(( ${HANG_MIN_MINUTES:-10} * 60 ))
     local suspects="" seen id elapsed name
@@ -282,7 +283,41 @@ watch_hung_tasks() {
             fi
         done < <(squeue -h -u "$USER" -t R -o "%i %k %M %j" | awk -v t="$tag" '$2 == t { print $1, $3, $4 }')
         suspects=$seen
+        revive_lost_tasks "$dir"
     done
+}
+
+# Lost task jobs. A task job can die before its script starts (Fir, 2026-11-13 and 14: two jobs
+# ended within 2 s, exit 0:53, b0254 and b0272): it never writes .command.begin, so Nextflow keeps
+# it SUBMITTED and waits for ever (b0272 waited 18 h). Touching .command.begin makes it read as a
+# job that started and vanished: Nextflow fails it after exitReadTimeout and retries it (a job gone
+# without an exit code is in the retry list). Tested on Fir with Nextflow 26.04, 2026-11-14.
+# lost_task_jobs DIR: "JOBID WORKDIR" of each task Nextflow still lists as SUBMITTED in DIR's log
+lost_task_jobs() {
+    local log="$1/.nextflow.log" last
+    [ -f "$log" ] || return 0
+    last=$(grep -n "tasks to be completed" "$log" | tail -1 | cut -d: -f1)
+    [ -n "$last" ] || return 0
+    tail -n +"$last" "$log" | sed -n 's/.*TaskHandler\[jobId: \([0-9]*\);.*status: SUBMITTED;.*workDir: \([^ ]*\).*/\1 \2/p' | sort -u
+}
+
+# revive_lost_tasks DIR: touch .command.begin of each task job DIR's Nextflow waits on that Slurm
+# reports ended for more than HANG_MIN_MINUTES without the task having started; logged and listed
+# in DIR/logs/lost_tasks.tsv
+revive_lost_tasks() {
+    local dir=$1 min=$(( ${HANG_MIN_MINUTES:-10} * 60 )) id wd state end
+    while read -r id wd; do
+        [ -n "$id" ] && [ -d "$wd" ] && [ ! -e "$wd/.command.begin" ] || continue
+        [ -z "$(squeue -h -j "$id" -o %i 2>/dev/null)" ] || continue
+        IFS='|' read -r state end < <(sacct -X -n -P -j "$id" -o State,End 2>/dev/null | head -1)
+        state=${state%% *}   # "CANCELLED by UID"
+        case $state in ''|PENDING|RUNNING|REQUEUED|SUSPENDED|RESIZING|CONFIGURING) continue ;; esac
+        end=$(date -d "$end" +%s 2>/dev/null) || continue
+        [ $(( $(date +%s) - end )) -ge "$min" ] || continue
+        touch "$wd/.command.begin"
+        log "$dir: task job $id ended ($state) before its script started; marked started so Nextflow retries it"
+        printf '%s\t%s\t%s\t%s\n' "$(date '+%F %H:%M:%S')" "$id" "$state" "$wd" >> "$dir/logs/lost_tasks.tsv"
+    done < <(lost_task_jobs "$dir")
 }
 
 # stop_nextflow DIR: ask the running Nextflow of DIR to stop (it cancels its task jobs and keeps its

@@ -26,6 +26,7 @@ Initial release of scilus/sf-tractomics, created with the [nf-core](https://nf-c
 
 ### `Fixed`
 
+- A sample whose T1 (or b0) failed upstream no longer aborts the whole run at the T1 to DWI registration: the `remainder` join brought it back as `[meta, null, metric]`, which reached `REGISTRATION_ANTS` with a null path (Nextflow: "Path value cannot be null", then "Execution aborted due to an unexpected error"). It is now dropped there; no process script changes, so no task is computed again.
 - Bundle volumes of every DWI run with a run number (multi-run sessions) were missing from `metrics/space-native_atlas-iit-wm_label-mean_desc-roi_stats.tsv` and from the combined TSV: `STATS_MASK_VOLUMES` left `run-<n>_` in front of the bundle names (`run-1_AF_L`), so they matched no stats row. The per-run bundle volume CSVs had the same prefixed names.
 - A metric with no valid voxel in a region (NaN or missing mean, e.g. the free-water fraction of one region) was written as the text `null` in the stats tables (`STATS_METRICSINROI`); it is now an empty cell, as every other missing value.
 - An atlas region with volumes but no stats row (0 voxels: warped out of the brain mask by a failed registration) was dropped from the atlas stats table and the combined TSV once metrics were on; it is now kept as a volume-only row (volume 0, metrics empty, the sample's covariates), as the subject segmentations already were.

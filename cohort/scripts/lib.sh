@@ -141,6 +141,11 @@ run_pass() {
     done
     rm -f meta/nextflow.pid
     launch_session "$dir" > /dev/null
+    # A failed run keeps Nextflow's own log: .nextflow.log is not packed, and the console log only
+    # says "Execution aborted due to an unexpected error" (ADNI b0096, 2026-11-14, four times)
+    if [ "$rc" != 0 ] && [ -s .nextflow.log ]; then
+        gzip -c .nextflow.log > "logs/nextflow_debug_${pass}_${id}.log.gz" || true
+    fi
 
     # Tasks of earlier runs computed again (they should all be reused)
     local earlier

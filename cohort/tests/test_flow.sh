@@ -49,6 +49,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$session" ] || session=$(cat /proc/sys/kernel/random/uuid)
 mkdir -p .nextflow work/aa out
+echo "debug log of $name" > .nextflow.log
 printf '2026-11-05\t1s\t%s\tOK\tabc\t%s\tnextflow run\n' "$name" "$session" >> .nextflow/history
 printf 'task_id\thash\tname\tstatus\texit\n' > "$trace"
 if grep -q run_roi_metrics "$params"; then
@@ -156,6 +157,8 @@ FAKE_RC=1 job 2_metrics 107; rc=$?
 check "a failed run returns its status" [ "$rc" != 0 ]
 check "a failed run is packed" [ "$(cat "$D/meta/state")" = packed ]
 check "a failed run is not recorded as done" bash -c "! grep -qx 2_metrics '$D/meta/passes_done'"
+check "a failed run keeps Nextflow's own log in logs/" bash -c "zcat '$D/logs/nextflow_debug_2_metrics_107.log.gz' | grep -q 'debug log of'"
+check "a run that succeeded keeps none" bash -c "[ \$(ls '$D'/logs/nextflow_debug_* | wc -l) = 1 ]"
 check "the lock is released after every job" [ ! -e "$D/meta/lock" ]
 
 # A failed session no longer fails the pass: listed in out/metrics/failed_tasks.tsv, the pass done.

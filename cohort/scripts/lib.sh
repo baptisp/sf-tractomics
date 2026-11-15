@@ -337,14 +337,32 @@ stop_nextflow() {
     return 0
 }
 
+# slurm_seconds LIMIT: a Slurm time limit (D-HH:MM:SS, D-HH:MM, D-HH, HH:MM:SS, MM:SS or MM) in seconds
+slurm_seconds() {
+    local t=$1 d=0 h=0 m=0 s=0 a b c
+    case $t in
+        *-*) d=${t%%-*}; t=${t#*-}
+             IFS=: read -r a b c <<< "$t"; h=${a:-0}; m=${b:-0}; s=${c:-0} ;;
+        *:*:*) IFS=: read -r h m s <<< "$t" ;;
+        *:*) IFS=: read -r m s <<< "$t" ;;
+        *) m=$t ;;
+    esac
+    echo $(( ((10#$d * 24 + 10#$h) * 60 + 10#$m) * 60 + 10#$s ))
+}
+
 # resubmit_batch DIR: a batch job stopped at its walltime submits the next job of its batch, at
-# once, with the same account, name and time limit, held by Slurm until this job has ended
+# once, with the same account and name, held by Slurm until this job has ended
 # (afterany), that is once the batch is packed and unlocked. Without it, a stopped batch waited for
 # someone to resubmit it (ADNI, 2026-11-13: 8 batches idle for 5 to 10 h). Read when the job starts,
 # so jobs queued before this existed resubmit too. Once per walltime stop, at most MAX_RESUBMITS
 # times per batch and pass (meta/resubmits_PASS), so a batch that can never finish stops coming
 # back. A job lost with its node never gets the warning: --requeue (batch_job.sbatch) covers it.
+# The next job gets at least RESUBMIT_TIME (3 days, the <= 72 h partitions): stopping cancels the
+# task jobs still running, and a recon-all cannot resume, so a batch whose last recon-all started
+# late lost it at every 24 h stop (ADNI b0152, 2026-11-15: 10.5 h of recon-all cancelled). A batch
+# that reached its walltime once has long tasks or waits long for them; the head job uses one core.
 MAX_RESUBMITS=${MAX_RESUBMITS:-5}
+RESUBMIT_TIME=${RESUBMIT_TIME:-3-00:00:00}
 resubmit_batch() {
     local dir=$1 batch n list limit job
     [ "${BATCH:-}" = true ] && [ -n "${SLURM_JOB_ID:-}" ] && [ -n "${SFT_PASS:-}" ] || return 0
@@ -359,8 +377,12 @@ resubmit_batch() {
     list="$SFT_ROOT/logs/resubmit_${SFT_PASS}_${batch}_${SLURM_JOB_ID}.list"
     echo "$batch" > "$list"
     limit=$(squeue -h -j "$SLURM_JOB_ID" -o %l 2>/dev/null | head -1 || true)
+    limit=${limit:-${JOB_TIME:-}}
+    if [ -z "$limit" ] || [ "$(slurm_seconds "$limit")" -lt "$(slurm_seconds "$RESUBMIT_TIME")" ]; then
+        limit=$RESUBMIT_TIME
+    fi
     job=$(cd "$SFT_ROOT" && sbatch --parsable --account="${SLURM_JOB_ACCOUNT:-${ACCOUNT:-}}" \
-        --job-name="${SLURM_JOB_NAME:-${JOB_NAME:-}}" --time="${limit:-${JOB_TIME:-}}" --array=1-1 --requeue \
+        --job-name="${SLURM_JOB_NAME:-${JOB_NAME:-}}" --time="$limit" --array=1-1 --requeue \
         --dependency="afterany:$SLURM_JOB_ID" --output="logs/batch_${SFT_PASS}_%A_%a.log" \
         --export=ALL,SFT_PASS="$SFT_PASS",SFT_LIST="$list",BATCH=true scripts/batch_job.sbatch) || return 1
     echo "$((n + 1))" > "$dir/meta/resubmits_$SFT_PASS"

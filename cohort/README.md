@@ -150,8 +150,11 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   jobs and keeps its cache, and the batch is still packed. Every task job carries the batch in its
   Slurm comment, so packing also cancels, and waits for, any task job left behind.
 - **A stopped batch comes back by itself.** The job that stops at its walltime submits the next job
-  of its batch (same account, name and time limit) with `--dependency=afterany` on itself, so that
-  job starts only once the batch is packed and unlocked. At most `MAX_RESUBMITS` (5) times per batch
+  of its batch (same account and name) with `--dependency=afterany` on itself, so that
+  job starts only once the batch is packed and unlocked. That job gets at least `RESUBMIT_TIME`
+  (3 days): stopping cancels the task jobs still running, and a recon-all cannot resume, so with
+  24 h each time a batch whose last recon-all started late lost it at every stop (ADNI b0152,
+  2026-11-15: 10.5 h of recon-all cancelled at the walltime). At most `MAX_RESUBMITS` (5) times per batch
   and pass (`meta/resubmits_PASS`), so a batch that can never finish stops coming back. A job lost
   with its node gets no warning: batch jobs are submitted with `--requeue` (the clusters default to
   no requeue), and the requeued job takes over its own lock and resumes the batch. Before this

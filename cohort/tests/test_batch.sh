@@ -292,10 +292,16 @@ stop_with_stubs() {   # DIR [ENV...]: stop_nextflow with a live fake Nextflow an
 rm -f "$T/sbatch_calls"
 stop_with_stubs "$R" BATCH=true SLURM_JOB_ID=123 SLURM_JOB_ACCOUNT=acct SLURM_JOB_NAME=sft-x SFT_PASS=p1
 check "resubmit: one sbatch call" [ "$(wc -l < "$T/sbatch_calls" 2>/dev/null)" = 1 ]
-check "resubmit: after this job, same account, name and time, requeueable" \
-    grep -q -- "--account=acct --job-name=sft-x --time=1-12:00:00 --array=1-1 --requeue --dependency=afterany:123" "$T/sbatch_calls"
+check "resubmit: after this job, same account and name, at least RESUBMIT_TIME, requeueable" \
+    grep -q -- "--account=acct --job-name=sft-x --time=3-00:00:00 --array=1-1 --requeue --dependency=afterany:123" "$T/sbatch_calls"
 check "resubmit: its list holds the batch" bash -c "[ \"\$(cat '$T/logs/resubmit_p1_b0041_123.list')\" = b0041 ]"
 check "resubmit: counted" [ "$(cat "$R/meta/resubmits_p1")" = 1 ]
+rm -f "$T/sbatch_calls" "$R/meta/resubmits_p1"
+stop_with_stubs "$R" BATCH=true SLURM_JOB_ID=123 SLURM_JOB_ACCOUNT=acct SLURM_JOB_NAME=sft-x SFT_PASS=p1 RESUBMIT_TIME=1-00:00:00
+check "resubmit: a time limit longer than RESUBMIT_TIME is kept" grep -q -- "--time=1-12:00:00 " "$T/sbatch_calls"
+check "slurm_seconds: every Slurm form" bash -c "source '$REPO/scripts/lib.sh' 2>/dev/null
+    [ \$(slurm_seconds 3-00:00:00) = 259200 ] && [ \$(slurm_seconds 1-12) = 129600 ] && [ \$(slurm_seconds 08:05:09) = 29109 ] \
+    && [ \$(slurm_seconds 30:00) = 1800 ] && [ \$(slurm_seconds 90) = 5400 ]"
 echo 5 > "$R/meta/resubmits_p1"; rm -f "$T/sbatch_calls"
 stop_with_stubs "$R" BATCH=true SLURM_JOB_ID=124 SLURM_JOB_ACCOUNT=acct SLURM_JOB_NAME=sft-x SFT_PASS=p1
 check "resubmit: not past MAX_RESUBMITS" [ ! -e "$T/sbatch_calls" ]

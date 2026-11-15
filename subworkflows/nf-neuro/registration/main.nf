@@ -168,6 +168,10 @@ workflow REGISTRATION {
             ch_register = ch_fixed_image
                 .join(ch_moving_image)
                 .join(ch_metric, remainder: true)
+                // A sample whose image or reference failed upstream comes back from the remainder
+                // join as [ meta, null, metric ]: drop it, or it reaches REGISTRATION_ANTS with a null
+                // path and aborts the whole run (ADNI b0096: a failed T1 N4)
+                .filter{ it[1] != null && it[2] != null }
                 .map{ it[0..2] + [it[3] ?: []] }
                 .branch{
                     anat_to_dwi : it[3]

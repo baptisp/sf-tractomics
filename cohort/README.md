@@ -461,21 +461,43 @@ tasks found 7 runs, of 4 kinds, all on 3T scanners:
   normal, but `ribbon.mgz`, and so `aparc+aseg.mgz`, which the volume tables count, holds a tenth
   of that hemisphere's cortex.
 
-Each of these was listed to run recon-all again with other options (`-use-mritotal`, MINC's
-Talairach registration, for the Talairach ones; `-3T`, 3T atlas and intensity correction, for the
-surface ones). Tested outside the pipeline on the four T1s whose recon-all failed in ADNI pass 1
-(2026-11-14, `recon-all -autorecon1`, then `-all`), those options do not fix a Talairach failure:
-- `-use-mritotal` gave the same transform as the default on three of them, and `-3T` failed the
-  check too;
-- two of the four T1s cover only part of the head (a field of view of 132 mm across, or the head
-  off to one side): SynthSeg's ICV is under 900 cm3 and its volumes are wrong too. No option fixes
-  that; they are in `adni_prep/runs_to_drop.tsv`;
-- one is a very atrophied brain: `-notal-check` finishes with a plausible eTIV, but putamen, caudate
-  and cerebellum fall below the 5th percentile of their usual ratio to SynthSeg;
-- one fails skull stripping (`mri_watershed`); `-no-wsgcaatlas` gets past it, then `mri_cc` finds no
-  white matter.
-So look at the T1 before choosing an option, and compare a rerun's volumes with SynthSeg's before
-keeping it. A recon-all killed for memory (exit 1) needs no option: exit 1 is retried once.
+What `-samseg-reg` does. Early on, recon-all lines the brain up with a standard template brain,
+using a simple stretch and rotation, and saves the result (`transforms/talairach.xfm`). Several
+later steps rely on that alignment: it tells them roughly where the brain and the white matter
+are, which helps with removing the skull and correcting brightness, and the head-size estimate
+(eTIV) is computed straight from it. When the alignment is far off, the later steps go wrong too:
+skull removal fails, or one hemisphere's white matter is lost. `-samseg-reg` replaces only that
+alignment step. Instead of the usual tool it uses the alignment of SAMSEG, another FreeSurfer
+method (`run_samseg --reg-only`). Everything after that step runs as normal, in about the same
+time. The segmentation of the deep brain structures (aseg) is not affected, because it does its
+own alignment.
+
+The usual tool is `talairach_avi` (written by Avi Snyder, Washington University). It aligns the
+head to the MNI305 template, an average of 305 brains, by matching the overall image brightness of
+the head to the template, after a quick correction for uneven brightness. `-use-mritotal` selects
+an older alternative from the MINC tools; on our failing scans it gave the same wrong result.
+SAMSEG matches the head to a template that knows which tissue (grey matter, white matter, fluid)
+is likely at each location, which makes it more robust on the unusual scans where `talairach_avi`
+failed.
+
+Tested on ADNI pass 1 (2026-11-14), full recon-all outside the pipeline, volumes compared with the
+run's SynthSeg ones against the other runs of its batch:
+- recon-all failed (an absurd transform, then skull stripping and white matter): fixed by
+  `-samseg-reg`. `-use-mritotal`, `-3T` and `-no-wsgcaatlas` did not fix it.
+- one hemisphere's cortex wrong (1.30 times SynthSeg's in one run, 0.06 in another): fixed by
+  `-samseg-reg`, and by `-3T`. On another run `-3T` made it worse (the Talairach check then
+  failed), so the reruns use `-samseg-reg`.
+- two T1s cover only part of the head (a field of view of 132 mm across, or the head off to one
+  side): SynthSeg's ICV is under 900 cm3 and its volumes are wrong too. No option fixes that; they
+  are in `adni_prep/runs_to_drop.tsv`.
+- a very atrophied brain: neither `-notal-check` nor `-samseg-reg` brings putamen, caudate and
+  cerebellum into their usual ratio to SynthSeg. It keeps its SynthSeg volumes; its recon-all rows
+  are dropped.
+- eTIV alone wrong (1.7 to 1.9 times SynthSeg's ICV, or 0.83), the volumes in range: no rerun; use
+  SynthSeg's ICV for those runs.
+A rerun's eTIV comes from a different alignment than the rest of the cohort, so use SynthSeg's ICV
+for it too. Look at the T1 before choosing an option, and compare a rerun's volumes with SynthSeg's
+before keeping it. A recon-all killed for memory (exit 1) needs no option: exit 1 is retried once.
 
 How:
 - `inputs/reconall_rerun.tsv`, not in git: columns `subject`, `session`, `options`, `reason`, with

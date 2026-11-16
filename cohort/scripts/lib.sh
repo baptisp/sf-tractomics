@@ -106,6 +106,12 @@ run_pass() {
         nextflow_is_patched || die "the Nextflow jar $(nextflow_jar) is not patched: ./run.sh setup"
     fi
     [ -s meta/inputs.sha256 ] || die "$dir has no input checksums"
+    # Input images repaired by inputs/input_fixes.tsv (README: input fixes), once per launch folder;
+    # their checksums are updated, so the check below still covers every other file
+    if [ -s "$SFT_ROOT/inputs/input_fixes.tsv" ]; then
+        python3 "$SFT_ROOT/scripts/fix_inputs.py" "$SFT_ROOT/inputs/input_fixes.tsv" "$dir" \
+            || die "$dir: inputs/input_fixes.tsv could not be applied"
+    fi
     sha256sum --quiet -c meta/inputs.sha256 || die "$dir/data_bids changed since it was prepared"
     for p in $(passes_before "$pass"); do
         grep -qx "$p" meta/passes_done 2>/dev/null || die "$dir: pass $p has not run (passes run in order)"

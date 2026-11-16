@@ -28,8 +28,10 @@ configs/vitaltour.config  local executor + Docker      configs/alliance.config  
 inputs/participants.tsv   the sessions to process (subject, session, run, covariates); not in git
                           (participant data, and the fork is public): format in participants.example.tsv
 inputs/reconall_rerun.tsv optional: T1s whose recon-all runs again with extra options (not in git)
+inputs/input_fixes.tsv    optional: input images repaired before a pass (not in git)
 scripts/                  setup_steps.sh, lib.sh (one pass in one folder), batch.sh (lock, pack,
                           unpack), passes.py, make_batches.py, merge_batches.py, volume_qc.py, reuse_report.py,
+                          fix_inputs.py,
                           setup.sbatch, head.sbatch, batch_job.sbatch
 tests/                    test_python.py, test_batch.sh, test_flow.sh (no cluster needed)
 ```
@@ -615,6 +617,27 @@ How:
   pipeline commit changes).
 - Afterwards `./run.sh merge` checks them again. A run still flagged keeps its SynthSeg volumes;
   drop its recon-all rows.
+
+### Input fixes
+
+Some input images have a defect a tool refuses, which the source data cannot be changed for (the
+lab's BIDS folder is read only). `inputs/input_fixes.tsv`, not in git, lists them: columns `file`
+(a path under `data_bids/`, `sub-X/ses-Y/anat/...nii.gz`), `fix`, `reason`, with that header.
+
+- Before each pass, `run_pass` gives the list to `scripts/fix_inputs.py`, which repairs each listed
+  file present in the launch folder's `data_bids/`, once. It is recorded in
+  `meta/input_fixes_applied.tsv` (checksums before and after): a rewritten file has a new date, so
+  repairing it again would recompute its tasks every time.
+- The file must still be the input that was prepared (its line in `meta/inputs.sha256`); that line
+  is then replaced by the repaired file's, so the checksum check still covers every other file.
+- Only the tasks that read the repaired file run again; every other file keeps its cache. Changing
+  the pipeline's step instead would change its script, and so recompute it for every run of any
+  batch that resumes.
+- Fixes:
+  - `sform_from_qform`: the sform is replaced by the transform the qform gives; only the header
+    changes. For a T1 whose two transforms disagree on the voxel size: ITK reads one, MRtrix the
+    other, and N4 then aborts on an image and its mask that "do not occupy the same physical space"
+    (ADNI b0096: sform voxel 1.0000992 mm, qform 1 mm).
 
 ## Tests
 

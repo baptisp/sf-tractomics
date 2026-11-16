@@ -333,5 +333,92 @@ class TestVolumeQc(unittest.TestCase):
             self.assertTrue(all(l.endswith("\t") for l in (merged / "volume_qc.tsv").read_text().splitlines()[1:]))
 
 
+class TestFixInputs(unittest.TestCase):
+    """scripts/fix_inputs.py: listed input images repaired once, their checksums kept exact."""
+
+    @staticmethod
+    def nifti(sform_x):
+        import struct
+        h = bytearray(352)
+        struct.pack_into("<i", h, 0, 348)
+        struct.pack_into("<8h", h, 40, 3, 2, 2, 2, 1, 1, 1, 1)
+        struct.pack_into("<hh", h, 70, 4, 16)                          # int16
+        struct.pack_into("<8f", h, 76, 1.0, 1.0, 1.0, 1.0, 0, 0, 0, 0)  # qfac 1, 1 mm
+        struct.pack_into("<f", h, 108, 352.0)
+        struct.pack_into("<hh", h, 252, 1, 1)                          # qform, sform codes
+        struct.pack_into("<6f", h, 256, 0, 0, 0, -10.0, -20.0, -30.0)  # identity rotation
+        for i, row in enumerate(([sform_x, 0, 0, -10.0], [0, 1.0, 0, -20.0], [0, 0, 1.0, -30.0])):
+            struct.pack_into("<4f", h, 280 + 16 * i, *row)
+        h[344:348] = b"n+1\0"
+        return bytes(h) + bytes(range(16))
+
+    def setUp(self):
+        import gzip
+        import hashlib
+        self.tmp = tempfile.mkdtemp()
+        self.root = Path(self.tmp)
+        (self.root / "scripts").mkdir()
+        shutil.copy(REPO / "scripts" / "fix_inputs.py", self.root / "scripts")
+        self.launch = self.root / "batches" / "b0001"
+        anat = self.launch / "data_bids" / "sub-1" / "ses-1" / "anat"
+        anat.mkdir(parents=True)
+        (self.launch / "meta").mkdir()
+        self.t1 = anat / "sub-1_ses-1_T1w.nii.gz"
+        self.other = anat / "sub-1_ses-1_T2w.nii.gz"
+        for f in (self.t1, self.other):
+            with gzip.open(f, "wb") as g:
+                g.write(self.nifti(1.0000992))
+        self.sha = lambda f: hashlib.sha256(f.read_bytes()).hexdigest()
+        (self.launch / "meta" / "inputs.sha256").write_text(
+            "".join(f"{self.sha(f)}  {f.relative_to(self.launch)}\n" for f in (self.other, self.t1)))
+        self.list = self.root / "input_fixes.tsv"
+        self.list.write_text("file\tfix\treason\nsub-1/ses-1/anat/sub-1_ses-1_T1w.nii.gz\tsform_from_qform\ttest\n"
+                             "sub-9/ses-1/anat/sub-9_ses-1_T1w.nii.gz\tsform_from_qform\tanother batch\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def run_fix(self):
+        return subprocess.run([sys.executable, str(self.root / "scripts" / "fix_inputs.py"), str(self.list),
+                               str(self.launch)], capture_output=True, text=True)
+
+    def test_sform_takes_the_qform_and_the_checksums_follow(self):
+        import gzip
+        import struct
+        other_before = self.sha(self.other)
+        r = self.run_fix()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = gzip.open(self.t1).read()
+        self.assertEqual(struct.unpack_from("<4f", data, 280), (1.0, 0.0, 0.0, -10.0))
+        self.assertEqual(data[348:], self.nifti(1.0)[348:])          # voxels untouched
+        self.assertEqual(data[:280], self.nifti(1.0)[:280])          # only the sform changed
+        self.assertEqual(self.sha(self.other), other_before)        # a file not listed: untouched
+        check = subprocess.run(["sha256sum", "--quiet", "-c", "meta/inputs.sha256"], cwd=self.launch)
+        self.assertEqual(check.returncode, 0)
+        self.assertIn("sform_from_qform", (self.launch / "meta" / "input_fixes_applied.tsv").read_text())
+
+    def test_applied_once(self):
+        self.run_fix()
+        mtime = self.t1.stat().st_mtime_ns
+        r = self.run_fix()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.t1.stat().st_mtime_ns, mtime)
+        self.assertEqual(len((self.launch / "meta" / "input_fixes_applied.tsv").read_text().splitlines()), 2)
+
+    def test_a_file_changed_since_it_was_prepared_is_refused(self):
+        import gzip
+        with gzip.open(self.t1, "wb") as g:
+            g.write(self.nifti(2.0))
+        r = self.run_fix()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("checksum differs", r.stderr)
+
+    def test_an_unknown_fix_is_refused(self):
+        self.list.write_text("file\tfix\treason\nsub-1/ses-1/anat/sub-1_ses-1_T1w.nii.gz\tguess\tx\n")
+        r = self.run_fix()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("unknown fix", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

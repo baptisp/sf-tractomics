@@ -525,13 +525,11 @@ How:
   - Adding the options to the nf-neuro module instead would have run recon-all again on every T1:
     Nextflow hashes a task's script source, so any edit to it misses the cache, even for a T1 whose
     options are empty. This was tested.
-- Two words without a dash in `options` are steps run on the T1 before recon-all, in
-  `RECONALL_T1PREP` (SynthSeg first, for the brain): `crop` cuts the field of view to the brain's
-  box plus 20 mm (the header is kept, so world coordinates do not change), `n4` corrects the bias
-  field inside the brain mask. Crop runs first whatever the order written. Only `n4` has fixed a
-  run so far; `crop` is kept for testing (see above). recon-all's `rawavg.mgz`
-  and `orig.mgz` are then the prepared T1; its outputs stay in the same world space. A listed T1
-  without these words runs recon-all on the input T1, as before, and keeps its cached task.
+- The word `n4` (no dash) in `options` is a step run on the T1 before recon-all, in
+  `RECONALL_T1PREP`: SynthSeg for the brain mask, then N4 bias field correction inside it.
+  recon-all's `rawavg.mgz` and `orig.mgz` are then the corrected T1, on the same grid. A listed T1
+  without it runs recon-all on the input T1, as before, and keeps its cached task. Cropping the
+  field of view was tested too and fixed nothing, so it was not kept.
 - The rerun's FreeSurfer folder replaces the published one, and every task that reads it (thickness,
   subfields, the volume tables) runs again for that run only. The options are in `versions.yml`.
 - The reruns go with the next pass of their batches, which needs `ALLOW_COMMIT_CHANGE=1` (the

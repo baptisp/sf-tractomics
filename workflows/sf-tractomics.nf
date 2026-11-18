@@ -466,7 +466,7 @@ workflow SF_TRACTOMICS {
                 keep: true
             }
         RECONALL_THICKNESS(ch_t1_split.keep)
-        // A rerun with T1 steps (crop, n4) gets its T1 from RECONALL_T1PREP. The others go straight
+        // A rerun with the T1 step n4 gets its T1 from RECONALL_T1PREP. The others go straight
         // to RECONALL_THICKNESS_RERUN, whose script is unchanged, so their cached tasks stay valid.
         def ch_rerun_split = ch_t1_split.rerun
             .branch { item ->
@@ -1434,8 +1434,8 @@ def distinctT1s(ch_t1) {
 // with or without 'ses-', empty for a subject without sessions). Returns [key: [options: flags,
 // prep: steps]] (see reconallRerunKey). options are recon-all flags (e.g. -notal-check), written
 // into the task's shell script, so only plain flags are accepted; the ones run_cortical_thickness
-// sets itself are refused. Two words without a dash, 'crop' and 'n4', are not recon-all flags but
-// steps run on the T1 before it (RECONALL_T1PREP, in that order whatever the order written).
+// sets itself are refused. The word 'n4', without a dash, is not a recon-all flag but a step run on
+// the T1 before it (RECONALL_T1PREP).
 def reconallReruns(path) {
     if ( !path ) {
         return [:]
@@ -1457,12 +1457,12 @@ def reconallReruns(path) {
             error "${where}: subject, options and reason are required"
         }
         def words = options.split(/\s+/).toList()
-        def steps = ["crop", "n4"]
+        def steps = ["n4"]
         def prep = steps.findAll { s -> s in words }
         def flags = words.findAll { x -> !(x in steps) }
         def bad = flags.findAll { x -> !(x ==~ /-[A-Za-z0-9][A-Za-z0-9-]*/) || x in ["-i", "-s", "-sd", "-subjid", "-all"] }
         if ( bad ) {
-            error "${where}: options ${bad} refused (plain recon-all flags only, plus the T1 steps ${steps.join(' and ')}; -i, -s, -sd, -subjid and -all are set already)"
+            error "${where}: options ${bad} refused (plain recon-all flags only, plus the T1 step n4; -i, -s, -sd, -subjid and -all are set already)"
         }
         if ( words.size() != words.unique(false).size() ) {
             error "${where}: options '${options}' repeat a word"

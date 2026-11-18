@@ -83,11 +83,13 @@ PYEOF
     fi
     rm -f .license seg.nii.gz t1_grid.nii.gz mask.nii.gz
 
+    # END_VERSIONS at column 0: the Python heredoc above is at column 0, so Nextflow strips no
+    # indentation from this script, and <<- strips tabs only
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         freesurfer: \$(mri_convert -version | grep "freesurfer" | sed -E 's/.* ([0-9.]+).*/\\1/')
         t1prep_steps: "${steps}"
-    END_VERSIONS
+END_VERSIONS
     """
 
     stub:

@@ -500,6 +500,18 @@ run's SynthSeg ones against the other runs of its batch:
   are dropped.
 - eTIV alone wrong (1.7 to 1.9 times SynthSeg's ICV, or 0.83), the volumes in range: no rerun; use
   SynthSeg's ICV for those runs.
+- a strong bias field (the white matter much darker at the top of the head): mri_normalize finds
+  the white matter at 90 instead of 110 and the volumes are wrong. `n4` fixes it (two runs, the
+  white matter back at 110 in every normalization, the volumes in range).
+- four runs from one scanner model where recon-all's atlas registration fails: the white matter
+  peak falls to about 90 after the atlas-based normalization (`mri_ca_normalize`), and putamen,
+  thalamus and cortex are far from SynthSeg's. It is not a bias field (the white matter profile by
+  depth is the same as in good runs). Nothing tried fixes it (2026-11-18): `n4`, `crop n4`,
+  `-samseg-reg`, alone or together, leave 5 to 10 of 10 volumes out of the batch's range, and
+  `crop` moves eTIV on a good control run. `recon-all-clinical.sh` (SynthSeg-based surfaces)
+  completes, but on good runs its cortex is about 8% under recon-all's, and on these four it reads
+  higher than on any good run, so it is not comparable either. They keep their SynthSeg volumes;
+  their recon-all rows are dropped.
 A rerun's eTIV comes from a different alignment than the rest of the cohort, so use SynthSeg's ICV
 for it too. Look at the T1 before choosing an option, and compare a rerun's volumes with SynthSeg's
 before keeping it. A recon-all killed for memory (exit 1) needs no option: exit 1 is retried once.
@@ -516,7 +528,8 @@ How:
 - Two words without a dash in `options` are steps run on the T1 before recon-all, in
   `RECONALL_T1PREP` (SynthSeg first, for the brain): `crop` cuts the field of view to the brain's
   box plus 20 mm (the header is kept, so world coordinates do not change), `n4` corrects the bias
-  field inside the brain mask. Crop runs first whatever the order written. recon-all's `rawavg.mgz`
+  field inside the brain mask. Crop runs first whatever the order written. Only `n4` has fixed a
+  run so far; `crop` is kept for testing (see above). recon-all's `rawavg.mgz`
   and `orig.mgz` are then the prepared T1; its outputs stay in the same world space. A listed T1
   without these words runs recon-all on the input T1, as before, and keeps its cached task.
 - The rerun's FreeSurfer folder replaces the published one, and every task that reads it (thickness,

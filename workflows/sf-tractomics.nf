@@ -26,6 +26,7 @@ include { STATS_SUBJECTVOLUMES as STATS_SUBJECT_COMPARISON_VOLUMES } from '../mo
 include { STATS_HOC              } from '../modules/local/stats/hoc/main'
 include { SEGMENTATION_FSRECONALL as RECONALL_THICKNESS } from '../modules/nf-neuro/segmentation/fsreconall/main'
 include { SEGMENTATION_RECONALLRERUN as RECONALL_THICKNESS_RERUN } from '../modules/local/segmentation/reconallrerun/main'
+include { SEGMENTATION_T1PREP as RECONALL_T1PREP } from '../modules/local/segmentation/t1prep/main'
 include { SEGMENTATION_RECONALLSEG } from '../modules/local/segmentation/reconallseg/main'
 include { SEGMENTATION_HIPPOAMYG } from '../modules/local/segmentation/hippoamyg/main'
 include { STATS_HIPPOAMYG         } from '../modules/local/stats/hippoamyg/main'
@@ -465,8 +466,21 @@ workflow SF_TRACTOMICS {
                 keep: true
             }
         RECONALL_THICKNESS(ch_t1_split.keep)
+        // A rerun with T1 steps (crop, n4) gets its T1 from RECONALL_T1PREP. The others go straight
+        // to RECONALL_THICKNESS_RERUN, whose script is unchanged, so their cached tasks stay valid.
+        def ch_rerun_split = ch_t1_split.rerun
+            .branch { item ->
+                prep: reruns[reconallRerunKey(item[0])].prep
+                plain: true
+            }
+        RECONALL_T1PREP(
+            ch_rerun_split.prep.map { meta, t1, license -> [meta, t1, license, reruns[reconallRerunKey(meta)].prep.join(" ")] }
+        )
+        ch_versions = ch_versions.mix(RECONALL_T1PREP.out.versions.first())
         RECONALL_THICKNESS_RERUN(
-            ch_t1_split.rerun.map { meta, t1, license -> [meta, t1, license, reruns[reconallRerunKey(meta)]] }
+            ch_rerun_split.plain
+                .mix(RECONALL_T1PREP.out.t1.combine(channel.fromPath(params.freesurfer_license, checkIfExists: true)))
+                .map { meta, t1, license -> [meta, t1, license, reruns[reconallRerunKey(meta)].options] }
         )
         ch_versions = ch_versions.mix(RECONALL_THICKNESS.out.versions.first())
         ch_versions = ch_versions.mix(RECONALL_THICKNESS_RERUN.out.versions.first())
@@ -1417,9 +1431,11 @@ def distinctT1s(ch_t1) {
 }
 
 // params.reconall_rerun: a TSV with columns subject, session, options, reason (header line; session
-// with or without 'ses-', empty for a subject without sessions). Returns [key: options] (see
-// reconallRerunKey). options are recon-all flags (e.g. -notal-check), written into the task's shell
-// script, so only plain flags are accepted; the ones run_cortical_thickness sets itself are refused.
+// with or without 'ses-', empty for a subject without sessions). Returns [key: [options: flags,
+// prep: steps]] (see reconallRerunKey). options are recon-all flags (e.g. -notal-check), written
+// into the task's shell script, so only plain flags are accepted; the ones run_cortical_thickness
+// sets itself are refused. Two words without a dash, 'crop' and 'n4', are not recon-all flags but
+// steps run on the T1 before it (RECONALL_T1PREP, in that order whatever the order written).
 def reconallReruns(path) {
     if ( !path ) {
         return [:]
@@ -1440,16 +1456,22 @@ def reconallReruns(path) {
         if ( !subject || !options || !reason ) {
             error "${where}: subject, options and reason are required"
         }
-        def flags = options.split(/\s+/).toList()
+        def words = options.split(/\s+/).toList()
+        def steps = ["crop", "n4"]
+        def prep = steps.findAll { s -> s in words }
+        def flags = words.findAll { x -> !(x in steps) }
         def bad = flags.findAll { x -> !(x ==~ /-[A-Za-z0-9][A-Za-z0-9-]*/) || x in ["-i", "-s", "-sd", "-subjid", "-all"] }
         if ( bad ) {
-            error "${where}: options ${bad} refused (plain recon-all flags only; -i, -s, -sd, -subjid and -all are set already)"
+            error "${where}: options ${bad} refused (plain recon-all flags only, plus the T1 steps ${steps.join(' and ')}; -i, -s, -sd, -subjid and -all are set already)"
+        }
+        if ( words.size() != words.unique(false).size() ) {
+            error "${where}: options '${options}' repeat a word"
         }
         def key = reconallRerunKey([id: subject, session: session])
         if ( reruns.containsKey(key) ) {
             error "${where}: ${subject} ${session} is listed twice"
         }
-        reruns[key] = flags.join(" ")
+        reruns[key] = [options: flags.join(" "), prep: prep]
     }
     return reruns
 }

@@ -1194,7 +1194,7 @@
                     "format": "file-path",
                     "exists": true,
                     "description": "TSV of the T1s whose recon-all runs again, with extra recon-all options.",
-                    "help_text": "Columns subject, session, options, reason, with that header; session with or without 'ses-', empty for a subject without sessions. options are plain recon-all flags (e.g. -notal-check after a Talairach failure checked by eye). A listed T1 runs in RECONALL_THICKNESS_RERUN instead of RECONALL_THICKNESS, so every other T1 keeps its cached recon-all; its published FreeSurfer folder and every table read from it are replaced. The options are recorded in versions.yml."
+                    "help_text": "Columns subject, session, options, reason, with that header; session with or without 'ses-', empty for a subject without sessions. options are plain recon-all flags (e.g. -notal-check after a Talairach failure checked by eye), plus two steps run on the T1 before recon-all, written without a dash: crop (field of view cut to SynthSeg's brain box plus 20 mm, world coordinates unchanged) and n4 (N4 inside SynthSeg's brain mask); they run in RECONALL_T1PREP, crop first. A listed T1 runs in RECONALL_THICKNESS_RERUN instead of RECONALL_THICKNESS, so every other T1 keeps its cached recon-all; its published FreeSurfer folder and every table read from it are replaced. The options are recorded in versions.yml."
                 },
                 "run_subject_roi_metrics": {
                     "type": "boolean",

@@ -496,13 +496,15 @@ run's SynthSeg ones against the other runs of its batch:
   side): SynthSeg's ICV is under 900 cm3 and its volumes are wrong too. No option fixes that; they
   are in `adni_prep/runs_to_drop.tsv`.
 - a very atrophied brain: neither `-notal-check` nor `-samseg-reg` brings putamen, caudate and
-  cerebellum into their usual ratio to SynthSeg. It keeps its SynthSeg volumes; its recon-all rows
-  are dropped.
+  cerebellum into their usual ratio to SynthSeg. Its recon-all values are kept and flagged as
+  outliers (see the rule below).
 - eTIV alone wrong (1.7 to 1.9 times SynthSeg's ICV, or 0.83), the volumes in range: no rerun; use
   SynthSeg's ICV for those runs.
 - a strong bias field (the white matter much darker at the top of the head): mri_normalize finds
-  the white matter at 90 instead of 110 and the volumes are wrong. `n4` fixes it (two runs, the
-  white matter back at 110 in every normalization, the volumes in range).
+  the white matter at 90 instead of 110 and the volumes are wrong, or the Talairach check fails.
+  `n4` brings the white matter back to 110 in every normalization on both runs: one run's volumes
+  are then in range; the other passes the Talairach check and finishes, its cerebellum cortex still
+  under the batch's range (0.72 times SynthSeg's).
 - four runs from one scanner model where recon-all's atlas registration fails: the white matter
   peak falls to about 90 after the atlas-based normalization (`mri_ca_normalize`), and putamen,
   thalamus and cortex are far from SynthSeg's. It is not a bias field (the white matter profile by
@@ -510,11 +512,15 @@ run's SynthSeg ones against the other runs of its batch:
   `-samseg-reg`, alone or together, leave 5 to 10 of 10 volumes out of the batch's range, and
   `crop` moves eTIV on a good control run. `recon-all-clinical.sh` (SynthSeg-based surfaces)
   completes, but on good runs its cortex is about 8% under recon-all's, and on these four it reads
-  higher than on any good run, so it is not comparable either. They keep their SynthSeg volumes;
-  their recon-all rows are dropped.
+  higher than on any good run, so it is not comparable either. Their recon-all values (with
+  `-samseg-reg`) are kept and flagged as outliers.
 A rerun's eTIV comes from a different alignment than the rest of the cohort, so use SynthSeg's ICV
 for it too. Look at the T1 before choosing an option, and compare a rerun's volumes with SynthSeg's
 before keeping it. A recon-all killed for memory (exit 1) needs no option: exit 1 is retried once.
+
+The rule (2026-11-18): every run whose recon-all finishes keeps its recon-all values, even when
+they are off; such runs are listed as outliers, and the study decides what to do with them. Only a
+run whose recon-all exits with an error that no option fixes has empty recon-all values.
 
 How:
 - `inputs/reconall_rerun.tsv`, not in git: columns `subject`, `session`, `options`, `reason`, with
@@ -534,8 +540,8 @@ How:
   subfields, the volume tables) runs again for that run only. The options are in `versions.yml`.
 - The reruns go with the next pass of their batches, which needs `ALLOW_COMMIT_CHANGE=1` (the
   pipeline commit changes).
-- Afterwards `./run.sh merge` checks them again. A run still flagged keeps its SynthSeg volumes;
-  drop its recon-all rows.
+- Afterwards `./run.sh merge` checks them again. A run still flagged keeps its recon-all values
+  and goes in the outlier list.
 
 ### Input fixes
 

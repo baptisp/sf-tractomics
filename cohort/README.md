@@ -543,6 +543,88 @@ How:
 - Afterwards `./run.sh merge` checks them again. A run still flagged keeps its recon-all values
   and goes in the outlier list.
 
+### Pass 1 outcome (2026-11-22)
+
+All 321 batches finished pass 1 (188 on Rorqual, 133 on Fir; Fir's results copied to Rorqual and
+checked by md5). Merged on Rorqual into `merge_pass1_20261122/merged/`: 3749 runs in
+`volume_qc.tsv`, 11 flagged, 4 failed tasks. The list of runs by participant is in
+`inputs/reconall_rerun.tsv` (19 runs, not in git); below, batches only.
+
+Every run outside that list ran the default recon-all, and every listed run ran exactly its listed
+options: checked on 2026-11-22 from each run's `recon-all.log` in the archives
+(`/scratch/pierrard/volcheck/qc_options.py`). A batch's rerun recomputes only the listed run (its
+recon-all and the tasks that read it); the other runs of the batch come from the cache.
+
+**Failed tasks** (`merged/failed_tasks.tsv`):
+- b0079, b0259: recon-all stopped at the Talairach step. Both T1s cover only part of the head
+  (SynthSeg ICV under 900 cm3); `-samseg-reg` finishes on b0079 but every volume is wrong (right
+  hippocampus 65 times SynthSeg's). In `adni_prep/runs_to_drop.tsv`; no recon-all values.
+- b0064: recon-all stopped at the Talairach check. `-samseg-reg` finishes with volumes in the
+  batch's range except right hippocampus (1.21 times SynthSeg) and cerebellum cortex (0.78). Added
+  to the rerun list on 2026-11-22, under the rule above: it is recomputed at the start of pass 2.
+- b0218: FSL eddy failed on one DWI run; that run has T1 volumes and no diffusion metrics.
+
+**recon-all reruns, what was tried and what came of it**:
+
+| Batches | Failure | Tried | Kept | Result |
+| --- | --- | --- | --- | --- |
+| b0262 | Talairach transform absurd, recon-all failed | `-samseg-reg`, `-use-mritotal`, `-3T`, `-no-wsgcaatlas` | `-samseg-reg` | fixed |
+| b0035, b0044, b0061 | one white surface lost, or one ribbon not filled | `-samseg-reg`, `-3T` | `-samseg-reg` | fixed |
+| b0204 | one hemisphere's cortex 1.45 times SynthSeg's | `-samseg-reg` | `-samseg-reg` | fixed |
+| b0180 (one run) | cortex 1.56 / 0.83 times SynthSeg's | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | fixed |
+| b0152 | recon-all failed (`mris_sphere`, after a 13 h topology fix) | `-3T` | `-3T` | finishes; right hippocampus 1.25 times SynthSeg's, eTIV 1.74 times its ICV |
+| b0250 | Talairach check failed (strong bias field) | `-samseg-reg`, `-no-emreg`, `-bigventricles`, SynthMorph registration, `n4` | `n4` | finishes; cerebellum cortex 0.72 times SynthSeg's |
+| b0192 | `mris_fix_topology` hangs on one defect of about 38,000 vertices (killed at every limit, up to 35 h) | `n4` | `n4` | finishes in 1.8 h, in line with the participant's other sessions; right putamen 0.42 times SynthSeg's |
+| b0231 | same hang (a defect of 37,541 vertices) | `n4`, `-no-fix-with-ga` | `-no-fix-with-ga` | finishes in about 12 h, but the left surface stays damaged (below) |
+| b0246 | cortex 0.60 times SynthSeg's, slight motion | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | cortex in line with the participant's 6 other sessions; eTIV 8% above them |
+| b0284 | left cortex 0.06 times SynthSeg's | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | cortex in line, left about 5% under the participant's trend; eTIV 5% above; left hippocampus high in both tools (SynthSeg too) |
+| b0130, b0321, b0251 (strong motion), b0247 (moderate) | cortex 0.44 to 0.62 times SynthSeg's | `-samseg-reg`, `-use-mritotal`, `-3T`, `n4`, `n4 -samseg-reg` | `-samseg-reg` | not fixed: still flagged |
+| b0145, b0180 (other run) | cortex about 0.6 times SynthSeg's | `-samseg-reg` | `-samseg-reg` | not fixed: still flagged; no other session of the participant to compare with |
+
+A run with an option was judged against the same participant's other sessions (recon-all and
+SynthSeg per session), not against the batch's range: a participant's volumes change little
+between sessions, other participants' a lot.
+
+**Why they failed** (conclusions):
+- Motion. The four motion runs show ringing and blurring on the T1. recon-all's Talairach
+  registration then goes wrong, the surfaces miss whole regions and eTIV jumps. No recon-all
+  option corrects motion: `#@# MotionCor` only averages several T1 acquisitions of a session, and
+  FSL eddy corrects the DWI, never the T1. The ADNI repeat T1 (run 2), which could replace a moved
+  one, is not in the lab's BIDS folder for these runs.
+- A giant topology defect (b0192, b0231). The topology fixer's genetic algorithm does not end on a
+  defect of about 38,000 vertices. `n4` changes the image enough that the defect is no longer
+  there (b0192); on b0231 it is still there, and `-no-fix-with-ga` patches it with the faster
+  method. The surface statistics are then normal (`lhCortexVol` 246 mL, the participant's other
+  session 241 mL), but the left hemisphere's `aparc+aseg.mgz` labels, which the volume tables
+  count, hold 2.4 to 4 times the other session's cortex per region (423 mL in total).
+- The Talairach registration (`talairach_avi`) fails on unusual images: large rotations, a strong
+  bias field, a truncated field of view. `-samseg-reg` replaces it, except on a truncated head.
+
+**Limitations: runs to read as possible outliers.** By the rule above, each keeps its recon-all
+values:
+- cortex wrong (flagged `cortex_mismatch` in `volume_qc.tsv`): b0130, b0321, b0251, b0247
+  (motion), b0145, b0180 (one run), b0231 (left hemisphere's regions; left hippocampus 0.53 times
+  the other session's);
+- eTIV wrong (flagged `icv_mismatch`; use SynthSeg's ICV): b0008 (two runs, 1.73 and 1.89 times
+  SynthSeg's ICV), b0152 (1.74), b0301 (0.50); and every rerun's eTIV, which comes from another
+  registration than the rest of the cohort (b0246 +8% and b0284 +5% over the participant's other
+  sessions);
+- one structure out of range: b0192 (right putamen), b0250 (cerebellum cortex), b0152 (right
+  hippocampus), b0284 (left hippocampus, in SynthSeg too).
+
+**Image and motion QC.** `/scratch/pierrard/volcheck/qc/qc_screen.tsv` has one row per run:
+topology defects and the largest one, the Talairach check, the T1's EFC and background SNR
+(MRIQC's definitions), and FSL eddy's DWI movement. 187 runs are past the cohort's 99th
+percentile on one figure, 9 on two or more figures of the T1. These figures do not single out the
+motion runs above (three of the four are under every threshold), so the volume check against a
+participant's other sessions stays the criterion; the table is for reading a run already in doubt.
+
+**Pass 2.** The batches carry three pipeline commits from pass 1 (220 batches on `942bddb3`, 92 on
+`9009cb6a`, 9 on the current one). Pass 2 is submitted once with `ALLOW_COMMIT_CHANGE=1`
+(`ALLOW_COMMIT_CHANGE=1 ./run.sh submit 2_metrics`), which moves every batch to the current commit
+and recomputes the T1 branch of the batches that ran before the masked N4 (above). `config.env` no
+longer sets it.
+
 ### Input fixes
 
 Some input images have a defect a tool refuses, which the source data cannot be changed for (the

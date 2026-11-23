@@ -131,6 +131,9 @@ run_pass() {
 
     session=$(launch_session "$dir")
     id=${SLURM_JOB_ID:-$(date +%Y%m%d%H%M%S)}
+    # A task Slurm requeues (node failure) keeps its job id, and Nextflow refuses a run name it
+    # has already used: the restart count makes the requeued run's name and logs its own.
+    [ "${SLURM_RESTART_COUNT:-0}" -gt 0 ] && id="$id-r$SLURM_RESTART_COUNT"
     name="sft-${pass//_/-}-$id"
     log "$dir: pass $pass, run $name, session ${session:-new}"
     "$SFT_ROOT/bin/nextflow" run "$SFT_PIPELINE" \

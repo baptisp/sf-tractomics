@@ -102,15 +102,31 @@ workflow PREPROC_T1 {
 
             def ch_image_before_bet = ch_image
 
-            BETCROP_ANTSBET ( ch_bet )
+            // The T1s listed in options.preproc_t1_synthstrip_runs ("<id>\t<session without
+            // ses->" keys) are brain-extracted by SynthStrip instead: ANTs BET can return a mask
+            // of the whole head (or of the face) without failing, and the T1 then reaches the
+            // T1-to-DWI registration with its skull. Every other T1 keeps BETCROP_ANTSBET with
+            // the same inputs, so its cached task stays valid.
+            def synthstrip_runs = options.preproc_t1_synthstrip_runs ?: []
+            def ch_bet_split = ch_bet.branch { item ->
+                synthstrip: preprocT1RunKey(item[0]) in synthstrip_runs
+                ants: true
+            }
+
+            BETCROP_ANTSBET ( ch_bet_split.ants )
             ch_versions = ch_versions.mix(BETCROP_ANTSBET.out.versions.first())
+
+            BETCROP_SYNTHSTRIP ( ch_bet_split.synthstrip.map { meta, image, _template, _probability_map, _mask, _init_affine -> [meta, image, []] } )
+            ch_versions = ch_versions.mix(BETCROP_SYNTHSTRIP.out.versions.first())
 
             // ** Setting BET output ** //
             // NF26: errorStrategy='ignore' on a failed process emits [meta, null] on output
             // channels instead of closing them. Filter null outputs and fall back to the
             // pre-BET image so T1_REGISTRATION is not passed a null path.
             image_bet = BETCROP_ANTSBET.out.t1.filter { bet_meta, t1 -> t1 != null }
+                .mix(BETCROP_SYNTHSTRIP.out.bet_image)
             mask_bet  = BETCROP_ANTSBET.out.mask.filter { bet_meta, m -> m != null }
+                .mix(BETCROP_SYNTHSTRIP.out.brain_mask)
 
             def ch_bet_succeeded = image_bet.map { meta, t1 -> [meta, true] }
             def ch_fallback_image = ch_image_before_bet
@@ -153,4 +169,9 @@ workflow PREPROC_T1 {
         mask_bet        = mask_bet          // channel: [ val(meta), intermediary-mask ]
         crop_box        = bbox              // channel: [ val(meta), bounding-box ]
         versions        = ch_versions       // channel: [ versions.yml ]
+}
+
+// A T1 as listed in options.preproc_t1_synthstrip_runs: "<id>\t<session without 'ses-'>"
+def preprocT1RunKey(meta) {
+    return "${meta.id}\t${(meta.session ?: '').replaceFirst(/^ses-/, '')}"
 }

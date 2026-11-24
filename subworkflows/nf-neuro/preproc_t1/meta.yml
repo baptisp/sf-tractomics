@@ -197,6 +197,10 @@ input:
           type: boolean
           description: Crop the image after brain extraction.
           default: true
+        preproc_t1_synthstrip_runs:
+          type: list
+          description: With preproc_t1_run_ants_bet, the T1s brain-extracted by SynthStrip instead, as "<id>\t<session without 'ses-'>" keys.
+          default: []
 output:
   - image_nlmeans:
       type: file

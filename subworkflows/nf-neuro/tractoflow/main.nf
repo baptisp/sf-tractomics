@@ -170,6 +170,7 @@ workflow TRACTOFLOW {
                 "preproc_t1_run_resampling": options.preproc_t1_run_resampling,
                 "preproc_t1_run_synthstrip": options.preproc_t1_run_synthstrip,
                 "preproc_t1_run_ants_bet": options.preproc_t1_run_ants_bet,
+                "preproc_t1_synthstrip_runs": options.preproc_t1_synthstrip_runs,
                 "preproc_t1_run_crop": options.preproc_t1_run_crop
             ]
         )
@@ -450,6 +451,7 @@ workflow TRACTOFLOW {
 
         // IN ANATOMICAL SPACE
         t1_native               = PREPROC_T1.out.t1_final
+        t1_mask_native          = PREPROC_T1.out.mask_final
 
         // DTI
         dti_tensor              = RECONST_DTIMETRICS.out.tensor

@@ -598,6 +598,10 @@ input:
           type: boolean
           description: If 'true', the subworkflow will use ANTs' BET for brain extraction.
           default: true
+        preproc_t1_synthstrip_runs:
+          type: list
+          description: With preproc_t1_run_ants_bet, the T1s brain-extracted by SynthStrip instead, as "<id>\t<session without 'ses-'>" keys.
+          default: []
         preproc_t1_run_crop:
           type: boolean
           description: If 'true', the subworkflow will crop the image after brain extraction.

@@ -50,6 +50,7 @@ include { REGISTRATION_FODTEMPLATE } from '../modules/local/registration/fodtemp
 include { STATS_FIBRECROSSSECTION } from '../modules/local/stats/fibrecrosssection/main'
 include { QC_ATLASREGISTRATION as QC_ATLASREG_IIT } from '../modules/local/qc/atlasregistration/main'
 include { QC_ATLASREGISTRATION as QC_ATLASREG_CSF } from '../modules/local/qc/atlasregistration/main'
+include { QC_T1BRAINMASK } from '../modules/local/qc/t1brainmask/main'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -174,6 +175,8 @@ workflow SF_TRACTOMICS {
             "preproc_t1_run_resampling": params.run_t1_resampling,
             "preproc_t1_run_synthstrip": params.run_t1_synthstrip,
             "preproc_t1_run_ants_bet": params.run_t1_ants_bet,
+            // T1s whose ANTs BET mask was wrong: SynthStrip instead (params.t1_bet_rerun)
+            "preproc_t1_synthstrip_runs": t1BetReruns(params.t1_bet_rerun),
             "preproc_t1_run_crop": params.run_t1_crop,
             "frf_average_from_data": params.mean_frf,
             // Samples without an fODF shell skip the fibre response and fODF (see DWI_INPUT_CHECK)
@@ -189,6 +192,29 @@ workflow SF_TRACTOMICS {
     )
     ch_versions = ch_versions.mix(TRACTOFLOW.out.versions)
     ch_sub_multiqc_files = ch_sub_multiqc_files.mix(TRACTOFLOW.out.mqc)
+
+    // Size of each T1's brain mask (QC_T1BRAINMASK): a wrong ANTs BET mask (whole head, or a patch
+    // of the face) does not fail, but misplaces the T1 in DWI space. Flagged runs go into
+    // params.t1_bet_rerun.
+    if ( params.run_t1_ants_bet || params.run_t1_synthstrip ) {
+        def bet_reruns = t1BetReruns(params.t1_bet_rerun)
+        QC_T1BRAINMASK(
+            TRACTOFLOW.out.t1_mask_native.map { meta, mask ->
+                [meta, mask, (params.run_t1_synthstrip || preprocT1Key(meta) in bet_reruns) ? "synthstrip" : "antsbet"]
+            }
+        )
+        ch_versions = ch_versions.mix(QC_T1BRAINMASK.out.versions.first())
+        collectSampleCsvs(QC_T1BRAINMASK.out.qc, "space-T1w_desc-brainmask_qc.csv", "${params.outdir}/metrics/")
+        QC_T1BRAINMASK.out.qc
+            .flatMap { _meta, csv -> csv.readLines().drop(1) }
+            .filter { row -> row.split(",", -1)[-1] }
+            .collect()
+            .subscribe { rows ->
+                log.warn "T1 brain mask QC flagged ${rows.size()} run(s) (sid,session,run,mL,method,flags: " +
+                         "${rows.take(3).join(' | ')}): their T1 is misplaced in DWI space. List them in " +
+                         "t1_bet_rerun. See metrics/space-T1w_desc-brainmask_qc.csv."
+            }
+    }
     // ch_global_multiqc_files = ch_global_multiqc_files.mix(TRACTOFLOW.out.global_mqc)
 
     //
@@ -1474,6 +1500,47 @@ def reconallReruns(path) {
         reruns[key] = [options: flags.join(" "), prep: prep]
     }
     return reruns
+}
+
+// params.t1_bet_rerun: a TSV with columns subject, session, method, reason (header line; session
+// with or without 'ses-', empty for a subject without sessions). Returns the listed T1s as
+// preprocT1Key strings. method must be synthstrip: the T1 is brain-extracted by SynthStrip
+// instead of ANTs BET (see subworkflows/nf-neuro/preproc_t1).
+def t1BetReruns(path) {
+    if ( !path ) {
+        return []
+    }
+    def lines = file(path, checkIfExists: true).readLines().findAll { l -> l.trim() && !l.startsWith("#") }
+    def header = ["subject", "session", "method", "reason"]
+    if ( !lines || lines[0].split("\t", -1).toList() != header ) {
+        error "t1_bet_rerun ${path}: the first line must be the header ${header.join('\\t')}"
+    }
+    def keys = []
+    lines.drop(1).eachWithIndex { line, i ->
+        def f = line.split("\t", -1).toList()
+        def where = "t1_bet_rerun ${path}, line ${i + 2}"
+        if ( f.size() != header.size() ) {
+            error "${where}: ${f.size()} columns, ${header.size()} expected"
+        }
+        def (subject, session, method, reason) = f.collect { x -> x.trim() }
+        if ( !subject || !method || !reason ) {
+            error "${where}: subject, method and reason are required"
+        }
+        if ( method != "synthstrip" ) {
+            error "${where}: method '${method}' refused (only synthstrip)"
+        }
+        def key = preprocT1Key([id: subject, session: session])
+        if ( key in keys ) {
+            error "${where}: ${subject} ${session} is listed twice"
+        }
+        keys << key
+    }
+    return keys
+}
+
+// A T1 as subworkflows/nf-neuro/preproc_t1 keys it: "<id>\t<session without 'ses-'>"
+def preprocT1Key(meta) {
+    return "${meta.id}\t${(meta.session ?: '').replaceFirst(/^ses-/, '')}"
 }
 
 def reconallRerunKey(meta) {

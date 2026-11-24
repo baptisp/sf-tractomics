@@ -1196,6 +1196,13 @@
                     "description": "TSV of the T1s whose recon-all runs again, with extra recon-all options.",
                     "help_text": "Columns subject, session, options, reason, with that header; session with or without 'ses-', empty for a subject without sessions. options are plain recon-all flags (e.g. -notal-check after a Talairach failure checked by eye), plus one step run on the T1 before recon-all, written without a dash: n4 (N4 inside SynthSeg's brain mask), in RECONALL_T1PREP. A listed T1 runs in RECONALL_THICKNESS_RERUN instead of RECONALL_THICKNESS, so every other T1 keeps its cached recon-all; its published FreeSurfer folder and every table read from it are replaced. The options are recorded in versions.yml."
                 },
+                "t1_bet_rerun": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "TSV of the T1s brain-extracted by SynthStrip instead of ANTs BET.",
+                    "help_text": "Columns subject, session, method, reason, with that header; session with or without 'ses-', empty for a subject without sessions; method synthstrip. For T1s whose ANTs BET mask was wrong (the whole head, or a patch of the face) without failing: the T1 then reaches the T1-to-DWI registration with its skull and is misplaced in DWI space. A listed T1 runs BETCROP_SYNTHSTRIP instead of BETCROP_ANTSBET; every other T1 keeps its cached BETCROP_ANTSBET. metrics/space-T1w_desc-brainmask_qc.csv gives every T1 brain mask's volume and flags the implausible ones."
+                },
                 "run_subject_roi_metrics": {
                     "type": "boolean",
                     "description": "Compute diffusion metrics in the subject's own GM regions (the 84 GM regions of SynthSeg/FreeSurfer, 18 with SAMSEG), weighted by the fraction of each acquired DWI voxel inside the region.",

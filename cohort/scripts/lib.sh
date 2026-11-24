@@ -125,6 +125,12 @@ run_pass() {
         cp "$SFT_ROOT/inputs/reconall_rerun.tsv" "meta/reconall_rerun_${pass}.tsv"
         sets+=(--set "reconall_rerun=$PWD/meta/reconall_rerun_${pass}.tsv")
     fi
+    # SynthStrip instead of ANTs BET for the T1s of inputs/t1_bet_rerun.tsv (README: T1 brain
+    # extraction reruns), kept the same way
+    if [ -s "$SFT_ROOT/inputs/t1_bet_rerun.tsv" ]; then
+        cp "$SFT_ROOT/inputs/t1_bet_rerun.tsv" "meta/t1_bet_rerun_${pass}.tsv"
+        sets+=(--set "t1_bet_rerun=$PWD/meta/t1_bet_rerun_${pass}.tsv")
+    fi
     python3 "$SFT_ROOT/scripts/passes.py" resolve "$pass" "meta/params_${pass}.yaml" \
         --set "participants_tsv=$dir/data_bids/participants.tsv" --set "freesurfer_license=$FS_LICENSE" \
         "${sets[@]}" || die "parameters of pass $pass refused"

@@ -112,10 +112,12 @@ check "pass 2: the work of pass 1 is still in the archive" bash -c "tar -tf '$R/
 # A pass that recomputes a task of pass 1 is reported; with a recon-all rerun list, which the launch
 # keeps a copy of and passes to the pipeline
 printf 'subject\tsession\toptions\treason\nsub-A\t1\t-3T\ttest\n' > "$R/inputs/reconall_rerun.tsv"
+printf 'subject\tsession\tmethod\treason\nsub-A\t1\tsynthstrip\ttest\n' > "$R/inputs/t1_bet_rerun.tsv"
 FAKE_VOLUMES_STATUS=COMPLETED job 2_metrics 104
 check "a task of pass 1 computed again is reported" grep -q "computed again: VOLUMES (sub-A)" "$D"/logs/reuse_2_metrics_104.txt
 check "rerun list: copied into meta/ and passed as reconall_rerun" bash -c "cmp -s '$R/inputs/reconall_rerun.tsv' '$D/meta/reconall_rerun_2_metrics.tsv' && grep -qx 'reconall_rerun: $D/meta/reconall_rerun_2_metrics.tsv' '$D/meta/params_2_metrics.yaml'"
-rm "$R/inputs/reconall_rerun.tsv"
+check "BET rerun list: copied into meta/ and passed as t1_bet_rerun" bash -c "cmp -s '$R/inputs/t1_bet_rerun.tsv' '$D/meta/t1_bet_rerun_2_metrics.tsv' && grep -qx 't1_bet_rerun: $D/meta/t1_bet_rerun_2_metrics.tsv' '$D/meta/params_2_metrics.yaml'"
+rm "$R/inputs/reconall_rerun.tsv" "$R/inputs/t1_bet_rerun.tsv"
 
 # A commit that changes only cohort/ is not another pipeline: accepted
 echo "# note" >> "$R/README.md" && gitc add cohort/README.md && gitc commit -qm "wrapper only"

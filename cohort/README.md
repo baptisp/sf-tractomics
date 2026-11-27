@@ -370,7 +370,7 @@ In a Slurm job (never on a login node):
 `scripts/extract_results.sh bNNNN DEST 'out/sub-*/ses-*/anat/*_desc-thickness.csv'` extracts the
 matching files of the batch archive into `DEST`.
 
-## The ADNI run (Rorqual, November 2026)
+## The ADNI run (Rorqual and Fir, November 2026)
 
 The choices made for the full ADNI cohort, and why. Participant identifiers stay out of this public
 file: the lists that name runs are in `/scratch/pierrard/adni_prep/` on Rorqual (also kept with the
@@ -380,9 +380,12 @@ batches' `meta/` in the archive store).
   keeps the rows whose DWI run exists (`_run-0N_`, or run 1 for a file without a run entity) and
   whose session has a T1: 3775 DWI runs, 3639 sessions, 1491 subjects (3507 sessions with 1 run, 128
   with 2, 4 with 3). The rows dropped, and why, are in `adni_prep/dropped.tsv`. The pipeline's unit
-  is the DWI run: each run is a sample, paired with a T1 by run number (`match_t1_run`).
+  is the DWI run: each run is a sample, paired with a T1 by run number (`match_t1_run`). The
+  pipeline itself skips 23 of the 3775 runs, whose DTI shell has fewer than 6 volumes
+  (`metrics/dwi_input_report.tsv`); the other 3752 runs, of 1488 participants, are the ones the
+  outcomes below count.
 - **Batches.** `COHORT_NAME=adni`, `BATCH_SIZE=10` sessions (a subject is never split: 7 to 22
-  sessions, 11.4 on average), 319 batches, run with `./run.sh --batch`. Pass 1 (`1_volumes`, about
+  sessions, 11.4 on average), 321 batches, run with `./run.sh --batch`. Pass 1 (`1_volumes`, about
   5 h per batch) then pass 2 (`2_metrics`). Finished archives in
   `/project/rrg-descotea/vitalab/pierrard/adni/finished_archives/adni/`.
 - **Batches at once.** Scratch allows 1000K inodes; one unpacked batch costs about 1.8K inodes per
@@ -398,8 +401,8 @@ batches' `meta/` in the archive store).
   modules write the thread count into their script (task hash) and ANTs results depend on it.
   recon-all asks 12 h, not the 2.5x rule: on Rorqual a job over 12 h goes to the long-job partition,
   where its tasks waited 36 h once fairshare fell (median 3.8 h over 1131 runs, longest 14.5 h,
-  retried at 24 h). A batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped and packed 60 min before, and
-  resumes when submitted again.
+  retried at 24 h). A batch job asks 24 h (it took 5 to 9 h); one that runs over is stopped,
+  packed and resubmitted (Batches, above).
 - **Hung containers.** Some tasks hang at container start on Rorqual: Apptainer's processes wait on
   each other, the task's command never starts, 0 CPU. 24 of the first day's 12,558 tasks, but 13 of
   the 150 started in its busiest hour; on any node, the node running other tasks normally; mostly
@@ -419,10 +422,8 @@ batches' `meta/` in the archive store).
   node-local disk of two nodes filled up (`No space left on device`, 13 tasks of 13 batches); on Fir
   (2026-11-14) scratch gave `Input/output error` to a few tasks. Both reach the task as exit 1, so
   exit 1 gets one retry (any task), with the memory of the next attempt.
-- **A failed run does not stop its batch** (errorStrategy `ignore` after the retries,
-  `allow_missing_volumes: true`): the first two batches lost to one run each (b0010, b0014) are why.
-  Failures are in each batch's `out/metrics/failed_tasks.tsv`, merged into `merged/failed_tasks.tsv`;
-  fix them and rerun the batch with `FORCE=1 BATCHES=...`.
+- **A failed run does not stop its batch** (Batches, above): the first two batches lost to one run
+  each (b0010, b0014) are why.
 - **T1 bias correction with a mask.** The pipeline ran N4 on the denoised T1 without a mask. The
   denoising sets the background (about 75 % of the volume) to exactly 0 on every run, and without a
   mask N4's overall level drifts (its `--rescale-intensities` only acts within a mask): over 179 runs
@@ -501,9 +502,7 @@ run's SynthSeg ones against the other runs of its batch:
 - one hemisphere's cortex wrong (1.30 times SynthSeg's in one run, 0.06 in another): fixed by
   `-samseg-reg`, and by `-3T`. On another run `-3T` made it worse (the Talairach check then
   failed), so the reruns use `-samseg-reg`.
-- two T1s cover only part of the head (a field of view of 132 mm across, or the head off to one
-  side): SynthSeg's ICV is under 900 cm3 and its volumes are wrong too. No option fixes that; they
-  are in `adni_prep/runs_to_drop.tsv`.
+- two T1s cover only part of the head: no option fixes that (dropped, pass 2 outcome below).
 - a very atrophied brain: neither `-notal-check` nor `-samseg-reg` brings putamen, caudate and
   cerebellum into their usual ratio to SynthSeg. Its recon-all values are kept and flagged as
   outliers (see the rule below).
@@ -514,18 +513,18 @@ run's SynthSeg ones against the other runs of its batch:
   `n4` brings the white matter back to 110 in every normalization on both runs: one run's volumes
   are then in range; the other passes the Talairach check and finishes, its cerebellum cortex still
   under the batch's range (0.72 times SynthSeg's).
-- four runs from one scanner model where recon-all's atlas registration fails: the white matter
-  peak falls to about 90 after the atlas-based normalization (`mri_ca_normalize`), and putamen,
-  thalamus and cortex are far from SynthSeg's. It is not a bias field (the white matter profile by
-  depth is the same as in good runs). Nothing tried fixes it (2026-11-18): `n4`, `crop n4`,
-  `-samseg-reg`, alone or together, leave 5 to 10 of 10 volumes out of the batch's range, and
-  `crop` moves eTIV on a good control run. `recon-all-clinical.sh` (SynthSeg-based surfaces)
-  completes, but on good runs its cortex is about 8% under recon-all's, and on these four it reads
-  higher than on any good run, so it is not comparable either. Their recon-all values (with
-  `-samseg-reg`) are kept and flagged as outliers.
-A rerun's eTIV comes from a different alignment than the rest of the cohort, so use SynthSeg's ICV
-for it too. Look at the T1 before choosing an option, and compare a rerun's volumes with SynthSeg's
-before keeping it. A recon-all killed for memory (exit 1) needs no option: exit 1 is retried once.
+- runs with the cortex about 0.5 to 0.6 times SynthSeg's (Siemens Skyra and GE Discovery MR750; the
+  pass 1 table below, rows "not fixed"): the white matter peak falls to about 90 after the
+  atlas-based normalization (`mri_ca_normalize`), and putamen, thalamus and cortex are far from
+  SynthSeg's. It is not a bias field (the white matter profile by depth is the same as in good
+  runs); four of them show motion on the T1 (pass 1 outcome, below). Nothing tried fixes it
+  (2026-11-18): `n4`, `crop n4`, `-samseg-reg`, alone or together, leave 5 to 10 of 10 volumes out
+  of the batch's range, and `crop` moves eTIV on a good control run. `recon-all-clinical.sh`
+  (SynthSeg-based surfaces) completes, but on good runs its cortex is about 8% under recon-all's,
+  and on these runs it reads higher than on any good run, so it is not comparable either. Their
+  recon-all values (with `-samseg-reg`) are kept and flagged as outliers.
+Look at the T1 before choosing an option, and compare a rerun's volumes with SynthSeg's before
+keeping it. A recon-all killed for memory (exit 1) needs no option: exit 1 is retried once.
 
 The rule (2026-11-18): every run whose recon-all finishes keeps its recon-all values, even when
 they are off; such runs are listed as outliers, and the study decides what to do with them. Only a
@@ -554,9 +553,10 @@ How:
 
 ### Pass 1 outcome (2026-11-22)
 
-All 321 batches finished pass 1 (188 on Rorqual, 133 on Fir; Fir's results copied to Rorqual and
-checked by md5). Merged on Rorqual into `merge_pass1_20261122/merged/`: 3749 runs in
-`volume_qc.tsv`, 11 flagged, 4 failed tasks. The list of runs by participant is in
+All 321 batches finished pass 1 (188 on Rorqual, 133 on Fir; batches moved between the clusters
+afterwards, so pass 2's split differs; Fir's results copied to Rorqual and checked by md5). Merged on Rorqual into
+`merge_pass1_20261122/merged/`: 3749 runs in `volume_qc.tsv` (every T1 with both segmentations;
+b0064's was added in pass 2), 11 flagged, 4 failed tasks. The list of runs by participant is in
 `inputs/reconall_rerun.tsv` (19 runs, not in git); below, runs are named by batch, session and DWI run, without the participant.
 
 Every run outside that list ran the default recon-all, and every listed run ran exactly its listed
@@ -565,14 +565,13 @@ options: checked on 2026-11-22 from each run's `recon-all.log` in the archives
 recon-all and the tasks that read it); the other runs of the batch come from the cache.
 
 **Failed tasks** (`merged/failed_tasks.tsv`):
-- b0079 ses-20170321 run 1, b0259 ses-20210514 run 1: recon-all stopped at the Talairach step. Both T1s cover only part of the head
-  (SynthSeg ICV under 900 cm3); `-samseg-reg` finishes on b0079 but every volume is wrong (right
-  hippocampus 65 times SynthSeg's). In `adni_prep/runs_to_drop.tsv`; no recon-all values.
+- b0079 ses-20170321 run 1, b0259 ses-20210514 run 1: recon-all stopped at the Talairach step.
+  Both T1s cover only part of the head; `-samseg-reg` finishes on b0079 but every volume is wrong
+  (right hippocampus 65 times SynthSeg's). Dropped, no recon-all values (pass 2 outcome, below).
 - b0064 ses-20251020 run 1: recon-all stopped at the Talairach check. `-samseg-reg` finishes with
   volumes in the batch's range except right hippocampus (1.21 times SynthSeg) and cerebellum cortex
-  (0.78). Added to the rerun list on 2026-11-22, under the rule above: it is recomputed at the start
-  of pass 2. Pass 2 outcome: recon-all finished (GM 506 mL, SynthSeg 690 mL), in line with the
-  participant's 4 other sessions (504 to 571 mL); not flagged by the longitudinal sweep.
+  (0.78). Added to the rerun list on 2026-11-22, under the rule above, and recomputed in pass 2
+  (outcome below).
 - b0218 ses-20160902 run 1: FSL eddy failed (the DWI has no b0 volume, see pass 2); that run has T1
   volumes and no diffusion metrics.
 
@@ -645,8 +644,7 @@ All 321 batches finished pass 2 (183 on Fir, 138 on Rorqual). The batches rerun 
 pipeline commit `65de5e2` or `6b57592`, the others on `46dcb00` or a later commit that changes only
 `cohort/` and docs. The two pipeline commits since `46dcb00` change only the runs listed in their
 per-run lists (below), plus one QC step that only writes a table, so every other run's values are
-the same whichever commit its batch is on. That QC table (`space-T1w_desc-brainmask_qc.csv`) exists
-only in the rerun batches; the mask-volume scan below covered all of them.
+the same whichever commit its batch is on.
 
 Runs are named by batch, session and DWI run (`run 1` for a file without a run entity); a T1 fix
 applies to every DWI run of its session. The participant of each is in the lists named, which are
@@ -771,8 +769,8 @@ for it. The run has T1 values and no diffusion values; only ADNI's original down
 b0 series.
 
 **b0064 ses-20251020 run 1, the recon-all rerun decided in pass 1** (`-samseg-reg`): recomputed at
-the start of pass 2; recon-all finished, values in line with the participant's other sessions (pass
-1 outcome, above).
+the start of pass 2. recon-all finished (GM 506 mL, SynthSeg 690 mL), in line with the
+participant's 4 other sessions (504 to 571 mL); not flagged by the longitudinal sweep.
 
 **b0108 never ran pass 2 on its first submission** (all 12 runs). It stopped at start, trying to
 download the IIT atlas: the 2026-11-17 storage-incident repair had deleted damaged files of its
@@ -859,8 +857,9 @@ of the participant's other runs, or, for a participant with a single run, outsid
     stored for it may not be the ones acquired, which only the original DICOM could tell. Its T1
     values are valid (the session's T1 is shared with run 2). Dropped under the same rule as the
     `misaligned` runs; run 2 is kept. In `adni_prep/runs_to_drop.tsv` since 2026-11-27.
-None of the sweep's other flags is a pipeline failure that a fix could remove; the recon-all ones
-are recon-all's own variability, for which the rule is to keep and flag. Every run's sweep values
+No other flag was found to be a pipeline failure that a fix could remove (the GM MD and
+cohort-edge ones were read by pattern, see Limitations); the recon-all ones are recon-all's own
+variability, for which the rule is to keep and flag. Every run's sweep values
 and flags are in `merge_pass2_20261127/qc/sweep.tsv` (below).
 
 **The pass-2 merge (2026-11-27)**, on Rorqual, in `merge_pass2_20261127/`
@@ -888,10 +887,8 @@ and flags are in `merge_pass2_20261127/qc/sweep.tsv` (below).
   tasks, recon-all against SynthSeg, the longitudinal sweep. A failure none of them measures can
   remain, and single-run participants are checked against the cohort range only.
 - The sweep's GM MD and cohort-edge flags were read by pattern, not inspected run by run.
-- Runs left out downstream (`adni_prep/runs_to_drop.tsv`): 6, b0079 ses-20170321 run 1, b0259
-  ses-20210514 run 1, b0174 ses-20180420 run 1 (since pass 1), b0297 ses-20210623 run 1, b0317
-  ses-20180724 run 1 and b0115 ses-20140613 run 1 (since 2026-11-27). recon-all outliers are kept
-  and flagged.
+- The 6 runs to leave out are listed once, under "Runs to leave out downstream" (above); recon-all
+  outliers are kept and flagged.
 - The 29 SynthStrip runs and b0144 ses-20230314 run 1 differ from the rest of the cohort in one step
   (brain extraction; NaN clean-up). The NaN were outside the brain mask, so b0144's values inside it
   are unchanged; SynthStrip and ANTs BET masks differ at the brain's edge.

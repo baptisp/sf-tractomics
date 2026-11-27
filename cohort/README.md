@@ -794,9 +794,12 @@ of the participant's other runs, or, for a participant with a single run, outsid
 99 runs are flagged:
 - 5 are the runs dropped above (b0079, b0259, b0174 run 1, b0297, b0317): the sweep finds them
   on its own.
-- 33 are GM MD alone. In participants with several sessions it rises with the years (1.15 to 1.33
-  times the median, e.g. b0244, five sessions from 2019 to 2023 at 1.16 to 1.33), as expected with
-  ageing and atrophy; the earliest sessions of the same participants read 0.85. Kept, not errors:
+- 33 are GM MD alone (1.15 to 1.33 times the median, or 0.85). This was first read as ageing; it
+  is mostly a protocol change. 26 of the 28 runs from participants with several runs have other
+  shells than some or all of the participant's other runs (e.g. b0244, five sessions from 2019 to
+  2023 at 1.16 to 1.33), and the flagged runs whose protocol differs read 0.68 to 1.42 (once
+  1.78) times the others. Compared with the same protocol only, 24 of the 28 are in line (per-run QC table,
+  below). Kept, not errors:
   b0001 ses-20170315 and ses-20190501, b0004 ses-20170417 and ses-20190520, b0040 ses-20240909,
   b0054 ses-20180716, b0057 ses-20190717 and ses-20210219, b0100 ses-20121013, b0112 ses-20190321
   and ses-20210709, b0114 ses-20220622, b0115 ses-20241108, b0162 ses-20241204, b0174 ses-20240730
@@ -879,14 +882,44 @@ and flags are in `merge_pass2_20261127/qc/sweep.tsv` (below).
 - `merged/space-T1w_desc-brainmask_qc.csv` covers only the 20 batches rerun with commit `65de5e2`
   or later; the mask-volume scan covered every batch.
 - `qc/sweep.tsv`: the longitudinal sweep, one row per run (both clusters), with its flags;
-  `qc/runs_to_drop.tsv`: a copy of `adni_prep/runs_to_drop.tsv` as of the merge. Both name
-  participants and stay on the cluster.
+  `qc/runs_to_drop.tsv`: a copy of `adni_prep/runs_to_drop.tsv` as of the merge; `qc/run_qc.tsv`:
+  the per-run QC table (next paragraph). All three name participants and stay on the cluster.
+
+**Per-run QC table** (`merge_pass2_20261127/qc/run_qc.tsv`, built by
+`/scratch/pierrard/volcheck/run_qc.py` from the merge and the run lists; column definitions at the
+top of the script). One row per DWI run of `inputs/participants.tsv` (3,775), with every decision
+above:
+- `status`: `drop` (6, the runs to leave out), `skipped_by_pipeline` (23, fewer than 6 DTI volumes),
+  `keep_t1_only` (1, b0218 ses-20160902 run 1, no b0), `keep` (3,745);
+- `fixes` (SynthStrip, NaN fix, recon-all options), `failed`, `volume_qc`, `atlas_qc`;
+- `use_synthseg_icv`: 39 runs whose recon-all eTIV is not to be used (`icv_mismatch`, a recon-all
+  rerun, or an eTIV flag of the sweep);
+- `read_as`, for kept runs: `reconall_outlier` (41), `diffusion_outlier` (31),
+  `atlas_brain_mismatch` (4);
+- `sweep_raw`: the sweep's flags as above (99 runs); `sweep`: the sweep recomputed (78 runs, 72
+  of them kept), with the reference changed in two ways:
+  - dropped runs are left out of a participant's reference and of the cohort ranges;
+  - FA and MD are compared only with the participant's runs of the same protocol (same shells in
+    `dwi_input_report.tsv`). A run with no such run is compared with the 0.5 to 99.5 % range of its
+    protocol's runs across the cohort, or of the whole cohort when the protocol has fewer than 50
+    runs. A linear trend over age was tried first and rejected: through two close sessions it
+    extrapolates badly (b0100 ses-20131008 read 1.21 against it, 1.01 against its own sessions).
+  GM MD flags fall from 43 to 17. The 14 runs newly flagged are at the edge of the cohort's or
+  their protocol's range (about 1 % of the runs without a reference, by construction), most of
+  them single runs: b0006 ses-20250318, b0010 ses-20120717, b0071 ses-20140417 run 2, b0122
+  ses-20230926 (FA 0.32), b0139 ses-20190204, b0142 ses-20210929, b0144 ses-20210224, b0146
+  ses-20200723, b0161 ses-20250523, b0180 ses-20190611, b0191 ses-20170818, b0212 ses-20100909
+  (FA 0.34), b0225 ses-20111206, b0262 ses-20250213. They are not inspected run by run; read them
+  as possible outliers.
 
 **Limitations.**
 - The checks are those listed: in-mask fraction, T1 mask size, atlas registration QC, failed
   tasks, recon-all against SynthSeg, the longitudinal sweep. A failure none of them measures can
   remain, and single-run participants are checked against the cohort range only.
-- The sweep's GM MD and cohort-edge flags were read by pattern, not inspected run by run.
+- The sweep's GM MD and cohort-edge flags were read by pattern, not inspected run by run. A
+  protocol change between a participant's sessions moves MD by 15 % or more: compare diffusion
+  values across sessions within one protocol, or model the protocol (Acquisition differences,
+  above).
 - The 6 runs to leave out are listed once, under "Runs to leave out downstream" (above); recon-all
   outliers are kept and flagged.
 - The 29 SynthStrip runs and b0144 ses-20230314 run 1 differ from the rest of the cohort in one step

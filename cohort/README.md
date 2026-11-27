@@ -443,9 +443,16 @@ batches' `meta/` in the archive store).
   (`ALLOW_COMMIT_CHANGE=1`), so the whole cohort's diffusion metrics use the masked N4. The replay
   and its tables: `/scratch/pierrard/sft_n4cmp/` (`comparison.tsv`, `refcheck.tsv`,
   `tissuecheck.tsv`).
-- **Runs to leave out downstream.** One run acquired with a spine coil (all its diffusion values
-  wrong, e.g. GM AFD ten times the others) and every run flagged `misaligned` by the atlas
-  registration QC: listed in `adni_prep/runs_to_drop.tsv`.
+- **Runs to leave out downstream** (`adni_prep/runs_to_drop.tsv`), 6 runs:
+  - b0174 ses-20180420 DWI run 1: the DWI slab is over the neck (all its diffusion values wrong,
+    e.g. GM AFD ten times the others); run 2 of that session is kept;
+  - b0079 ses-20170321 run 1 and b0259 ses-20210514 run 1: the T1 covers half the head;
+  - b0297 ses-20210623 run 1 and b0317 ses-20180724 run 1: flagged `misaligned` by the atlas
+    registration QC, with no fix found (pass 2 outcome, below); to be written into the file after
+    the final merge, as the file says.
+  - b0115 ses-20140613 DWI run 1: tensor values implausible already in the raw data (pass 2
+    outcome, below); to be written into the file after the final merge.
+  Every other run of these batches is kept.
 
 ### recon-all reruns
 
@@ -548,7 +555,7 @@ How:
 All 321 batches finished pass 1 (188 on Rorqual, 133 on Fir; Fir's results copied to Rorqual and
 checked by md5). Merged on Rorqual into `merge_pass1_20261122/merged/`: 3749 runs in
 `volume_qc.tsv`, 11 flagged, 4 failed tasks. The list of runs by participant is in
-`inputs/reconall_rerun.tsv` (19 runs, not in git); below, batches only.
+`inputs/reconall_rerun.tsv` (19 runs, not in git); below, runs are named by batch, session and DWI run, without the participant.
 
 Every run outside that list ran the default recon-all, and every listed run ran exactly its listed
 options: checked on 2026-11-22 from each run's `recon-all.log` in the archives
@@ -556,30 +563,33 @@ options: checked on 2026-11-22 from each run's `recon-all.log` in the archives
 recon-all and the tasks that read it); the other runs of the batch come from the cache.
 
 **Failed tasks** (`merged/failed_tasks.tsv`):
-- b0079, b0259: recon-all stopped at the Talairach step. Both T1s cover only part of the head
+- b0079 ses-20170321 run 1, b0259 ses-20210514 run 1: recon-all stopped at the Talairach step. Both T1s cover only part of the head
   (SynthSeg ICV under 900 cm3); `-samseg-reg` finishes on b0079 but every volume is wrong (right
   hippocampus 65 times SynthSeg's). In `adni_prep/runs_to_drop.tsv`; no recon-all values.
-- b0064: recon-all stopped at the Talairach check. `-samseg-reg` finishes with volumes in the
-  batch's range except right hippocampus (1.21 times SynthSeg) and cerebellum cortex (0.78). Added
-  to the rerun list on 2026-11-22, under the rule above: it is recomputed at the start of pass 2.
-- b0218: FSL eddy failed on one DWI run; that run has T1 volumes and no diffusion metrics.
+- b0064 ses-20251020 run 1: recon-all stopped at the Talairach check. `-samseg-reg` finishes with
+  volumes in the batch's range except right hippocampus (1.21 times SynthSeg) and cerebellum cortex
+  (0.78). Added to the rerun list on 2026-11-22, under the rule above: it is recomputed at the start
+  of pass 2. Pass 2 outcome: recon-all finished (GM 506 mL, SynthSeg 690 mL), in line with the
+  participant's 4 other sessions (504 to 571 mL); not flagged by the longitudinal sweep.
+- b0218 ses-20160902 run 1: FSL eddy failed (the DWI has no b0 volume, see pass 2); that run has T1
+  volumes and no diffusion metrics.
 
 **recon-all reruns, what was tried and what came of it**:
 
 | Batches | Failure | Tried | Kept | Result |
 | --- | --- | --- | --- | --- |
-| b0262 | Talairach transform absurd, recon-all failed | `-samseg-reg`, `-use-mritotal`, `-3T`, `-no-wsgcaatlas` | `-samseg-reg` | fixed |
-| b0035, b0044, b0061 | one white surface lost, or one ribbon not filled | `-samseg-reg`, `-3T` | `-samseg-reg` | fixed |
-| b0204 | one hemisphere's cortex 1.45 times SynthSeg's | `-samseg-reg` | `-samseg-reg` | fixed |
-| b0180 (one run) | cortex 1.56 / 0.83 times SynthSeg's | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | fixed |
-| b0152 | recon-all failed (`mris_sphere`, after a 13 h topology fix) | `-3T` | `-3T` | finishes; right hippocampus 1.25 times SynthSeg's, eTIV 1.74 times its ICV |
-| b0250 | Talairach check failed (strong bias field) | `-samseg-reg`, `-no-emreg`, `-bigventricles`, SynthMorph registration, `n4` | `n4` | finishes; cerebellum cortex 0.72 times SynthSeg's |
-| b0192 | `mris_fix_topology` hangs on one defect of about 38,000 vertices (killed at every limit, up to 35 h) | `n4` | `n4` | finishes in 1.8 h, in line with the participant's other sessions; right putamen 0.42 times SynthSeg's |
-| b0231 | same hang (a defect of 37,541 vertices) | `n4`, `-no-fix-with-ga` | `-no-fix-with-ga` | finishes in about 12 h, but the left surface stays damaged (below) |
-| b0246 | cortex 0.60 times SynthSeg's, slight motion | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | cortex in line with the participant's 6 other sessions; eTIV 8% above them |
-| b0284 | left cortex 0.06 times SynthSeg's | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | cortex in line, left about 5% under the participant's trend; eTIV 5% above; left hippocampus high in both tools (SynthSeg too) |
-| b0130, b0321, b0251 (strong motion), b0247 (moderate) | cortex 0.44 to 0.62 times SynthSeg's | `-samseg-reg`, `-use-mritotal`, `-3T`, `n4`, `n4 -samseg-reg` | `-samseg-reg` | not fixed: still flagged |
-| b0145, b0180 (other run) | cortex about 0.6 times SynthSeg's | `-samseg-reg` | `-samseg-reg` | not fixed: still flagged; no other session of the participant to compare with |
+| b0262 ses-20180213 | Talairach transform absurd, recon-all failed | `-samseg-reg`, `-use-mritotal`, `-3T`, `-no-wsgcaatlas` | `-samseg-reg` | fixed |
+| b0035 ses-20210707, b0044 ses-20220728, b0061 ses-20240119 | one white surface lost, or one ribbon not filled | `-samseg-reg`, `-3T` | `-samseg-reg` | fixed |
+| b0204 ses-20130927 | one hemisphere's cortex 1.45 times SynthSeg's | `-samseg-reg` | `-samseg-reg` | fixed |
+| b0180 ses-20131128 | cortex 1.56 / 0.83 times SynthSeg's | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | fixed |
+| b0152 ses-20170327 | recon-all failed (`mris_sphere`, after a 13 h topology fix) | `-3T` | `-3T` | finishes; right hippocampus 1.25 times SynthSeg's, eTIV 1.74 times its ICV |
+| b0250 ses-20150921 (its T1 serves DWI runs 1 and 2) | Talairach check failed (strong bias field) | `-samseg-reg`, `-no-emreg`, `-bigventricles`, SynthMorph registration, `n4` | `n4` | finishes; cerebellum cortex 0.72 times SynthSeg's |
+| b0192 ses-20190408 | `mris_fix_topology` hangs on one defect of about 38,000 vertices (killed at every limit, up to 35 h) | `n4` | `n4` | finishes in 1.8 h, in line with the participant's other sessions; right putamen 0.42 times SynthSeg's |
+| b0231 ses-20200903 | same hang (a defect of 37,541 vertices) | `n4`, `-no-fix-with-ga` | `-no-fix-with-ga` | finishes in about 12 h, but the left surface stays damaged (below) |
+| b0246 ses-20221114 | cortex 0.60 times SynthSeg's, slight motion | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | cortex in line with the participant's 6 other sessions; eTIV 8% above them |
+| b0284 ses-20230623 | left cortex 0.06 times SynthSeg's | `-samseg-reg`, `n4 -samseg-reg` | `n4 -samseg-reg` | cortex in line, left about 5% under the participant's trend; eTIV 5% above; left hippocampus high in both tools (SynthSeg too) |
+| b0130 ses-20200709, b0321 ses-20220525, b0251 ses-20171002 (strong motion), b0247 ses-20210505 (moderate) | cortex 0.44 to 0.62 times SynthSeg's | `-samseg-reg`, `-use-mritotal`, `-3T`, `n4`, `n4 -samseg-reg` | `-samseg-reg` | not fixed: still flagged |
+| b0145 ses-20171107, b0180 ses-20190611 | cortex about 0.6 times SynthSeg's | `-samseg-reg` | `-samseg-reg` | not fixed: still flagged; no other session of the participant to compare with |
 
 A run with an option was judged against the same participant's other sessions (recon-all and
 SynthSeg per session), not against the batch's range: a participant's volumes change little
@@ -602,15 +612,17 @@ between sessions, other participants' a lot.
 
 **Limitations: runs to read as possible outliers.** By the rule above, each keeps its recon-all
 values:
-- cortex wrong (flagged `cortex_mismatch` in `volume_qc.tsv`): b0130, b0321, b0251, b0247
-  (motion), b0145, b0180 (one run), b0231 (left hemisphere's regions; left hippocampus 0.53 times
+- cortex wrong (flagged `cortex_mismatch` in `volume_qc.tsv`): b0130 ses-20200709, b0321
+  ses-20220525, b0251 ses-20171002, b0247 ses-20210505 (motion), b0145 ses-20171107, b0180
+  ses-20190611, b0231 ses-20200903 (left hemisphere's regions; left hippocampus 0.53 times
   the other session's);
-- eTIV wrong (flagged `icv_mismatch`; use SynthSeg's ICV): b0008 (two runs, 1.73 and 1.89 times
-  SynthSeg's ICV), b0152 (1.74), b0301 (0.50); and every rerun's eTIV, which comes from another
-  registration than the rest of the cohort (b0246 +8% and b0284 +5% over the participant's other
-  sessions);
-- one structure out of range: b0192 (right putamen), b0250 (cerebellum cortex), b0152 (right
-  hippocampus), b0284 (left hippocampus, in SynthSeg too).
+- eTIV wrong (flagged `icv_mismatch`; use SynthSeg's ICV): b0008 ses-20110831 and ses-20120918
+  (1.89 and 1.73 times SynthSeg's ICV), b0152 ses-20170327 (1.74), b0301 ses-20201030 (0.50); and
+  every rerun's eTIV, which comes from another registration than the rest of the cohort (b0246
+  ses-20221114 +8% and b0284 ses-20230623 +5% over the participant's other sessions);
+- one structure out of range: b0192 ses-20190408 (right putamen), b0250 ses-20150921 runs 1 and 2
+  (cerebellum cortex), b0152 ses-20170327 (right hippocampus), b0284 ses-20230623 (left
+  hippocampus, in SynthSeg too).
 
 **Image and motion QC.** `/scratch/pierrard/volcheck/qc/qc_screen.tsv` has one row per run:
 topology defects and the largest one, the Talairach check, the T1's EFC and background SNR
@@ -630,129 +642,239 @@ longer sets it.
 All 321 batches finished pass 2 (183 on Fir, 138 on Rorqual). The batches rerun below are on
 pipeline commit `65de5e2` or `6b57592`, the others on `46dcb00` or a later commit that changes only
 `cohort/` and docs. The two pipeline commits since `46dcb00` change only the runs listed in their
-per-run lists (below), plus one QC step that only writes a table, so every other run's values are the same whichever commit its batch is on. That
-QC table (`space-T1w_desc-brainmask_qc.csv`) exists only in the rerun batches; the mask-volume scan
-below covered all of them. As above, batches only; the lists naming runs are not in git.
+per-run lists (below), plus one QC step that only writes a table, so every other run's values are
+the same whichever commit its batch is on. That QC table (`space-T1w_desc-brainmask_qc.csv`) exists
+only in the rerun batches; the mask-volume scan below covered all of them.
+
+Runs are named by batch, session and DWI run (`run 1` for a file without a run entity); a T1 fix
+applies to every DWI run of its session. The participant of each is in the lists named, which are
+not in git.
+
+**Summary of the decisions**
+
+| Issue | Runs | Decision |
+| --- | --- | --- |
+| T1 brain mask wrong (ANTs BET), or T1 misplaced in DWI space | 29 | fixed: SynthStrip for those T1s |
+| T1 covers half the head | 2 | dropped (and on the SynthStrip list, which does not fix them) |
+| DWI slab over the neck | 1 | dropped |
+| atlas registration `misaligned`, no cause found | 2 | dropped (after the final merge) |
+| DWI tensor values implausible in the raw data (b0115 run 1) | 1 | dropped (after the final merge) |
+| atlas registration `brain_mismatch` (DWI mask too large) | 4 | kept, values unaffected |
+| free-water fit stops on NaN | 1 | fixed: NaN set to 0 for that run |
+| DWI without b0 | 1 | kept without diffusion values; not fixable from our data |
+| recon-all rerun decided in pass 1 (b0064) | 1 | recomputed; values in line |
+| batch whose atlas files were deleted (b0108) | 12 (1 batch) | repaired, pass 2 rerun |
+| batch that would run out of time (b0231) | 1 batch | resubmitted with a longer limit |
+| flagged by the longitudinal sweep, not above | 93 | kept; recon-all ones flagged as outliers (lists below) |
 
 **Brain extraction (ANTs BET) failing without an error: 29 runs, fixed with SynthStrip.**
-- What was wrong. `BETCROP_ANTSBET` can return a mask of the whole head or image (7.5 to 17.1 L) or
-  of a patch of the face (about 0.4 L) and exit 0. The T1 "brain" then keeps its skull. With a
-  face patch, the T1-to-DWI registration places the T1 far from the DWI brain, so the subject
-  regions (recon-all labels in DWI space), the surface metrics and the FAST tissue masks are wrong.
-  With a whole-head mask, the registration can still land correctly, but the tissue masks and
-  everything built on them read non-brain voxels.
-- How it was found, in two rounds:
-  1. the share of each run's T1 regions that falls inside the DWI brain mask, read from
-     `SUBJECT_ROI_FRACTIONS` (`in_mask_fraction`; good runs 0.997 or more, with all 84 regions):
-     12 runs in 8 batches (b0193, b0251, b0262, b0263, b0281, b0282, b0283, b0315) at 0.000 to
-     0.555, or with no value at all;
-  2. the volume of every T1 brain mask in all 321 batches, read from the archives
-     (`/scratch/pierrard/volcheck/maskvol_scan.sh`), with the rule of the new QC step (above 2500 mL
-     or below 900 mL): 17 more runs in 13 batches (b0012, b0031, b0036, b0053 (4 runs), b0075,
-     b0079, b0129, b0200, b0233, b0251, b0259, b0263, b0281). Their T1 had registered correctly, so
-     the first scan could not see them.
-- The fix. `inputs/t1_bet_rerun.tsv` (columns `subject`, `session`, `method`, `reason`; not in git)
-  lists the T1s that SynthStrip brain-extracts instead (`T1_SYNTHSTRIP`, FreeSurfer's SynthStrip
-  container, sha256 `03c6ee056707c3cde8ad114f89661c682369241297b0cb52d587eb81a8a9afdf`, the same
-  file on both clusters; Rorqual's compute nodes have no internet, so the image is copied there).
-  Every other T1 keeps `BETCROP_ANTSBET` with the same inputs and its cached task. The list is
-  copied to `meta/t1_bet_rerun_<pass>.tsv` and passed as `t1_bet_rerun`, like the recon-all list.
-  A new step, `QC_T1BRAINMASK`, writes `metrics/space-T1w_desc-brainmask_qc.csv` for every T1:
-  mask volume, flagged `mask_too_large` above 2500 mL and `mask_too_small` below 900 mL.
-- Checked after the reruns: in each batch, only the listed runs' tasks were recomputed (about 13
-  per run, from brain extraction on: crop, T1-to-DWI registration, FAST and what reads them);
-  recon-all was reused. In-mask fraction 0.999 or more with all 84 regions for the first round;
-  SynthStrip masks 1.34 to 1.95 L for 27 of the 29 runs.
+- What was wrong. `BETCROP_ANTSBET` can return a mask of the whole head or image (7 to 17.1 L)
+  or of a patch of the face (417 mL) and exit 0. The T1 "brain" then keeps its skull. With a face
+  patch, the T1-to-DWI registration places the T1 far from the DWI brain, so the subject regions
+  (recon-all labels in DWI space), the surface metrics and the FAST tissue masks are wrong. With a
+  whole-head mask, the registration can still land correctly, but the tissue masks and everything
+  built on them read non-brain voxels.
+- Round 1, found by the share of each run's T1 regions inside the DWI brain mask (`in_mask_fraction`
+  of `SUBJECT_ROI_FRACTIONS`; good runs 0.997 or more, with all 84 regions), 12 runs at 0.000 to
+  0.555 or with no value:
+  - ANTs BET mask of the whole head: b0251 ses-20110908, ses-20111212 and ses-20120322; b0262
+    ses-20191204; b0263 ses-20180330; b0281 ses-20180706 and ses-20190625; b0282 ses-20181115 and
+    ses-20191114; b0283 ses-20200729 (all run 1);
+  - ANTs BET mask of a 417 mL patch of face and neck: b0193 ses-20210303 run 1;
+  - ANTs BET mask normal (1262 mL) but the T1-to-DWI registration distorted: b0315 ses-20191104
+    run 1. The same registration from the SynthStrip-extracted T1 places it, so it is on the list
+    too.
+- Round 2, found by the volume of every T1 brain mask in all 321 batches, read from the archives
+  (`/scratch/pierrard/volcheck/maskvol_scan.sh`), with the rule of the new QC step (above 2500 mL
+  or below 900 mL), 17 runs whose T1 had registered correctly, so that round 1 could not see them:
+  - whole image or head: b0012 ses-20120724 (15.9 L); b0031 ses-20120405 (15.9 L); b0036
+    ses-20180425 (12.8 L); b0053 ses-20120510, ses-20120814, ses-20130514 and ses-20140610 (15.9 L);
+    b0075 ses-20210322 (17.1 L); b0129 ses-20180511 (7.9 L); b0200 ses-20220927 (10.8 L); b0233
+    ses-20200226 (10.8 L); b0251 ses-20221004 (14.3 L); b0263 ses-20180205 (17.1 L); b0281
+    ses-20200630 and ses-20210618 (12.8 L) (all run 1);
+  - too small: b0079 ses-20170321 (349 mL) and b0259 ses-20210514 (668 mL), run 1.
+- The fix. `inputs/t1_bet_rerun.tsv` (columns `subject`, `session`, `method`, `reason`; not in git;
+  29 rows, sha256 `3fdc370b…`, identical on both clusters) lists the T1s that SynthStrip
+  brain-extracts instead (`T1_SYNTHSTRIP`, FreeSurfer's SynthStrip container, sha256
+  `03c6ee056707c3cde8ad114f89661c682369241297b0cb52d587eb81a8a9afdf`, the same file on both
+  clusters; Rorqual's compute nodes have no internet, so the image is copied there). Every other T1
+  keeps `BETCROP_ANTSBET` with the same inputs and its cached task. The list is copied to
+  `meta/t1_bet_rerun_<pass>.tsv` and passed as `t1_bet_rerun`, like the recon-all list. A new step,
+  `QC_T1BRAINMASK`, writes `metrics/space-T1w_desc-brainmask_qc.csv` for every T1: mask volume,
+  flagged `mask_too_large` above 2500 mL and `mask_too_small` below 900 mL.
+- Checked after the reruns (pass 2 with `FORCE=1` on the 8 batches of round 1, then the 13 of
+  round 2): in each batch only the listed runs' tasks were recomputed (about 13 per run, from brain
+  extraction on: crop, T1-to-DWI registration, FAST and what reads them); recon-all was reused.
+  Round 1: in-mask fraction 0.999 or more with all 84 regions. SynthStrip masks 1.34 to 1.95 L for
+  27 of the 29 runs.
 - Every SynthStrip task ran out of memory on its first attempt and finished on the retry (peak 5.7
   to 7.5 GB). The result is the same; only the first request is too small.
-- The other 2 runs (b0079, b0259) still have small masks with SynthStrip (812 and 706 mL): their T1
-  covers half the head (b0079's has 110 slices across, 13 cm, where the subject's other sessions
-  have 176; b0259's covers one side). Their recon-all fails at the Talairach step (above). The lab's
-  BIDS folder has no other T1 for those sessions. Both are in `adni_prep/runs_to_drop.tsv` since
-  pass 1; every other run of the two batches is kept. On those 2 runs the SynthSeg volumes are
-  present but measured on half a brain (GM about half the subject's other sessions), so they must
-  not be read; the atlas diffusion values come from the DWI and look normal, but are dropped with
-  the run.
 
-**The DWI slab over the neck: 1 run, dropped.** b0174: one DWI run of a session images the temporal
-lobes, brainstem, cerebellum and neck (the slab placed about 9 cm too low; the session's second DWI
-run, 27 min later, is correct and kept). Its atlas registration is flagged `misaligned`
-(correlation 0.13, about 0.8 normally), its atlas values are wrong, and its values in recon-all
-regions and on the surface cover only the part of the brain inside the slab (46 of 84 regions, 35
-of 68). In `adni_prep/runs_to_drop.tsv` since pass 1 (recorded there as a spine-coil acquisition).
+**The T1 covers half the head: 2 runs, dropped.** b0079 ses-20170321 run 1 and b0259 ses-20210514
+run 1 keep small masks with SynthStrip (812 and 706 mL): b0079's T1 has 110 slices across, 13 cm,
+where the participant's other sessions have 176; b0259's covers one side of the head. Their
+recon-all fails at the Talairach step (pass 1, above). The lab's BIDS folder has no other T1 for
+those sessions; only ADNI's own database could hold a repeat T1 of those visits. Both are in
+`adni_prep/runs_to_drop.tsv` since pass 1; every other run of the two batches is kept. On those 2
+runs the SynthSeg volumes are present but measured on half a brain (GM 0.49 and 0.53 times the
+participant's other sessions) and recon-all's are empty; the atlas diffusion values come from the
+DWI and look normal, but are dropped with the run.
+
+**The DWI slab over the neck: 1 run, dropped.** b0174 ses-20180420 DWI run 1 images the temporal
+lobes, brainstem, cerebellum and neck (the slab placed about 9 cm too low; run 2 of that session,
+27 min later, is correct and kept). Its atlas registration is flagged `misaligned` (correlation
+0.13, about 0.8 normally), its atlas values are wrong (WM FA 0.52 times the participant's other
+sessions), and its values in recon-all regions and on the surface cover only the part of the brain
+inside the slab (46 of 84 regions, 35 of 68). Its T1 values are valid (the session's single T1).
+In `adni_prep/runs_to_drop.tsv` since pass 1 (recorded there as a spine-coil acquisition).
 
 **Atlas registration QC** (`space-native_desc-atlasregistration_qc.csv`: `misaligned` when the
 correlation of the registered IIT b0 with the run's b0 is under 0.6, `brain_mismatch` when the Dice
-of their brain masks is under 0.85). Besides b0174, 6 runs of 3,751 are flagged. Each was
+of their brain masks is under 0.85). Besides b0174 above, 6 runs of 3,751 are flagged. Each was
 registered again 4 ways (the pipeline's call; the b0 masked to the brain; the brain mask given to
 ANTs; a start from the image centres) and scored with the same check:
-- `brain_mismatch`, 4 runs (b0085, b0088, b0315, b0316): the atlas is aligned (correlation 0.79 to
-  0.89); the DWI brain mask is too large (the face and eyes, for b0085 the neck and most of the
-  image; Dice 0.63 to 0.85). The values are not affected: atlas values are averaged inside atlas
-  regions, which lie in the brain, and none of the 4 runs stands out from its subject's other
-  sessions or its site. Kept.
-- `misaligned`, 2 runs (b0297, b0317): the registration is anatomically right, but the run's
-  diffusion is abnormal over the whole brain: median MD 1.22e-3 and 0.98e-3 (the highest of 47 and
-  93 runs of the same site and scanner), whole-brain FA 0.24 and 0.28 (the lowest of their site;
-  about 0.4 normally), and in that session only. Ruled out: b-values (checked raw), the gradient
-  table (MRtrix `dwigradcheck`: the table used scores best, as on two control runs), b0
-  extraction, the registration method, head motion (eddy: mean 0.07 and 0.22 mm, under other
-  sessions of the same subjects that are not flagged) and ventricle size (59 and 21 mL). No fix
-  found; excluded under the rule above (every `misaligned` run). They are to be added to
-  `adni_prep/runs_to_drop.tsv` after the merge, as that file says.
+- `brain_mismatch`, 4 runs, kept: b0085 ses-20190312, b0088 ses-20200224, b0315 ses-20220215 and
+  b0316 ses-20220525 (run 1). The atlas is aligned (correlation 0.79 to 0.89); the DWI brain mask
+  is too large (the face and eyes; for b0085 the neck and most of the image; Dice 0.63 to 0.85).
+  The values are not affected: atlas values are averaged inside atlas regions, which lie in the
+  brain, and none of the 4 runs stands out from its participant's other sessions or its site.
+- `misaligned`, 2 runs, dropped: b0297 ses-20210623 and b0317 ses-20180724 (run 1). The
+  registration is anatomically right, but the run's diffusion is abnormal over the whole brain:
+  median MD 1.22e-3 and 0.98e-3 (the highest of 47 and 93 runs of the same site and scanner),
+  whole-brain FA 0.24 and 0.28 (the lowest of their site; about 0.4 normally), and in that session
+  only. Ruled out: b-values (checked raw), the gradient table (MRtrix `dwigradcheck`: the table used
+  scores best, as on two control runs), b0 extraction, the registration method, head motion (eddy:
+  mean 0.07 and 0.22 mm, under other sessions of the same participants that are not flagged) and
+  ventricle size (59 and 21 mL). No fix found; dropped under the rule above (every `misaligned`
+  run). To be written into `adni_prep/runs_to_drop.tsv` after the final merge, as that file says.
 
-**b0108 never ran pass 2 on its first submission.** It stopped at start, trying to download the IIT
-atlas: the 2026-11-17 storage-incident repair had deleted damaged files of its `work/`, its atlas
-copies among them, and Rorqual's compute nodes have no internet. The atlas files were put back as
-hard links, as setup does (the copies still there were identical), and the batch reran pass 2
-normally. A finished pass is read from `meta/passes_done`, not from a log line: the status line's
-log name contains `2_metrics` whether or not the pass ran.
-
-**b0231 would have run out of time.** Its recon-all rerun (`-no-fix-with-ga`, above) takes a little
-over 12 h and runs again in pass 2 (the commit changes). After its first attempt was killed at 12 h,
-the retry could not finish before the batch job's own limit. The batch was sent the early-stop
-signal its time limit sends (USR1): it packed and resubmitted itself with `RESUBMIT_TIME`
-(3 days), and finished.
-
-**Free-water fit failing on NaN: 1 run, fixed.** b0144: `RECONST_FREEWATER` (AMICO,
-`scil_freewater_maps`) exited 64 on one run, twice, with no message. Its preprocessed DWI holds 224
+**Free-water fit failing on NaN: 1 run, fixed.** b0144 ses-20230314 run 1: `RECONST_FREEWATER`
+(AMICO, `scil_freewater_maps`) exited 64, twice, with no message. Its preprocessed DWI holds 224
 NaN values in 112 voxels, all outside the brain mask, in 2 of 55 volumes; the tensor fit tolerates
 them, AMICO does not. Run by hand, the task's command fails on the published data and succeeds with
 the NaN set to 0. `inputs/dwi_nan_fix.tsv` (columns `subject`, `session`, `run`, `reason`; not in
-git) lists the runs whose DWI goes through `IMAGE_NANTOZERO` (MRtrix, non-finite values set to 0,
-the count in `*_nan_count.txt` and in the Nextflow log as `dwi_nan_fix: ...`) before the free-water
-and NODDI fits. Every other run passes unchanged and keeps its cache. The rerun recomputed that
-run's free-water and corrected-DTI tasks and their statistics only; the run now has the free-water
-fraction and the free-water-corrected FA, MD, AD and RD. It is single-shell, so it has no NODDI
-(as every single-shell run), and its free water depends on the fixed diffusivity priors
-(exploratory, the pipeline's warning).
+git; this one run, sha256 `3bc8f543…`, identical on both clusters) lists the runs whose DWI goes
+through `IMAGE_NANTOZERO` (MRtrix, non-finite values set to 0, the count in `*_nan_count.txt` and
+in the Nextflow log as `dwi_nan_fix: ...`) before the free-water and NODDI fits. Every other run
+passes unchanged and keeps its cache. The rerun (2026-11-26) set 224 values to 0 and recomputed
+that run's free-water and corrected-DTI tasks and their statistics only (608 tasks reused, no
+failed task); the run now has the free-water fraction and the free-water-corrected FA, MD, AD and
+RD in all 42 bundles. It is single-shell, so it has no NODDI (as every single-shell run), and its
+free water depends on the fixed diffusivity priors (exploratory, the pipeline's warning).
 
-**No b0 in the DWI: 1 run, not fixable here.** b0218: FSL eddy stops on one DWI run (`The minimal
-b-value is lesser than 0 or greater than 10.0`): its 32 volumes are all b = 1000, where the
-subject's other sessions have 5 or 6 b0s. The lab's BIDS has no other DWI for it. The run has T1
-values and no diffusion values; only ADNI's original download could hold its b0 series.
+**No b0 in the DWI: 1 run, kept without diffusion values.** b0218 ses-20160902 run 1: FSL eddy
+stops (`The minimal b-value is lesser than 0 or greater than 10.0`): its 32 volumes are all
+b = 1000, where the participant's other sessions have 5 or 6 b0s. The lab's BIDS has no other DWI
+for it. The run has T1 values and no diffusion values; only ADNI's original download could hold its
+b0 series.
 
-**Longitudinal sweep** (`/scratch/pierrard/volcheck/sweep.py`, 3,752 runs of 1,488 subjects): each
-run's main values (SynthSeg and recon-all GM, CSF and ICV, mean atlas FA and MD, thickness) against
-the same subject's other sessions. It found the runs above on its own (half-head SynthSeg GM, the
-b0174 slab at FA 0.52 times, b0297 and b0317) and flagged 99 runs in all. About 40 are GM MD rising
-15 to 33 % over several years (ageing; the tolerance was too tight), about 25 are recon-all GM or
-ICV jumps (the outlier list above: kept and flagged), and the 9 diffusion outliers left have
-correct b-values and sit within their site's range or follow a protocol change (e.g. single-shell
-then multi-shell): a site effect for the harmonization. No new failure.
+**b0064 ses-20251020 run 1, the recon-all rerun decided in pass 1** (`-samseg-reg`): recomputed at
+the start of pass 2; recon-all finished, values in line with the participant's other sessions (pass
+1 outcome, above).
+
+**b0108 never ran pass 2 on its first submission** (all 12 runs). It stopped at start, trying to
+download the IIT atlas: the 2026-11-17 storage-incident repair had deleted damaged files of its
+`work/`, its atlas copies among them, and Rorqual's compute nodes have no internet. The atlas files
+were put back as hard links, as setup does (the copies still there were identical), and the batch
+reran pass 2 normally. A finished pass is read from `meta/passes_done`, not from a log line: the
+status line's log name contains `2_metrics` whether or not the pass ran.
+
+**b0231 would have run out of time.** Its recon-all rerun on ses-20200903 (`-no-fix-with-ga`,
+above) takes a little over 12 h and runs again in pass 2 (the commit changes). After its first
+attempt was killed at 12 h, the retry could not finish before the batch job's own limit. The batch
+was sent the early-stop signal its time limit sends (USR1): it packed and resubmitted itself with
+`RESUBMIT_TIME` (3 days), and finished. No value differs from a normal run.
+
+**Longitudinal sweep** (`/scratch/pierrard/volcheck/sweep.py`, output `sweep_<machine>.tsv` on each
+cluster; 3,752 runs of 1,488 participants). For each run: SynthSeg and recon-all total GM and ICV,
+mean cortical thickness, mean FA and MD over the IIT WM bundles, mean MD over the IIT GM regions. A
+run is flagged when a value is more than 12 % (volumes, thickness) or 15 % (FA, MD) from the median
+of the participant's other runs, or, for a participant with a single run, outside the cohort's
+0.5 to 99.5 % range (so about 1 % of single-run participants' values are flagged by construction).
+99 runs are flagged:
+- 5 are the runs dropped above (b0079, b0259, b0174 run 1, b0297, b0317): the sweep finds them
+  on its own.
+- 33 are GM MD alone. In participants with several sessions it rises with the years (1.15 to 1.33
+  times the median, e.g. b0244, five sessions from 2019 to 2023 at 1.16 to 1.33), as expected with
+  ageing and atrophy; the earliest sessions of the same participants read 0.85. Kept, not errors:
+  b0001 ses-20170315 and ses-20190501, b0004 ses-20170417 and ses-20190520, b0040 ses-20240909,
+  b0054 ses-20180716, b0057 ses-20190717 and ses-20210219, b0100 ses-20121013, b0112 ses-20190321
+  and ses-20210709, b0114 ses-20220622, b0115 ses-20241108, b0162 ses-20241204, b0174 ses-20240730
+  and ses-20250708, b0176 ses-20241108, b0190 ses-20151019, b0244 ses-20190814, ses-20200923,
+  ses-20210714, ses-20220715 and ses-20230719, b0265 ses-20250624, b0270 ses-20111018, b0298
+  ses-20250912, b0303 ses-20251117, b0320 ses-20190306; single-run participants at the cohort's
+  edge: b0039 ses-20240611, b0080 ses-20191003, b0149 ses-20240501, b0181 ses-20241218, b0188
+  ses-20220418 (all run 1).
+- 13 are large or small heads, where SynthSeg's ICV and recon-all's eTIV agree within 10 % (single-run
+  participants at the cohort's edge): anatomy, kept: b0044 ses-20210713, b0048 ses-20240822, b0059
+  ses-20191119, b0065 ses-20240620, b0149 ses-20240717, b0151 ses-20250409, b0171 ses-20241126 and
+  ses-20250102, b0195 ses-20240529, b0199 ses-20220317, b0218 ses-20250210, b0233 ses-20250730
+  (GM 833 mL, ICV 1.85 L), b0319 ses-20210713 (all run 1).
+- 32 are recon-all values only (SynthSeg in line), kept and flagged as recon-all outliers under the
+  2026-11-18 rule:
+  - already in the pass 1 outlier lists: b0008 ses-20110831 and ses-20120918, b0130 ses-20200709
+    (and ses-20190326, flagged only because its participant's median includes the failed session),
+    b0145 ses-20171107, b0152 ses-20170327, b0231 ses-20200903 (and ses-20180526, same reason),
+    b0247 ses-20210505 (and ses-20190424, same reason), b0251 ses-20171002, b0301 ses-20201030,
+    b0321 ses-20220525;
+  - new: eTIV off from SynthSeg's ICV or from the participant's other sessions (use SynthSeg's ICV):
+    b0013 ses-20191206 and ses-20220120 (1.15 times), b0107 ses-20240930 (1.14), b0121 ses-20190607
+    (0.83 times SynthSeg's), b0171 ses-20241223 (0.84), b0193 ses-20180607 (0.83), ses-20200909
+    (0.84 times SynthSeg's) and ses-20220728 (1.20), b0260 ses-20170707 (0.81), b0289 ses-20240402
+    (0.85 times SynthSeg's);
+  - new: recon-all GM 0.85 to 0.87 times the participant's other sessions: b0020 ses-20150720,
+    b0026 ses-20230117, b0042 ses-20210113, b0054 ses-20191016, b0186 ses-20250319;
+  - new: mean thickness: b0056 ses-20140120 (1.13 times), and single-run participants at the
+    cohort's edge, b0065 ses-20170412 (2.09 mm), b0136 ses-20250507 (2.67 mm), b0138 ses-20180606
+    (2.63 mm) (all run 1).
+- 16 are diffusion values (WM FA or MD, GM MD). Each was placed among the runs of its own site and
+  scanner (`/scratch/pierrard/volcheck/site_md.py`, rank of mean WM MD and FA):
+  - at the high-FA, low-MD edge of their site, mostly single-run participants at the cohort's edge:
+    b0048 ses-20220617 (MD 1st of 40, FA 33rd), b0061 ses-20250515 (2nd and 9th of 9), b0062
+    ses-20250513 and ses-20250528 (6th and 7th; 1st and 8th of 9), b0066 ses-20241217 (2nd and
+    146th of 161), b0075 ses-20210803 (3rd and 160th of 161), b0111 ses-20211104 (22nd and 215th of
+    216), b0202 ses-20221103 (1st and 32nd of 32: FA 0.50), b0211 ses-20250305 (3rd and 17th of 18).
+    Kept: inside or at the edge of their site's range;
+  - high MD, low FA within their site: b0231 ses-20180703 and b0232 ses-20181116 (MD 18th and 17th
+    of 20), inside their site's range; b0044 ses-20190719 (MD 13th of 13, FA 0.34 against 0.39) and
+    b0123 ses-20240103 (MD 117th of 117, FA 0.37 against 0.41), the site's maximum but far from the
+    two dropped `misaligned` runs (FA 0.24 and 0.28 against 0.38 and 0.40) and not flagged by the
+    atlas QC. Kept, to read as possible outliers;
+  - b0313 ses-20170609 and ses-20190619: the participant's two sessions use different protocols
+    (single-shell, then multi-shell) and are flagged against each other; within their site, FA 72nd
+    and 2nd of 93. Kept; the later session at its site's low end;
+  - b0115 ses-20140613 DWI run 1, dropped: WM FA 0.56 and MD 0.59e-3 over the IIT bundles (1.34
+    and 0.71 times the participant's other sessions; highest FA and lowest MD of 42 runs of its site
+    and scanner), while run 2 of the same session (another series of the same visit) reads 0.39
+    and 0.84e-3. In the preprocessed DWI, 1 % of the brain voxels have FA 0.97 or more (run 2:
+    0.71). The fault is in the acquisition as stored, not in the pipeline: a tensor fitted on the
+    raw DWI (MRtrix `dwi2tensor`, before any preprocessing) gives 5.4 % of brain voxels above FA
+    0.8, against 0.5 to 1.6 % for the participant's other 8 raw runs. Ruled out: the b-values (the
+    labelled b = 0 volumes are the bright ones, the b = 1000 attenuation matches the participant's
+    other sessions), the gradient table (`dwigradcheck`: the table used scores best) and the atlas
+    registration (correlation 0.77, Dice 0.95, as run 2). It is the participant's first session on
+    a new scanner (GE Discovery MR750w, series `Axial DTI(HEAD 24)`, 41 directions); the b-vectors
+    stored for it may not be the ones acquired, which only the original DICOM could tell. Its T1
+    values are valid (the session's T1 is shared with run 2). Dropped under the same rule as the
+    `misaligned` runs; run 2 is kept. To be written into `adni_prep/runs_to_drop.tsv` after the
+    final merge.
+None of the sweep's other flags is a pipeline failure that a fix could remove; the recon-all ones are recon-all's own variability, for which the rule is to keep and flag.
+The flagged runs and their reasons go into the merged QC table at the final merge.
 
 **Limitations.**
 - The checks are those listed: in-mask fraction, T1 mask size, atlas registration QC, failed
   tasks, recon-all against SynthSeg, the longitudinal sweep. A failure none of them measures can
-  remain, and single-session subjects are checked against the cohort range only.
-- Runs left out downstream (`adni_prep/runs_to_drop.tsv`): the 2 half-head T1 runs, the b0174 slab
-  run, and the 2 `misaligned` runs (to add after the merge). recon-all outliers are kept and
-  flagged.
-- The 29 SynthStrip runs and the b0144 run differ from the rest of the cohort in one step (brain
-  extraction, NaN clean-up). The NaN were outside the brain mask, so b0144's values inside it are
-  unchanged; SynthStrip and ANTs BET masks differ at the brain's edge.
-- 4 runs keep a DWI brain mask that includes non-brain tissue (`brain_mismatch`); their reported
-  values are in line with their subjects' other sessions, but values restricted to the DWI mask
+  remain, and single-run participants are checked against the cohort range only.
+- The sweep's GM MD and cohort-edge flags were read by pattern, not inspected run by run.
+- Runs left out downstream (`adni_prep/runs_to_drop.tsv`): 6, the 3 already in the file (b0079
+  ses-20170321 run 1, b0259 ses-20210514 run 1, b0174 ses-20180420 run 1) and the 3 to add after the
+  final merge (b0297 ses-20210623 run 1, b0317 ses-20180724 run 1, b0115 ses-20140613 run 1). recon-all outliers are
+  kept and flagged.
+- The 29 SynthStrip runs and b0144 ses-20230314 run 1 differ from the rest of the cohort in one step
+  (brain extraction; NaN clean-up). The NaN were outside the brain mask, so b0144's values inside it
+  are unchanged; SynthStrip and ANTs BET masks differ at the brain's edge.
+- The 4 `brain_mismatch` runs keep a DWI brain mask that includes non-brain tissue; their reported
+  values are in line with their participants' other sessions, but values restricted to the DWI mask
   (tractography, whole-mask QC) include those voxels.
 
 ### Input fixes
@@ -774,7 +896,7 @@ lab's BIDS folder is read only). `inputs/input_fixes.tsv`, not in git, lists the
   - `sform_from_qform`: the sform is replaced by the transform the qform gives; only the header
     changes. For a T1 whose two transforms disagree on the voxel size: ITK reads one, MRtrix the
     other, and N4 then aborts on an image and its mask that "do not occupy the same physical space"
-    (ADNI b0096: sform voxel 1.0000992 mm, qform 1 mm).
+    (ADNI b0096 ses-20200218 T1: sform voxel 1.0000992 mm, qform 1 mm).
 
 ## Tests
 

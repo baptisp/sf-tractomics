@@ -450,10 +450,10 @@ batches' `meta/` in the archive store).
     e.g. GM AFD ten times the others); run 2 of that session is kept;
   - b0079 ses-20170321 run 1 and b0259 ses-20210514 run 1: the T1 covers half the head;
   - b0297 ses-20210623 run 1 and b0317 ses-20180724 run 1: flagged `misaligned` by the atlas
-    registration QC, with no fix found (pass 2 outcome, below); to be written into the file after
-    the final merge, as the file says.
+    registration QC, with no fix found (pass 2 outcome, below); written into the file after the
+    pass-2 merge (2026-11-27);
   - b0115 ses-20140613 DWI run 1: tensor values implausible already in the raw data (pass 2
-    outcome, below); to be written into the file after the final merge.
+    outcome, below); written into the file on 2026-11-27.
   Every other run of these batches is kept.
 
 ### recon-all reruns
@@ -659,8 +659,8 @@ not in git.
 | T1 brain mask wrong (ANTs BET), or T1 misplaced in DWI space | 29 | fixed: SynthStrip for those T1s |
 | T1 covers half the head | 2 | dropped (and on the SynthStrip list, which does not fix them) |
 | DWI slab over the neck | 1 | dropped |
-| atlas registration `misaligned`, no cause found | 2 | dropped (after the final merge) |
-| DWI tensor values implausible in the raw data (b0115 run 1) | 1 | dropped (after the final merge) |
+| atlas registration `misaligned`, no cause found | 2 | dropped |
+| DWI tensor values implausible in the raw data (b0115 run 1) | 1 | dropped |
 | atlas registration `brain_mismatch` (DWI mask too large) | 4 | kept, values unaffected |
 | free-water fit stops on NaN | 1 | fixed: NaN set to 0 for that run |
 | DWI without b0 | 1 | kept without diffusion values; not fixable from our data |
@@ -748,7 +748,7 @@ ANTs; a start from the image centres) and scored with the same check:
   scores best, as on two control runs), b0 extraction, the registration method, head motion (eddy:
   mean 0.07 and 0.22 mm, under other sessions of the same participants that are not flagged) and
   ventricle size (59 and 21 mL). No fix found; dropped under the rule above (every `misaligned`
-  run). To be written into `adni_prep/runs_to_drop.tsv` after the final merge, as that file says.
+  run). In `adni_prep/runs_to_drop.tsv` since the pass-2 merge (2026-11-27).
 
 **Free-water fit failing on NaN: 1 run, fixed.** b0144 ses-20230314 run 1: `RECONST_FREEWATER`
 (AMICO, `scil_freewater_maps`) exited 64, twice, with no message. Its preprocessed DWI holds 224
@@ -858,20 +858,40 @@ of the participant's other runs, or, for a participant with a single run, outsid
     a new scanner (GE Discovery MR750w, series `Axial DTI(HEAD 24)`, 41 directions); the b-vectors
     stored for it may not be the ones acquired, which only the original DICOM could tell. Its T1
     values are valid (the session's T1 is shared with run 2). Dropped under the same rule as the
-    `misaligned` runs; run 2 is kept. To be written into `adni_prep/runs_to_drop.tsv` after the
-    final merge.
-None of the sweep's other flags is a pipeline failure that a fix could remove; the recon-all ones are recon-all's own variability, for which the rule is to keep and flag.
-The flagged runs and their reasons go into the merged QC table at the final merge.
+    `misaligned` runs; run 2 is kept. In `adni_prep/runs_to_drop.tsv` since 2026-11-27.
+None of the sweep's other flags is a pipeline failure that a fix could remove; the recon-all ones
+are recon-all's own variability, for which the rule is to keep and flag. Every run's sweep values
+and flags are in `merge_pass2_20261127/qc/sweep.tsv` (below).
+
+**The pass-2 merge (2026-11-27)**, on Rorqual, in `merge_pass2_20261127/`
+(`/scratch/pierrard/volcheck/final_merge_pass2.sh`; `interim_merge_20261117/` is untouched). Fir's
+183 batches' `extracted_results.tar.gz` and `meta/passes_done` were copied to
+`fir_results_pass2_20261127/` and their md5 checked against Fir (366 files identical); Rorqual's
+138 come from `batches/`. Every batch has pass 2.
+- `merged/`: 26 tables over 321 batches. 7 diffusion statistics tables have NODDI columns (`icvf`,
+  `odi`, `isovf`, `ecvf`) in 181 batches only, so they are merged by column name (`merge_batches.py`,
+  above), the NODDI cells empty elsewhere. In the IIT WM bundle table: 3,751 runs, all with FA, MD,
+  free-water fraction and free-water-corrected FA; 3,645 with AFD (the others have no b = 1000
+  shell); 907 with NODDI (multi-shell).
+- `merged/failed_tasks.tsv`: 3 runs, all above: recon-all of b0079 ses-20170321 run 1 and b0259
+  ses-20210514 run 1 (half-head T1s, dropped), eddy of b0218 ses-20160902 run 1 (no b0).
+- `merged/volume_qc.tsv`: 3,750 runs, the same 11 flagged as in pass 1 (the recon-all outliers
+  listed in the pass 1 outcome).
+- `merged/space-T1w_desc-brainmask_qc.csv` covers only the 20 batches rerun with commit `65de5e2`
+  or later; the mask-volume scan covered every batch.
+- `qc/sweep.tsv`: the longitudinal sweep, one row per run (both clusters), with its flags;
+  `qc/runs_to_drop.tsv`: a copy of `adni_prep/runs_to_drop.tsv` as of the merge. Both name
+  participants and stay on the cluster.
 
 **Limitations.**
 - The checks are those listed: in-mask fraction, T1 mask size, atlas registration QC, failed
   tasks, recon-all against SynthSeg, the longitudinal sweep. A failure none of them measures can
   remain, and single-run participants are checked against the cohort range only.
 - The sweep's GM MD and cohort-edge flags were read by pattern, not inspected run by run.
-- Runs left out downstream (`adni_prep/runs_to_drop.tsv`): 6, the 3 already in the file (b0079
-  ses-20170321 run 1, b0259 ses-20210514 run 1, b0174 ses-20180420 run 1) and the 3 to add after the
-  final merge (b0297 ses-20210623 run 1, b0317 ses-20180724 run 1, b0115 ses-20140613 run 1). recon-all outliers are
-  kept and flagged.
+- Runs left out downstream (`adni_prep/runs_to_drop.tsv`): 6, b0079 ses-20170321 run 1, b0259
+  ses-20210514 run 1, b0174 ses-20180420 run 1 (since pass 1), b0297 ses-20210623 run 1, b0317
+  ses-20180724 run 1 and b0115 ses-20140613 run 1 (since 2026-11-27). recon-all outliers are kept
+  and flagged.
 - The 29 SynthStrip runs and b0144 ses-20230314 run 1 differ from the rest of the cohort in one step
   (brain extraction; NaN clean-up). The NaN were outside the brain mask, so b0144's values inside it
   are unchanged; SynthStrip and ANTs BET masks differ at the brain's edge.

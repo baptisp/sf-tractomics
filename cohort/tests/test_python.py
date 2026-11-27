@@ -180,14 +180,27 @@ class TestMerge(unittest.TestCase):
             self.assertIn("missing in 1 batch(es): b0002", r.stdout)
             self.assertFalse((root / "merged" / "report.html").exists())
 
-    def test_a_table_whose_header_differs_is_refused(self):
+    def test_tables_whose_columns_differ_are_aligned_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_root(tmp, SHARED, {})
+            self.batch_with_extracted(root, "b0001", {"metrics/s.tsv": "sid\troi\tfa\ticvf\nA\tAC\t0.4\t0.5\n"})
+            self.batch_with_extracted(root, "b0002", {"metrics/s.tsv": "sid\troi\tfa\nB\tAC\t0.3\n"})
+            self.batch_with_extracted(root, "b0003", {"metrics/s.tsv": "roi\tsid\tafd\tfa\nAC\tC\t0.2\t0.1\n"})
+            r = run(root, "merge_batches.py")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual((root / "merged" / "s.tsv").read_text(),
+                             "sid\troi\tfa\ticvf\tafd\nA\tAC\t0.4\t0.5\t\nB\tAC\t0.3\t\t\nC\tAC\t0.1\t\t0.2\n")
+            self.assertIn("afd in 2, icvf in 2", r.stdout)
+
+    def test_a_header_that_repeats_a_column_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_root(tmp, SHARED, {})
             self.batch_with_extracted(root, "b0001", {"metrics/vol.tsv": "sid\tv\nA\t1\n"})
-            self.batch_with_extracted(root, "b0002", {"metrics/vol.tsv": "sid\tw\nB\t2\n"})
+            self.batch_with_extracted(root, "b0002", {"metrics/vol.tsv": "sid\tv\tv\nB\t2\t3\n"})
             r = run(root, "merge_batches.py")
             self.assertEqual(r.returncode, 1)
-            self.assertIn("headers differ between batches: vol.tsv", r.stdout)
+            self.assertIn("not merged", r.stdout)
+            self.assertFalse((root / "merged" / "vol.tsv").exists())
 
 
 class TestFailureReport(unittest.TestCase):

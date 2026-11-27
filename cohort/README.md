@@ -162,8 +162,10 @@ The mode is pinned too: a root folder set up with one `BATCH` value refuses the 
   no requeue), and the requeued job takes over its own lock and resumes the batch. Before this
   (ADNI, 2026-11-13), 8 stopped batches waited 5 to 10 h for someone to resubmit them.
 - **Merging.** `./run.sh merge` concatenates the batches' `metrics/` tables, read from their
-  `extracted_results.tar.gz`, into `merged/`, one header each. A table whose header differs between
-  batches is refused.
+  `extracted_results.tar.gz`, into `merged/`, one header each. Where batches differ in columns (no
+  NODDI columns in a batch without multi-shell runs, no AFD ones without a b = 1000 shell), rows are
+  aligned by column name under the union of the headers, a missing column is left empty, and the
+  columns absent in some batches are reported. A header that names a column twice is refused.
 - **Fixed paths.** A batch folder never changes path: Nextflow's cache and links hold absolute
   paths. It can change cluster, at the same path (next section).
 

@@ -625,6 +625,136 @@ participant's other sessions stays the criterion; the table is for reading a run
 and recomputes the T1 branch of the batches that ran before the masked N4 (above). `config.env` no
 longer sets it.
 
+### Pass 2 outcome (2026-11-26)
+
+All 321 batches finished pass 2 (183 on Fir, 138 on Rorqual). The batches rerun below are on
+pipeline commit `65de5e2` or `6b57592`, the others on `46dcb00` or a later commit that changes only
+`cohort/` and docs. The two pipeline commits since `46dcb00` change only the runs listed in their
+per-run lists (below), plus one QC step that only writes a table, so every other run's values are the same whichever commit its batch is on. That
+QC table (`space-T1w_desc-brainmask_qc.csv`) exists only in the rerun batches; the mask-volume scan
+below covered all of them. As above, batches only; the lists naming runs are not in git.
+
+**Brain extraction (ANTs BET) failing without an error: 29 runs, fixed with SynthStrip.**
+- What was wrong. `BETCROP_ANTSBET` can return a mask of the whole head or image (7.5 to 17.1 L) or
+  of a patch of the face (about 0.4 L) and exit 0. The T1 "brain" then keeps its skull. With a
+  face patch, the T1-to-DWI registration places the T1 far from the DWI brain, so the subject
+  regions (recon-all labels in DWI space), the surface metrics and the FAST tissue masks are wrong.
+  With a whole-head mask, the registration can still land correctly, but the tissue masks and
+  everything built on them read non-brain voxels.
+- How it was found, in two rounds:
+  1. the share of each run's T1 regions that falls inside the DWI brain mask, read from
+     `SUBJECT_ROI_FRACTIONS` (`in_mask_fraction`; good runs 0.997 or more, with all 84 regions):
+     12 runs in 8 batches (b0193, b0251, b0262, b0263, b0281, b0282, b0283, b0315) at 0.000 to
+     0.555, or with no value at all;
+  2. the volume of every T1 brain mask in all 321 batches, read from the archives
+     (`/scratch/pierrard/volcheck/maskvol_scan.sh`), with the rule of the new QC step (above 2500 mL
+     or below 900 mL): 17 more runs in 13 batches (b0012, b0031, b0036, b0053 (4 runs), b0075,
+     b0079, b0129, b0200, b0233, b0251, b0259, b0263, b0281). Their T1 had registered correctly, so
+     the first scan could not see them.
+- The fix. `inputs/t1_bet_rerun.tsv` (columns `subject`, `session`, `method`, `reason`; not in git)
+  lists the T1s that SynthStrip brain-extracts instead (`T1_SYNTHSTRIP`, FreeSurfer's SynthStrip
+  container, sha256 `03c6ee056707c3cde8ad114f89661c682369241297b0cb52d587eb81a8a9afdf`, the same
+  file on both clusters; Rorqual's compute nodes have no internet, so the image is copied there).
+  Every other T1 keeps `BETCROP_ANTSBET` with the same inputs and its cached task. The list is
+  copied to `meta/t1_bet_rerun_<pass>.tsv` and passed as `t1_bet_rerun`, like the recon-all list.
+  A new step, `QC_T1BRAINMASK`, writes `metrics/space-T1w_desc-brainmask_qc.csv` for every T1:
+  mask volume, flagged `mask_too_large` above 2500 mL and `mask_too_small` below 900 mL.
+- Checked after the reruns: in each batch, only the listed runs' tasks were recomputed (about 13
+  per run, from brain extraction on: crop, T1-to-DWI registration, FAST and what reads them);
+  recon-all was reused. In-mask fraction 0.999 or more with all 84 regions for the first round;
+  SynthStrip masks 1.34 to 1.95 L for 27 of the 29 runs.
+- Every SynthStrip task ran out of memory on its first attempt and finished on the retry (peak 5.7
+  to 7.5 GB). The result is the same; only the first request is too small.
+- The other 2 runs (b0079, b0259) still have small masks with SynthStrip (812 and 706 mL): their T1
+  covers half the head (b0079's has 110 slices across, 13 cm, where the subject's other sessions
+  have 176; b0259's covers one side). Their recon-all fails at the Talairach step (above). The lab's
+  BIDS folder has no other T1 for those sessions. Both are in `adni_prep/runs_to_drop.tsv` since
+  pass 1; every other run of the two batches is kept. On those 2 runs the SynthSeg volumes are
+  present but measured on half a brain (GM about half the subject's other sessions), so they must
+  not be read; the atlas diffusion values come from the DWI and look normal, but are dropped with
+  the run.
+
+**The DWI slab over the neck: 1 run, dropped.** b0174: one DWI run of a session images the temporal
+lobes, brainstem, cerebellum and neck (the slab placed about 9 cm too low; the session's second DWI
+run, 27 min later, is correct and kept). Its atlas registration is flagged `misaligned`
+(correlation 0.13, about 0.8 normally), its atlas values are wrong, and its values in recon-all
+regions and on the surface cover only the part of the brain inside the slab (46 of 84 regions, 35
+of 68). In `adni_prep/runs_to_drop.tsv` since pass 1 (recorded there as a spine-coil acquisition).
+
+**Atlas registration QC** (`space-native_desc-atlasregistration_qc.csv`: `misaligned` when the
+correlation of the registered IIT b0 with the run's b0 is under 0.6, `brain_mismatch` when the Dice
+of their brain masks is under 0.85). Besides b0174, 6 runs of 3,751 are flagged. Each was
+registered again 4 ways (the pipeline's call; the b0 masked to the brain; the brain mask given to
+ANTs; a start from the image centres) and scored with the same check:
+- `brain_mismatch`, 4 runs (b0085, b0088, b0315, b0316): the atlas is aligned (correlation 0.79 to
+  0.89); the DWI brain mask is too large (the face and eyes, for b0085 the neck and most of the
+  image; Dice 0.63 to 0.85). The values are not affected: atlas values are averaged inside atlas
+  regions, which lie in the brain, and none of the 4 runs stands out from its subject's other
+  sessions or its site. Kept.
+- `misaligned`, 2 runs (b0297, b0317): the registration is anatomically right, but the run's
+  diffusion is abnormal over the whole brain: median MD 1.22e-3 and 0.98e-3 (the highest of 47 and
+  93 runs of the same site and scanner), whole-brain FA 0.24 and 0.28 (the lowest of their site;
+  about 0.4 normally), and in that session only. Ruled out: b-values (checked raw), the gradient
+  table (MRtrix `dwigradcheck`: the table used scores best, as on two control runs), b0
+  extraction, the registration method, head motion (eddy: mean 0.07 and 0.22 mm, under other
+  sessions of the same subjects that are not flagged) and ventricle size (59 and 21 mL). No fix
+  found; excluded under the rule above (every `misaligned` run). They are to be added to
+  `adni_prep/runs_to_drop.tsv` after the merge, as that file says.
+
+**b0108 never ran pass 2 on its first submission.** It stopped at start, trying to download the IIT
+atlas: the 2026-11-17 storage-incident repair had deleted damaged files of its `work/`, its atlas
+copies among them, and Rorqual's compute nodes have no internet. The atlas files were put back as
+hard links, as setup does (the copies still there were identical), and the batch reran pass 2
+normally. A finished pass is read from `meta/passes_done`, not from a log line: the status line's
+log name contains `2_metrics` whether or not the pass ran.
+
+**b0231 would have run out of time.** Its recon-all rerun (`-no-fix-with-ga`, above) takes a little
+over 12 h and runs again in pass 2 (the commit changes). After its first attempt was killed at 12 h,
+the retry could not finish before the batch job's own limit. The batch was sent the early-stop
+signal its time limit sends (USR1): it packed and resubmitted itself with `RESUBMIT_TIME`
+(3 days), and finished.
+
+**Free-water fit failing on NaN: 1 run, fixed.** b0144: `RECONST_FREEWATER` (AMICO,
+`scil_freewater_maps`) exited 64 on one run, twice, with no message. Its preprocessed DWI holds 224
+NaN values in 112 voxels, all outside the brain mask, in 2 of 55 volumes; the tensor fit tolerates
+them, AMICO does not. Run by hand, the task's command fails on the published data and succeeds with
+the NaN set to 0. `inputs/dwi_nan_fix.tsv` (columns `subject`, `session`, `run`, `reason`; not in
+git) lists the runs whose DWI goes through `IMAGE_NANTOZERO` (MRtrix, non-finite values set to 0,
+the count in `*_nan_count.txt` and in the Nextflow log as `dwi_nan_fix: ...`) before the free-water
+and NODDI fits. Every other run passes unchanged and keeps its cache. The rerun recomputed that
+run's free-water and corrected-DTI tasks and their statistics only; the run now has the free-water
+fraction and the free-water-corrected FA, MD, AD and RD. It is single-shell, so it has no NODDI
+(as every single-shell run), and its free water depends on the fixed diffusivity priors
+(exploratory, the pipeline's warning).
+
+**No b0 in the DWI: 1 run, not fixable here.** b0218: FSL eddy stops on one DWI run (`The minimal
+b-value is lesser than 0 or greater than 10.0`): its 32 volumes are all b = 1000, where the
+subject's other sessions have 5 or 6 b0s. The lab's BIDS has no other DWI for it. The run has T1
+values and no diffusion values; only ADNI's original download could hold its b0 series.
+
+**Longitudinal sweep** (`/scratch/pierrard/volcheck/sweep.py`, 3,752 runs of 1,488 subjects): each
+run's main values (SynthSeg and recon-all GM, CSF and ICV, mean atlas FA and MD, thickness) against
+the same subject's other sessions. It found the runs above on its own (half-head SynthSeg GM, the
+b0174 slab at FA 0.52 times, b0297 and b0317) and flagged 99 runs in all. About 40 are GM MD rising
+15 to 33 % over several years (ageing; the tolerance was too tight), about 25 are recon-all GM or
+ICV jumps (the outlier list above: kept and flagged), and the 9 diffusion outliers left have
+correct b-values and sit within their site's range or follow a protocol change (e.g. single-shell
+then multi-shell): a site effect for the harmonization. No new failure.
+
+**Limitations.**
+- The checks are those listed: in-mask fraction, T1 mask size, atlas registration QC, failed
+  tasks, recon-all against SynthSeg, the longitudinal sweep. A failure none of them measures can
+  remain, and single-session subjects are checked against the cohort range only.
+- Runs left out downstream (`adni_prep/runs_to_drop.tsv`): the 2 half-head T1 runs, the b0174 slab
+  run, and the 2 `misaligned` runs (to add after the merge). recon-all outliers are kept and
+  flagged.
+- The 29 SynthStrip runs and the b0144 run differ from the rest of the cohort in one step (brain
+  extraction, NaN clean-up). The NaN were outside the brain mask, so b0144's values inside it are
+  unchanged; SynthStrip and ANTs BET masks differ at the brain's edge.
+- 4 runs keep a DWI brain mask that includes non-brain tissue (`brain_mismatch`); their reported
+  values are in line with their subjects' other sessions, but values restricted to the DWI mask
+  (tractography, whole-mask QC) include those voxels.
+
 ### Input fixes
 
 Some input images have a defect a tool refuses, which the source data cannot be changed for (the

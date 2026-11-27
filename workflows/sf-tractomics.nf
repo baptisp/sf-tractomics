@@ -51,6 +51,7 @@ include { STATS_FIBRECROSSSECTION } from '../modules/local/stats/fibrecrosssecti
 include { QC_ATLASREGISTRATION as QC_ATLASREG_IIT } from '../modules/local/qc/atlasregistration/main'
 include { QC_ATLASREGISTRATION as QC_ATLASREG_CSF } from '../modules/local/qc/atlasregistration/main'
 include { QC_T1BRAINMASK } from '../modules/local/qc/t1brainmask/main'
+include { IMAGE_NANTOZERO } from '../modules/local/image/nantozero/main'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -295,9 +296,24 @@ workflow SF_TRACTOMICS {
     // Run RECONST/NODDI & RECONST/FREEWATER
     //
     if ( params.run_noddi || params.run_freewater ) {
+        // The DWI runs listed in params.dwi_nan_fix have their non-finite values set to 0 before the
+        // free-water and NODDI fits (AMICO stops on a NaN, even outside the brain mask). Every other
+        // run passes unchanged, so its fits stay cached.
+        def nan_fix_runs = dwiNanFixRuns(params.dwi_nan_fix)
+        def ch_dwi_split = TRACTOFLOW.out.dwi.branch { item ->
+            fix: dwiRunKey(item[0]) in nan_fix_runs
+            keep: true
+        }
+        IMAGE_NANTOZERO(ch_dwi_split.fix)
+        ch_versions = ch_versions.mix(IMAGE_NANTOZERO.out.versions.first())
+        IMAGE_NANTOZERO.out.count.subscribe { meta, count ->
+            log.info "dwi_nan_fix: ${dwiRunKey(meta).replace('\t', ' ')}: ${count.text.trim()} non-finite value(s) set to 0"
+        }
+        def ch_dwi_for_fits = ch_dwi_split.keep.mix(IMAGE_NANTOZERO.out.dwi)
+
         // TODO: support subject-specific diffusivity options
         RECONST_FW_NODDI(
-            TRACTOFLOW.out.dwi,
+            ch_dwi_for_fits,
             TRACTOFLOW.out.b0_mask,
             TRACTOFLOW.out.dti_fa
                 .join(TRACTOFLOW.out.dti_ad)
@@ -1536,6 +1552,47 @@ def t1BetReruns(path) {
         keys << key
     }
     return keys
+}
+
+// params.dwi_nan_fix: a TSV with columns subject, session, run, reason (header line; session with or
+// without 'ses-', empty for a subject without sessions; run as a number, empty for 1). Returns the listed
+// DWI runs as dwiRunKey strings: their non-finite values are set to 0 before the free-water and NODDI fits.
+def dwiNanFixRuns(path) {
+    if ( !path ) {
+        return []
+    }
+    def lines = file(path, checkIfExists: true).readLines().findAll { l -> l.trim() && !l.startsWith("#") }
+    def header = ["subject", "session", "run", "reason"]
+    if ( !lines || lines[0].split("\t", -1).toList() != header ) {
+        error "dwi_nan_fix ${path}: the first line must be the header ${header.join('\\t')}"
+    }
+    def keys = []
+    lines.drop(1).eachWithIndex { line, i ->
+        def f = line.split("\t", -1).toList()
+        def where = "dwi_nan_fix ${path}, line ${i + 2}"
+        if ( f.size() != header.size() ) {
+            error "${where}: ${f.size()} columns, ${header.size()} expected"
+        }
+        def (subject, session, run, reason) = f.collect { x -> x.trim() }
+        if ( !subject || !reason ) {
+            error "${where}: subject and reason are required"
+        }
+        if ( run && !(run ==~ /(run-)?\d+/) ) {
+            error "${where}: run '${run}' is not a run number"
+        }
+        def key = dwiRunKey([id: subject, session: session, run: run])
+        if ( key in keys ) {
+            error "${where}: ${subject} ${session} run ${run ?: 1} is listed twice"
+        }
+        keys << key
+    }
+    return keys
+}
+
+// A DWI run: "<id>\t<session without 'ses-'>\t<run number, 1 when absent>"
+def dwiRunKey(meta) {
+    def run = "${meta.run ?: ''}".replaceFirst(/^run-/, "").replaceFirst(/^0+(?=\d)/, "") ?: "1"
+    return "${meta.id}\t${(meta.session ?: '').replaceFirst(/^ses-/, '')}\t${run}"
 }
 
 // A T1 as subworkflows/nf-neuro/preproc_t1 keys it: "<id>\t<session without 'ses-'>"

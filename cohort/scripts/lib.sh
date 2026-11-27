@@ -131,6 +131,12 @@ run_pass() {
         cp "$SFT_ROOT/inputs/t1_bet_rerun.tsv" "meta/t1_bet_rerun_${pass}.tsv"
         sets+=(--set "t1_bet_rerun=$PWD/meta/t1_bet_rerun_${pass}.tsv")
     fi
+    # DWI runs whose non-finite values are set to 0 before the free-water and NODDI fits
+    # (inputs/dwi_nan_fix.tsv; README: DWI NaN fix), kept the same way
+    if [ -s "$SFT_ROOT/inputs/dwi_nan_fix.tsv" ]; then
+        cp "$SFT_ROOT/inputs/dwi_nan_fix.tsv" "meta/dwi_nan_fix_${pass}.tsv"
+        sets+=(--set "dwi_nan_fix=$PWD/meta/dwi_nan_fix_${pass}.tsv")
+    fi
     python3 "$SFT_ROOT/scripts/passes.py" resolve "$pass" "meta/params_${pass}.yaml" \
         --set "participants_tsv=$dir/data_bids/participants.tsv" --set "freesurfer_license=$FS_LICENSE" \
         "${sets[@]}" || die "parameters of pass $pass refused"
